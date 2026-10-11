@@ -156,6 +156,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 屏上的「返回」箭头一律回图书馆首页：这一端没有返回栈（底栏就是导航），与 Stage 0 那条
  * 「返回 = 回默认页」同一条口径。
  *
+ * ## 还没点亮的宿主面（TODO：校园公告那条）
+ *
+ * 公告（`bulletin`）本批只搬了**数据半**：模型与规则在 `:core`（`bulletin/Bulletin.kt`）、
+ * 取数在 `:data`（`bulletin/BulletinApi.kt`，UA 的版本号由宿主递进去），**没有**为它新增
+ * `AppRoute`（路由口径不变），所以上面那张表里也不会多出一行。`:app` 那边的两个宿主面
+ * —— 首页顶部的公告堆叠条（`home/HomeTab.kt` 的 `BulletinNoticePanel`）与冷启动那条弹框
+ * （`main/LaunchNotices.kt`）—— 仍在 `:app`，桌面外壳还没有对应的位置。
+ *
+ * **TODO（桌面侧点亮公告条）**：桌面要在哪一面挂它还没定（底栏只有五格、没有首页），
+ * 真要接的时候三件东西已经齐了：`BulletinStore()`（键值缝，无需 `Context`）、
+ * `BulletinApi.fetch(uaVersion)`（`:data`）、`BulletinRules.visible(...)`（`:core`，时间用
+ * `kotlin.time.Clock`）。现在的行为是**什么都没显示**（不是显示成空），这是如实的缺口。
+ *
  * @param auth 会话 + 凭据 + 登录状态（`Main.kt` 与离屏证据各建一个）
  * @param initialTarget 首屏。默认图书馆 —— 它是这一端唯一有真数据的屏。
  */

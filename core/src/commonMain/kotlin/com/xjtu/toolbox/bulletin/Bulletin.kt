@@ -13,11 +13,12 @@ import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.toInstant
 
 enum class BulletinLevel {
     INFO, WARN, UPDATE, CRITICAL, FORCE_UPDATE;
@@ -79,7 +80,7 @@ data class Bulletin(
 }
 
 object BulletinRules {
-    private val beijing = ZoneId.of("Asia/Shanghai")
+    private val beijing = TimeZone.of("Asia/Shanghai")
 
     fun parsePayload(json: String): List<Bulletin> {
         val trimmed = json.trim()
@@ -135,8 +136,10 @@ object BulletinRules {
         currentVersionCode: Int? = null,
     ): Boolean {
         if (!bulletin.active) return false
-        if (bulletin.startsAt != null && now.isBefore(bulletin.startsAt)) return false
-        if (bulletin.endsAt != null && !now.isBefore(bulletin.endsAt)) return false
+        // `java.time` 的 `isBefore` 在 kotlinx-datetime 里是 `Instant` 自己的比较运算符
+        // （`Instant : Comparable<Instant>`）：语义逐字对应（`!a.isBefore(b)` ≡ `a >= b`）。
+        if (bulletin.startsAt != null && now < bulletin.startsAt) return false
+        if (bulletin.endsAt != null && now >= bulletin.endsAt) return false
         val min = bulletin.minVersion
         if (!min.isNullOrBlank() && compareVersions(currentVersion, min) < 0) return false
         val max = bulletin.maxVersion
@@ -235,19 +238,21 @@ object BulletinRules {
         return p.stringValue.trim().toIntOrNull()
     }
 
+    /**
+     * 时间窗那两种写法：带时区的 ISO 8601（`2026-08-19T08:00:00Z` / `+08:00`），
+     * 或者**不带时区**的本地时间（`2026-08-19T08:00:00` / `2026-08-19`）—— 后者按北京时间理解。
+     *
+     * 搬进 `:core` 时把 `java.time` 换成了 `kotlinx-datetime`（`:core` 的既有依赖），逐条对应：
+     * `Instant.parse` 与 `OffsetDateTime.parse` 两条在 kotlinx 里就是**一条**（它的 `Instant.parse`
+     * 本来就认 `+08:00` 这种偏移）；`LocalDateTime` / `LocalDate` 那两条改走
+     * `toInstant(beijing)` / `atStartOfDayIn(beijing)`。
+     */
     fun parseInstant(raw: String?): Instant? {
         val text = raw?.trim().orEmpty()
         if (text.isEmpty()) return null
         runCatching { Instant.parse(text) }.getOrNull()?.let { return it }
-        runCatching { java.time.OffsetDateTime.parse(text).toInstant() }.getOrNull()?.let { return it }
-        runCatching {
-            LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                .atZone(beijing).toInstant()
-        }.getOrNull()?.let { return it }
-        runCatching {
-            LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE)
-                .atStartOfDay(beijing).toInstant()
-        }.getOrNull()?.let { return it }
+        runCatching { LocalDateTime.parse(text).toInstant(beijing) }.getOrNull()?.let { return it }
+        runCatching { LocalDate.parse(text).atStartOfDayIn(beijing) }.getOrNull()?.let { return it }
         return null
     }
 
