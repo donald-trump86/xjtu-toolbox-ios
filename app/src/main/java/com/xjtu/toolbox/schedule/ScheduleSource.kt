@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.toJavaTime
 import kotlinx.serialization.json.decodeFromJsonElement
 import android.content.Context
 import android.util.Log
@@ -57,7 +58,7 @@ object ScheduleSourceRouter {
 
     suspend fun getSchedule(
         context: Context,
-        jwxt: ScheduleApi,
+        jwxt: JwxtScheduleApi,
         termCode: String,
         manager: SessionManager?,
         userInitiated: Boolean = false,
@@ -95,20 +96,20 @@ object ScheduleSourceRouter {
     suspend fun ensureCached(
         context: Context,
         cache: DataCache,
-        api: ScheduleApi,
+        api: JwxtScheduleApi,
         manager: SessionManager?,
         term: String? = null,
         studentId: String? = null,
     ) {
         val code = term ?: ScheduleCache.readCurrentTerm(cache)
-            ?: api.getCurrentTerm().also { ScheduleCache.writeCurrentTerm(cache, it) }
+            ?: api.currentTerm().also { ScheduleCache.writeCurrentTerm(cache, it) }
         if (ScheduleCache.readTermList(cache).isEmpty()) ScheduleCache.writeTermList(cache, listOf(code))
         runCatching {
-            if (ScheduleTermStore.read(cache).isEmpty()) api.getTermList()
+            if (ScheduleTermStore.read(cache).isEmpty()) api.termList()
             ScheduleTermStore.merge(cache, api.termNames())
         }
         val start = ScheduleCache.readStartDate(cache, code)
-            ?: api.getStartOfTerm(code).also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
+            ?: api.termStartDate(code).toJavaTime().also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
         if (ScheduleCache.readCourses(cache, code) == null) {
             val fresh = getSchedule(context, api, code, manager)
             ScheduleCache.writeRawCourses(cache, code, fresh)
@@ -117,19 +118,19 @@ object ScheduleSourceRouter {
         }
         // 考试、教材是附带的：拉不到不影响课表
         if (ScheduleCache.readExams(cache, code) == null) {
-            runCatching { ScheduleCache.writeExams(cache, code, api.getExamSchedule(code)) }
+            runCatching { ScheduleCache.writeExams(cache, code, api.examSchedule(code)) }
         }
         if (!studentId.isNullOrBlank() && ScheduleCache.readTextbooks(cache, code, Long.MAX_VALUE) == null) {
-            runCatching { ScheduleCache.writeTextbooks(cache, code, api.getTextbooks(studentId, code)) }
+            runCatching { ScheduleCache.writeTextbooks(cache, code, api.textbooks(studentId, code)) }
         }
     }
 
     private suspend fun jwxtSchedule(
         context: Context,
-        jwxt: ScheduleApi,
+        jwxt: JwxtScheduleApi,
         termCode: String,
     ): List<CourseItem> {
-        val result = withContext(Dispatchers.IO) { jwxt.getSchedule(termCode) }
+        val result = withContext(Dispatchers.IO) { jwxt.schedule(termCode) }
         remember(context, ScheduleSource.JWXT)
         rememberChanges(context, termCode, result.changes)
         return result.courses

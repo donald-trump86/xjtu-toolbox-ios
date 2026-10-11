@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.toKx
+import com.xjtu.toolbox.util.toJavaTime
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.derivedStateOf
@@ -63,7 +64,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     private var dataCache = DataCache(this.context, accountId.ifEmpty { null })
 
     var activeSite by mutableStateOf<SiteSession?>(null); private set
-    var api by mutableStateOf<ScheduleApi?>(null); private set
+    var api by mutableStateOf<JwxtScheduleApi?>(null); private set
     private var studentId = ""
 
     var courses by mutableStateOf<List<CourseItem>>(emptyList()); private set
@@ -138,7 +139,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     }
 
     /** 开学日期和教务给的总周数一起落盘；是正在看的学期就同步周数。 */
-    private fun saveTermStart(api: ScheduleApi, term: String, date: LocalDate) {
+    private fun saveTermStart(api: JwxtScheduleApi, term: String, date: LocalDate) {
         val weeks = api.termWeeksOf(term)
         ScheduleCache.writeStartDate(dataCache, term, date, weeks)
         if (weeks != null && term == selectedTermCode) termWeeks = weeks
@@ -214,7 +215,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
 
     private fun setSite(site: SiteSession?) {
         activeSite = site
-        api = site?.let { ScheduleApi(it) }
+        api = site?.let { JwxtScheduleApi(it) }
         watchLogin(site)
     }
 
@@ -286,7 +287,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     // ── 课表 ──
 
     /** 课表走用户选的来源；历史学期和非教务源取不到时退回教务，见 ScheduleSourceRouter。 */
-    private suspend fun fetchSchedule(scheduleApi: ScheduleApi, term: String, userInitiated: Boolean = false): List<CourseItem> =
+    private suspend fun fetchSchedule(scheduleApi: JwxtScheduleApi, term: String, userInitiated: Boolean = false): List<CourseItem> =
         ScheduleSourceRouter.getSchedule(
             context = context,
             jwxt = scheduleApi,
@@ -394,10 +395,10 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
      * 学期接口和课表并行：有上次学期时先按缓存学期拉课表立刻上屏，学期代码回来再对一下。
      * 返回要自动切过去的学期（当前学期没课、按日期推算的学期有课时），否则 null。
      */
-    private suspend fun loadOnline(api: ScheduleApi, lastTerm: String, ensureSameAccount: () -> Unit): String? = supervisorScope {
+    private suspend fun loadOnline(api: JwxtScheduleApi, lastTerm: String, ensureSameAccount: () -> Unit): String? = supervisorScope {
         val termDeferred = async {
             try {
-                api.getCurrentTerm()
+                api.currentTerm()
             } catch (e: AuthExpiredException) {
                 throw e
             } catch (e: Exception) {
@@ -414,7 +415,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         val examsDeferred = async {
             val termForExam = lastTerm.ifEmpty { termDeferred.await() }
             try {
-                api.getExamSchedule(termForExam)
+                api.examSchedule(termForExam)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
@@ -426,9 +427,9 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         }
         val startDateDeferred = async {
             val termForStart = lastTerm.ifEmpty { termDeferred.await() }
-            try { api.getStartOfTerm(termForStart) } catch (_: Exception) { null }
+            try { api.termStartDate(termForStart).toJavaTime() } catch (_: Exception) { null }
         }
-        val termListDeferred = async { try { api.getTermList() } catch (_: Exception) { emptyList() } }
+        val termListDeferred = async { try { api.termList() } catch (_: Exception) { emptyList() } }
 
         /** 网络课表落地的唯一入口：缓存、首页信号、变更检测都在这里。 */
         fun paintCourses(termCode: String, freshCourses: List<CourseItem>, startDate: LocalDate?) {
@@ -481,10 +482,10 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             examsDeferred.cancel()
             startDateDeferred.cancel()
             val freshCourses = fetchSchedule(api, termCode)
-            val startDate = try { api.getStartOfTerm(termCode) } catch (_: Exception) { startOfTerm }
+            val startDate = try { api.termStartDate(termCode).toJavaTime() } catch (_: Exception) { startOfTerm }
             paintCourses(termCode, freshCourses, startDate)
             if (startDate != null) applyTermStart(startDate)
-            val freshExams = try { api.getExamSchedule(termCode) } catch (_: Exception) { exams }
+            val freshExams = try { api.examSchedule(termCode) } catch (_: Exception) { exams }
             ensureSameAccount()
             exams = freshExams
             if (freshExams.isNotEmpty()) ScheduleCache.writeExams(dataCache, termCode, freshExams)
@@ -556,7 +557,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                 withContext(Dispatchers.IO) {
                     val viewing = selectedTermCode
                     val actualCurrent = try {
-                        api.getCurrentTerm()
+                        api.currentTerm()
                     } catch (e: Exception) {
                         viewing.ifEmpty { readCachedTerms().firstOrNull() ?: throw e }
                     }
@@ -600,7 +601,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         viewModelScope.launch {
             try {
                 val fresh = withContext(Dispatchers.IO) {
-                    api.getExamSchedule(term).also { ScheduleCache.writeExams(dataCache, term, it) }
+                    api.examSchedule(term).also { ScheduleCache.writeExams(dataCache, term, it) }
                 }
                 exams = fresh
             } catch (e: CancellationException) {
@@ -671,7 +672,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                         textbooksLoaded = true
                     }
                     // 有教材的在前
-                    val fresh = jw.getTextbooks(studentId, termCode).sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
+                    val fresh = jw.textbooks(studentId, termCode).sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
                     // 请求期间换了账号：结果属于上一个人，不上屏也不写缓存
                     if (AccountContext.activeAccountId != jobAccount) return@withContext
                     textbooks = fresh
@@ -735,7 +736,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         }
     }
 
-    private suspend fun loadTerm(api: ScheduleApi?, term: String) {
+    private suspend fun loadTerm(api: JwxtScheduleApi?, term: String) {
         val isOldTerm = term != currentTermCode
         termWeeks = ScheduleCache.totalWeeks(dataCache, term, emptyList())
         ScheduleCache.readCourses(dataCache, term)?.let { cached ->
@@ -747,8 +748,8 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         if (api != null && !sealed) {
             try {
                 val freshCourses = fetchSchedule(api, term, userInitiated = true)
-                exams = api.getExamSchedule(term)
-                val freshStartDate = try { api.getStartOfTerm(term) } catch (_: Exception) { null }
+                exams = api.examSchedule(term)
+                val freshStartDate = try { api.termStartDate(term).toJavaTime() } catch (_: Exception) { null }
                 val freshHolidays = try { HolidayApi.getHolidayDates(context, forceRefresh = true) } catch (_: Exception) { emptyMap() }
                 holidayDates = freshHolidays
                 courses = ScheduleCache.filterByHolidays(freshCourses, freshStartDate, freshHolidays)
@@ -773,7 +774,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         // 当前周
         try {
             val startDate = if (api != null && !sealed) {
-                try { api.getStartOfTerm(term) } catch (_: Exception) { null }
+                try { api.termStartDate(term).toJavaTime() } catch (_: Exception) { null }
             } else {
                 ScheduleCache.readStartDate(dataCache, term)
             }

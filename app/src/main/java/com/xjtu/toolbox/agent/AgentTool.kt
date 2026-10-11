@@ -36,7 +36,7 @@ import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.fitness.pickFitnessYear
 import com.xjtu.toolbox.fitness.yearValue
 import com.xjtu.toolbox.schedule.CourseItem
-import com.xjtu.toolbox.schedule.ScheduleApi
+import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
 import com.xjtu.toolbox.data.CredentialStore
@@ -1063,7 +1063,7 @@ class AgentToolRegistry(
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
             com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                context, dataCache, ScheduleApi(site), loginState.sessionManager, term,
+                context, dataCache, JwxtScheduleApi(site), loginState.sessionManager, term,
             )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1218,7 +1218,7 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.JWXT)
             ?: return loginHint(LoginType.JWXT)
         return try {
-            val exams = ScheduleApi(site).getExamSchedule()
+            val exams = JwxtScheduleApi(site).examSchedule()
             if (exams.isEmpty()) return ToolReply.empty("exams")
             pendingWidgets.add(ExamWidget(exams))
             val text = buildString {
@@ -2192,12 +2192,12 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.JWXT)
             ?: return loginHint(LoginType.JWXT)
         return try {
-            val api = ScheduleApi(site)
-            val termCode = requestedTerm ?: api.getCurrentTerm()
+            val api = JwxtScheduleApi(site)
+            val termCode = requestedTerm ?: api.currentTerm()
             runCatching { com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames()) }
             val studentId = loginState.activeUsername
             if (studentId.isBlank()) return ToolReply.failed("lookup", "no_student_id")
-            val books = api.getTextbooks(studentId, termCode)
+            val books = api.textbooks(studentId, termCode)
             ScheduleCache.writeTextbooks(dataCache, termCode, books)
             formatTextbooks(termCode, books, cached = false)
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {

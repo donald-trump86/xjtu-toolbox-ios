@@ -1,14 +1,22 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.toJavaTime
-import com.xjtu.toolbox.util.toKx
-
-import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.datetime.LocalDate as KxLocalDate
 import java.time.LocalDate
 
 /**
  * 课表 / 考试 / 教材 / 学期的本地缓存，键名集中在这里。
  * 学期内的数据按 90 天过期：永不过期会让上学期的课表在开学后一直留着。
+ *
+ * 从 `:app` 的 `schedule/ScheduleCache.kt` 搬进 `:data`（同一个包、同一个名字，`:app` 的调用点
+ * 一行未改）。搬动只碰了两处：
+ *  1. 存储从具体的 `DataCache` 换成 `:core` 的 [ScheduleCacheStore] 缝（原始 JSON + TTL）。
+ *     `:app` 的 `DataCache` 直接实现那条缝，所以目录名、文件名、账号后缀、原子写入全是原来那份；
+ *     桌面端给的是键值文件那一份。序列化仍走 `:core` 的 `AppJson`（与 `DataCache.read/write`
+ *     用的同一个 `Json` 实例）⇒ 老缓存逐字节可读。
+ *  2. [TermWeeks] 那边收 `kotlinx.datetime.LocalDate`，本文件对外仍收 `java.time.LocalDate`
+ *     （`:app` 全是这个类型）：跨过去的两处用文件底部那两个逐字段转换，口径与 `:app` 的
+ *     `TimeBridge` 逐字相同。
  */
 object ScheduleCache {
     private const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
@@ -24,91 +32,103 @@ object ScheduleCache {
 
     fun optimizedScheduleKey(termCode: String): String = "schedule_optimized_$termCode"
     fun textbookKey(termCode: String): String = "schedule_textbooks_$termCode"
-    private fun rawKey(termCode: String) = "schedule_$termCode"
+
+    /** 未剔除节假日的课表键。`:app` 的桌面小组件按它直接读原始 JSON（`cache.get("schedule_$term")`），改名等于让小组件读不到。 */
+    fun rawKey(termCode: String) = "schedule_$termCode"
+
     private fun examsKey(termCode: String) = "exams_$termCode"
     private fun startKey(termCode: String) = "start_date_$termCode"
     private fun weeksKey(termCode: String) = "term_weeks_$termCode"
 
-    fun writeCurrentTerm(cache: DataCache, termCode: String) {
+    /** 按类型读一个键；过期、不存在、或读不回来（旧格式损坏）都返回 null。 */
+    private inline fun <reified T> ScheduleCacheStore.read(key: String, ttlMs: Long): T? =
+        readJson(key, ttlMs)?.let { runCatching { AppJson.decodeFromString<T>(it) }.getOrNull() }
+
+    private inline fun <reified T> ScheduleCacheStore.write(key: String, value: T) =
+        writeJson(key, AppJson.encodeToString(value))
+
+    fun writeCurrentTerm(cache: ScheduleCacheStore, termCode: String) {
         if (termCode.isNotBlank()) runCatching { cache.write(CURRENT_TERM_KEY, termCode) }
     }
 
     /** 老版本升级上来还没打开过日程页时这个键是空的，依次退回上次看的学期、学期列表第一个。 */
-    fun readCurrentTerm(cache: DataCache): String? =
+    fun readCurrentTerm(cache: ScheduleCacheStore): String? =
         cache.read<String>(CURRENT_TERM_KEY, FOREVER)?.takeIf { it.isNotBlank() }
             ?: readLastTerm(cache)
             ?: readTermList(cache).firstOrNull()
 
-    fun readLastTerm(cache: DataCache): String? = cache.read<String>(LAST_TERM_KEY, FOREVER)?.takeIf { it.isNotBlank() }
-    fun writeLastTerm(cache: DataCache, termCode: String) { runCatching { cache.write(LAST_TERM_KEY, termCode) } }
+    fun readLastTerm(cache: ScheduleCacheStore): String? = cache.read<String>(LAST_TERM_KEY, FOREVER)?.takeIf { it.isNotBlank() }
+    fun writeLastTerm(cache: ScheduleCacheStore, termCode: String) { runCatching { cache.write(LAST_TERM_KEY, termCode) } }
 
-    fun readTermList(cache: DataCache): List<String> = cache.read<List<String>>(TERM_LIST_KEY, FOREVER).orEmpty()
-    fun writeTermList(cache: DataCache, terms: List<String>) { runCatching { cache.write(TERM_LIST_KEY, terms) } }
+    fun readTermList(cache: ScheduleCacheStore): List<String> = cache.read<List<String>>(TERM_LIST_KEY, FOREVER).orEmpty()
+    fun writeTermList(cache: ScheduleCacheStore, terms: List<String>) { runCatching { cache.write(TERM_LIST_KEY, terms) } }
 
-    fun readStartDate(cache: DataCache, termCode: String): LocalDate? =
+    fun readStartDate(cache: ScheduleCacheStore, termCode: String): LocalDate? =
         cache.read<String>(startKey(termCode), FOREVER)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+
     /** [weeks] 是教务给的学期总周数，和开学日期一起查到，一起存。 */
-    fun writeStartDate(cache: DataCache, termCode: String, date: LocalDate, weeks: Int? = null) {
+    fun writeStartDate(cache: ScheduleCacheStore, termCode: String, date: LocalDate, weeks: Int? = null) {
         runCatching { cache.write(startKey(termCode), date.toString()) }
         if (weeks != null && weeks > 0) runCatching { cache.write(weeksKey(termCode), weeks) }
     }
 
     /** 见 [TermWeeks.total]。 */
-    fun totalWeeks(cache: DataCache, termCode: String, courses: List<CourseItem>): Int =
+    fun totalWeeks(cache: ScheduleCacheStore, termCode: String, courses: List<CourseItem>): Int =
         TermWeeks.total(cache.read<Int>(weeksKey(termCode), FOREVER) ?: 0, courses)
 
-    fun readExams(cache: DataCache, termCode: String, ttlMs: Long = FOREVER): List<ExamItem>? =
+    fun readExams(cache: ScheduleCacheStore, termCode: String, ttlMs: Long = FOREVER): List<ExamItem>? =
         cache.read<List<ExamItem>>(examsKey(termCode), ttlMs)
-    fun writeExams(cache: DataCache, termCode: String, exams: List<ExamItem>) {
+
+    fun writeExams(cache: ScheduleCacheStore, termCode: String, exams: List<ExamItem>) {
         runCatching { cache.write(examsKey(termCode), exams) }
     }
 
-    fun readOptimizedCourses(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
+    fun readOptimizedCourses(cache: ScheduleCacheStore, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
         if (termCode.isBlank()) null
         else cache.read<List<CourseItem>>(optimizedScheduleKey(termCode), ttlMs)
 
-    fun writeOptimizedCourses(cache: DataCache, termCode: String, courses: List<CourseItem>) {
+    fun writeOptimizedCourses(cache: ScheduleCacheStore, termCode: String, courses: List<CourseItem>) {
         if (termCode.isNotBlank()) runCatching { cache.write(optimizedScheduleKey(termCode), courses) }
     }
 
     /** 来源给的课表（未剔除节假日），变更检测、封存判断用。 */
-    fun readRawCourses(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
+    fun readRawCourses(cache: ScheduleCacheStore, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
         if (termCode.isBlank()) null
         else cache.read<List<CourseItem>>(rawKey(termCode), ttlMs)
 
-    fun writeRawCourses(cache: DataCache, termCode: String, courses: List<CourseItem>) {
+    fun writeRawCourses(cache: ScheduleCacheStore, termCode: String, courses: List<CourseItem>) {
         if (termCode.isNotBlank()) runCatching { cache.write(rawKey(termCode), courses) }
     }
 
     /** 优先剔除过节假日的版本，没有再用原样的。 */
-    fun readCourses(cache: DataCache, termCode: String): List<CourseItem>? =
+    fun readCourses(cache: ScheduleCacheStore, termCode: String): List<CourseItem>? =
         readOptimizedCourses(cache, termCode, FOREVER) ?: readRawCourses(cache, termCode, FOREVER)
 
     /** 本学期的课表和开学日期：首页、屁岱、桌面小组件共用。 */
     data class TermSchedule(val code: String, val courses: List<CourseItem>, val start: LocalDate?)
 
-    fun readCurrentTermSchedule(cache: DataCache): TermSchedule? {
+    fun readCurrentTermSchedule(cache: ScheduleCacheStore): TermSchedule? {
         val code = readCurrentTerm(cache) ?: return null
         return TermSchedule(code, readCourses(cache, code).orEmpty(), readStartDate(cache, code))
     }
 
     /** [term]（默认本学期）的课表和开学日期都在，首页才算得出下一项安排。 */
-    fun isReady(cache: DataCache, term: String? = null): Boolean {
+    fun isReady(cache: ScheduleCacheStore, term: String? = null): Boolean {
         val code = term ?: readCurrentTerm(cache) ?: return false
         return readCourses(cache, code) != null && readStartDate(cache, code) != null
     }
 
-    /** 在 [isReady] 之上，本学期的考试表和教材也在（[ScheduleSourceRouter.ensureCached] 补的全套）。 */
-    fun isComplete(cache: DataCache): Boolean {
+    /** 在 [isReady] 之上，本学期的考试表和教材也在（`ScheduleSourceRouter.ensureCached` 补的全套）。 */
+    fun isComplete(cache: ScheduleCacheStore): Boolean {
         val code = readCurrentTerm(cache) ?: return false
         return isReady(cache, code) && readExams(cache, code) != null &&
             readTextbooks(cache, code, FOREVER) != null
     }
 
-    fun readTextbooks(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<TextbookItem>? =
+    fun readTextbooks(cache: ScheduleCacheStore, termCode: String, ttlMs: Long = TERM_TTL_MS): List<TextbookItem>? =
         if (termCode.isBlank()) null else cache.read<List<TextbookItem>>(textbookKey(termCode), ttlMs)
 
-    fun writeTextbooks(cache: DataCache, termCode: String, textbooks: List<TextbookItem>) {
+    fun writeTextbooks(cache: ScheduleCacheStore, termCode: String, textbooks: List<TextbookItem>) {
         if (termCode.isNotBlank()) runCatching { cache.write(textbookKey(termCode), textbooks) }
     }
 
@@ -149,10 +169,22 @@ object ScheduleCache {
     }
 
     /** 已结束且本地该有的都有：封存后不再为它发请求。 */
-    fun isSealed(cache: DataCache, term: String): Boolean {
+    fun isSealed(cache: ScheduleCacheStore, term: String): Boolean {
         if (term.isBlank()) return false
         val start = readStartDate(cache, term) ?: return false
         val courses = readCourses(cache, term) ?: return false
         return isFinishedByDate(start, totalWeeks(cache, term, courses))
     }
 }
+
+/**
+ * `java.time.LocalDate` → `kotlinx.datetime.LocalDate`，逐字段搬。
+ *
+ * 与 `:app` 的 `util/TimeBridge.kt` 那两条**同一个写法**（那边是 `internal`，跨不了模块边界）；
+ * 这是 `:data` 里第二份（第一份在 `notification/NotificationApi.kt` 底部），
+ * 也是那批「搬一个文件就多一条边界转换」的其中之一 —— 等 `:app` 的 java.time 全换完，
+ * 这几条会一起消失。
+ */
+private fun LocalDate.toKx(): KxLocalDate = KxLocalDate(year, monthValue, dayOfMonth)
+
+private fun KxLocalDate.toJavaTime(): LocalDate = LocalDate.of(year, month.ordinal + 1, day)

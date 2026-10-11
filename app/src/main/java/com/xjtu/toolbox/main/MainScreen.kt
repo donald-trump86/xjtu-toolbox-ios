@@ -257,7 +257,7 @@ internal fun MainScreen(
             try {
                 val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
                 com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                    context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager,
+                    context, cache, com.xjtu.toolbox.schedule.JwxtScheduleApi(site), manager,
                     studentId = loginState.activeUsername,
                 )
                 HomeSignals.scheduleVersion++
