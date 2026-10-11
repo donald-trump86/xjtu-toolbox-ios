@@ -373,13 +373,13 @@ private fun AppPage(
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )
         }
-        // 图书馆座位：与 Android 同一个屏与 ViewModel（`:core/library`）。**只读** —— campus-api 的
-        // 图书馆模块刻意不实现任何写操作（连切校区都不提供，那也改账号资料里的 rplace）⇒
-        // CampusLibraryApi 的 canBook 与 hasSeatPlan 都是 false，于是屏上**没有**校区切换、座位格不可点，
-        // 「我的预约」上没有签到/离开/返回/退座，扫码确认框不出现，平面图那一档整个不画（默认视图落到列表）。
-        // 逐字段映射写在 CampusLibraryApi 的 KDoc 里（尤其 `total:null` 不当 0、「我的预约」的 area 要从
-        // seatLine 反推、actions 只有文案没有地址 ⇒ actionUrls 留空）。四个宿主槽位全传空：
-        // 浏览器里没有 App 的凭据可重登、没有屏幕方向、没有提醒/首页信号/收纳。
+        // 图书馆座位：与 Android 同一个屏与 ViewModel（`:core/library`）。两种形态（见 CampusLibraryApi 的
+        // KDoc）：campus-api 只读（写方法一律抛）；serve 模式的 `/api/library/action` 已落地（契约 §5.3.1）
+        // ⇒ canBook 随服务端如实报的 `canBook:true` 翻 true —— 座位格可点、有预约/换座/签到/离开/返回/退座
+        // 按钮、能切校区。`hasSeatPlan` 两个形态都是 false（§5 的 library 没有布局/底图端点）⇒ 平面图那一档
+        // 整个不画（默认视图落到列表），扫码确认框不出现（那条入口只在 App 上）。逐字段映射写在
+        // CampusLibraryApi 的 KDoc 里；四个宿主槽位全传空：浏览器里没有 App 的凭据可重登、没有屏幕方向、
+        // 没有提醒/首页信号/收纳。
         AppRoute.Library -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }
             LibraryScreen(

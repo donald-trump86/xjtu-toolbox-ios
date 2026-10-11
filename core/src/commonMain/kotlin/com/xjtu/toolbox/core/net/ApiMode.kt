@@ -4,6 +4,10 @@ import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.JsonObject
@@ -74,4 +78,40 @@ internal suspend fun HttpClient.serveData(
     }
     return envelope["data"] as? JsonObject
         ?: error("$what：服务端返回缺少 data（HTTP ${response.status.value}）")
+}
+
+
+/**
+ * serve 契约的一次**写**（`POST`，例如 `POST /api/library/action`）。
+ *
+ * 与 [serveData] 的差别在**失败怎么报**：写动作的失败是**业务结果**（座位被占、当前预约上没有这个
+ * 操作 —— 契约 §5.3.1 里这些是 `409` + 中文 `message`），调用方要把它显示出来，不能当异常吞掉。
+ * 所以这里把它**返回**而不是抛：
+ *
+ * - `code == 0` ⇒ `(true, data.message)`（服务端把 `:data` 的结果文案原样放在 `data.message`）；
+ * - `code != 0` ⇒ `(false, 信封的 message)`，状态码是几由调用方决定要不要看（它**等于** HTTP 码）；
+ * - 形状没对上（非 JSON / 缺顶层 `data` / 网络错）**仍然抛** —— 那是「这一枪没打通」，不是「上游说不行」。
+ *
+ * 请求体是调用方拼好的 JSON 字符串（本服务只有图书馆一个写端点，不值得为它起一个序列化框架）。
+ */
+internal suspend fun HttpClient.serveAction(
+    baseUrl: String,
+    path: String,
+    body: String,
+): Pair<Boolean, String> {
+    val response = post("$baseUrl$path") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+    }
+    val text = response.bodyAsText()
+    val envelope = AppJson.parseToJsonElement(text) as? JsonObject
+        ?: error("服务端返回不是 JSON 对象（HTTP ${response.status.value}）")
+    val code = envelope["code"].safeString().trim().toIntOrNull()
+    if (code != 0) {
+        return false to envelope["message"].safeString().trim()
+            .ifBlank { "服务端返回 HTTP ${response.status.value}" }
+    }
+    val data = envelope["data"] as? JsonObject
+        ?: error("服务端返回缺少 data（HTTP ${response.status.value}）")
+    return true to data["message"].safeString()
 }

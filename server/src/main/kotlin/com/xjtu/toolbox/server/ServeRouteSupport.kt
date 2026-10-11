@@ -3,6 +3,7 @@ package com.xjtu.toolbox.server
 import com.xjtu.toolbox.error.FriendlyError
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
 
@@ -35,3 +36,22 @@ internal suspend fun ApplicationCall.respondLoginRequired() =
 /** 请求参数形状不对：400 + 中文短句。 */
 internal suspend fun ApplicationCall.respondBadRequestMessage(message: String) =
     respond(HttpStatusCode.BadRequest, ApiErrors.badRequest(message))
+
+/**
+ * 收一个 JSON 请求体；形状不对（缺字段 / JSON 坏 / content-type 不是 JSON）给 null，
+ * 由调用方回 400 + 中文短句。
+ *
+ * 为什么不让它抛：Ktor 默认会把反序列化失败变成**不带信封**的 400 —— 而契约 §4 说 `/api/…`
+ * 的每一个响应都是信封。少了这一层，客户端在「我发错了」这种最该看文案的时候会拿到一个空响应体。
+ * `CancellationException` 照旧往外抛（客户端断了不该被当成「请求体不对」）。
+ *
+ * 原先它是 [SessionRoutes] 里的一个 private 函数；`/api/library/action` 也要收请求体 ⇒ 搬家到这里
+ *（"四个 `*Routes` 共用的几件小事"这一份）。
+ */
+internal suspend inline fun <reified T : Any> ApplicationCall.receiveOrNull(): T? = try {
+    receive<T>()
+} catch (e: CancellationException) {
+    throw e
+} catch (_: Exception) {
+    null
+}
