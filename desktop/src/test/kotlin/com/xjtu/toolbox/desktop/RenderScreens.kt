@@ -37,8 +37,12 @@ import com.xjtu.toolbox.iclassface.IclassfaceFakeUpstream
 import com.xjtu.toolbox.community.CommunityFakeUpstream
 import com.xjtu.toolbox.community.GithubDeviceAccessToken
 import com.xjtu.toolbox.community.SecureGithubSession
+import com.xjtu.toolbox.media.DownloadFakeUpstream
+import com.xjtu.toolbox.media.DownloadItem
+import com.xjtu.toolbox.media.DownloadStatus
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.desktop.media.DesktopDownloads
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.keyValueStore
@@ -656,6 +660,52 @@ fun main(args: Array<String>) {
             "jiaocai.png：屏上没有夹具那本教材（${Jiaocai1FakeUpstream.SEARCH_BOOK_TITLE}）—— 多半没取到数"
         }
 
+        // 下载管理（本批的 `download_manager` 路由）：走**真路由**（外壳 → `AppRoute.DownloadManager`，
+        // 不要任何站点会话）；但这一张图不是「屏画得出来」的证明，而是**那条队列真下得动**的证明 ——
+        // 先让证据运行自己排一条（夹具那条直链，走假上游），**等它真落到磁盘**，再截图。
+        // 图上那行「示例活动（下载夹具）」与那个体积就是真下载的结果，不是插进去的假记录。
+        // TODO（如实）：真机上这条队列目前还**没有入口** —— 思源学堂的落盘在桌面端是
+        // `DesktopLmsSaver`，它的 `supportsVideoQueue = false`（批量对话框不露「课堂回放」那一档）。
+        // 也就是：队列、状态机、执行器、落盘都是真的，但「谁来排一条」还差那一步。
+        val downloads = DesktopDownloads.manager
+        runBlocking {
+            downloads.enqueueDownloads(
+                courseName = DownloadFakeUpstream.COURSE_NAME,
+                activityTitle = DownloadFakeUpstream.ACTIVITY_TITLE,
+                activityId = 7,
+                videos = listOf(
+                    DownloadItem("instructor", DownloadFakeUpstream.INSTRUCTOR_URL),
+                    DownloadItem("encoder", DownloadFakeUpstream.ENCODER_URL),
+                ),
+            )
+        }
+        val downloadDeadline = System.currentTimeMillis() + 20_000
+        var finished = downloads.let { runBlocking { it.getAllTasks() } }
+        while (System.currentTimeMillis() < downloadDeadline &&
+            finished.any { it.status == DownloadStatus.PENDING || it.status == DownloadStatus.DOWNLOADING }
+        ) {
+            Thread.sleep(50)
+            finished = runBlocking { downloads.getAllTasks() }
+        }
+        check(finished.all { it.status == DownloadStatus.COMPLETED }) {
+            "download_manager.png：夹具那条直链没下完（${finished.map { "${it.activityTitle}=${it.status}" }}）"
+        }
+        val downloadedFiles = finished.map { java.io.File(it.filePath) }
+        check(downloadedFiles.all { it.isFile && it.length() == DownloadFakeUpstream.SIZE_BYTES.toLong() }) {
+            "download_manager.png：文件没真落到磁盘（${downloadedFiles.map { it.absolutePath }}）"
+        }
+        var downloadShown = false
+        shot(
+            "download_manager.png",
+            frames = 16,
+            onFrame = { frame, scene ->
+                if (!downloadShown && frame >= 4) downloadShown = hasText(scene, DownloadFakeUpstream.ACTIVITY_TITLE)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.DownloadManager)) }
+        check(downloadShown) {
+            "download_manager.png：屏上没有夹具那场活动（${DownloadFakeUpstream.ACTIVITY_TITLE}）—— 多半没取到队列"
+        }
+
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
         shot("routes.png", height = 1900, frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
@@ -683,6 +733,9 @@ private lateinit var fake: FakeCampusProxy
  * 这边的代理同时扮两个域名（校历那张图要一次跑通两条链路）。
  */
 private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
+    // 下载队列（`:desktop` 那份 0600 的 JSON）也清一下：`DesktopDownloads.manager` 是进程级单例，
+    // 它那份存储的根在**第一次碰它时**才定下来（见下面 `download_manager.png` 那一段）。
+    wipeSecureStore("download_tasks")
     fake = FakeCampusProxy(casEnabled = true)
 
     // 保险：临时目录里本来不该有东西，但这两行让「跑了两次」也不会互相污染。

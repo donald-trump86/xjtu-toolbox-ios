@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.coupon.CouponFakeUpstream
 import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
+import com.xjtu.toolbox.media.DownloadFakeUpstream
 import com.xjtu.toolbox.dormpower.DormPowerFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.card.CampusCardFakeUpstream
@@ -185,6 +186,13 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      * 因为它们本来就是两套 API（OAuth 设备码报文 vs GraphQL）。
      */
     val community: CommunityFakeUpstream = CommunityFakeUpstream()
+
+    /**
+     * 回放视频的**假直链**（`video-download.xjtu.edu.cn`，**明文 http**）：一个几十 KB 的假 mp4，
+     * 支持 `Range`（206 / 416）。给下载管理那条「真下载一个夹具文件并落盘」的端到端测试与
+     * `download_manager.png` 证据图用（见 [DownloadFakeUpstream] 的 KDoc）。
+     */
+    val download: DownloadFakeUpstream = DownloadFakeUpstream()
     /**
      * 反馈（第 22 条真数据路由）：上游是**飞书开放平台** `open.feishu.cn`（https），
      * 与学校站点无关，也不套 `DesktopSiteGate`（没有校园会话要建 —— 凭据是宿主注入的
@@ -293,6 +301,8 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
                     exchange.responseBody.write(body)
                     exchange.close()
                 }
+            // 回放视频的假直链（下载管理那一条路由的证据与端到端测试）。
+            DownloadFakeUpstream.HOST -> download.handle(exchange)
             // host 识别不出来（既没 absolute-form 也没 Host 头）⇒ 按图书馆夹具处理。
             else -> library.handle(exchange)
         }

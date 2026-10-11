@@ -82,13 +82,13 @@ class AppLmsSink(context: Context) : LmsDownloadSink {
         activityId: Int,
         videos: List<LmsReplayVideo>,
     ): Int {
-        val tasks = com.xjtu.toolbox.media.DownloadManager.getInstance(appContext)
+        val tasks = com.xjtu.toolbox.media.AppDownloadManager.getInstance(appContext)
             .enqueueDownloads(
                 courseName = courseName,
                 activityTitle = activityTitle,
                 activityId = activityId,
                 videos = videos.map {
-                    com.xjtu.toolbox.media.DownloadManager.DownloadItem(
+                    com.xjtu.toolbox.media.DownloadItem(
                         cameraType = if (it.label.contains("instructor", true)) "instructor" else "encoder",
                         url = it.downloadUrl,
                     )

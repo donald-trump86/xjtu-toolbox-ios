@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.media.VideoPlayRequest
+import com.xjtu.toolbox.media.VideoPlayerHost
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.compose.ui.Alignment
@@ -47,7 +49,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
  * | `DataCache(context, accountId)` 落盘 | [LmsCacheStore] 端口（`:app` 按账号建、桌面传 null = 不缓存） |
  * | `context.getSharedPreferences("feature_hints")` | [showFirstUseHint] / [onFirstUseHintRead] 槽位 |
- * | `media.DirectVideoPlayerScreen(...)`（Android 的 ExoPlayer 全屏页） | [videoPlayer] 槽位；不传就是如实说明页（桌面端） |
+ * | `media.DirectVideoPlayerScreen(...)`（Android 的 ExoPlayer 全屏页） | [videoPlayer] 端口（`:core` 的 [VideoPlayerHost]）；不传就是如实说明页 |
  * | 课件落盘走 `MediaStore` + 下载管理 | `source.saveDownload(...)`（`:app` = `AppLmsSink`，桌面 = `DesktopLmsSaver`） |
  * | `"%.1f".format(...)` / `java.time` 格式化时间 | 手写格式化（[formatLmsTime]；`java.time` 是 JVM 专属，`:core` 还要编到 wasm） |
  *
@@ -162,11 +164,11 @@ fun LmsScreen(
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
     /**
-     * 视频播放槽位：`:app` 传内置播放器的全屏页（`media.DirectVideoPlayerScreen`，ExoPlayer）；
-     * 桌面端没有播放器（ExoPlayer 是 Android 专属组件）⇒ 不传，屏上给一句如实说明页。
-     * TODO：桌面播放器属《桌面端移植方案》§5.4 的宿主能力族，本轮只降级不假装。
+     * 视频播放槽位：`:app` 传内置播放器的全屏页（`AndroidVideoPlayerHost` → `media/VideoPlayer.kt`
+     * 那页 ExoPlayer）；桌面端传 `DesktopVideoPlayerHost`（交给系统播放器，如实降级）；
+     * 都不传时屏上给一句如实说明页。
      */
-    videoPlayer: (@Composable (request: LmsVideoRequest, onClose: () -> Unit) -> Unit)? = null,
+    videoPlayer: VideoPlayerHost? = null,
 ) {
     val authExpiry = LocalAuthExpiry.current
 
@@ -267,7 +269,7 @@ fun LmsScreen(
     // 视频播放器独立渲染（全屏，不参与 AnimatedContent）；没有播放器槽位时给一句如实说明
     val videoPage = currentPage as? LmsPage.VideoPlayer
     if (videoPage != null) {
-        val request = LmsVideoRequest(
+        val request = VideoPlayRequest(
             title = videoPage.title,
             instructorUrl = videoPage.instructorUrl,
             encoderUrl = videoPage.encoderUrl,
@@ -277,7 +279,7 @@ fun LmsScreen(
         )
         val close = { currentPage = videoPage.returnPage }
         if (videoPlayer != null) {
-            videoPlayer(request, close)
+            videoPlayer.Play(request, close)
         } else {
             LmsVideoUnavailable(request, close)
         }
@@ -423,24 +425,18 @@ internal fun downloadToast(result: LmsDownloadResult): String = when (result) {
     LmsDownloadResult.Failed -> "下载失败"
 }
 
-/**
- * 一个视频播放请求（直播 HLS / 单机位回放 / 多机位）—— [LmsScreen.videoPlayer] 槽位的参数。
+/*
+ * 视频播放那两件事（`LmsVideoRequest` 与播放槽位）已经收成 `:core/media` 的端口：
+ * [VideoPlayRequest]（要播什么）+ [VideoPlayerHost]（谁来播）。搬动的原因与各端实现写在
+ * `media/VideoPlayerHost.kt` 的 KDoc 里 —— 那个类型本身与「哪一屏发起播放」无关。
  */
-data class LmsVideoRequest(
-    val title: String,
-    val instructorUrl: String?,
-    val encoderUrl: String?,
-    val isLive: Boolean,
-    val headers: Map<String, String> = emptyMap(),
-    val startInDual: Boolean = false,
-)
 
 /**
  * 没有播放器槽位时的如实说明页（桌面端）：视频播放器是 Android 专属组件（ExoPlayer 全屏页），
  * 这一轮没搬 —— 不假装能播，把「这一端做不到什么」写在脸上。TODO 见 [LmsScreen] 的 KDoc。
  */
 @Composable
-private fun LmsVideoUnavailable(request: LmsVideoRequest, onBack: () -> Unit) {
+private fun LmsVideoUnavailable(request: VideoPlayRequest, onBack: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

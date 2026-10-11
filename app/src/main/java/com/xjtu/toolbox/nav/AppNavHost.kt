@@ -83,7 +83,8 @@ import com.xjtu.toolbox.lms.AppLmsSink
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.main.AppRouter
-import com.xjtu.toolbox.media.DownloadManagerScreen
+import com.xjtu.toolbox.media.AndroidVideoPlayerHost
+import com.xjtu.toolbox.media.AppDownloadManagerScreen
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
@@ -390,7 +391,7 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
-            DownloadManagerScreen(onBack = back)
+            AppDownloadManagerScreen(onBack = back)
         }
         entry<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { route ->
             // 思源学堂整域已搬进共享内核（桌面端第 18 条真数据路由）：屏在 `:core`（同一条路由在
@@ -409,17 +410,9 @@ fun AppNavHost(
                     cacheStore = remember(accountId) { AppLmsCache(lmsContext, accountId.ifEmpty { null }) },
                     showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },
-                    videoPlayer = { request, close ->
-                        com.xjtu.toolbox.media.DirectVideoPlayerScreen(
-                            instructorUrl = request.instructorUrl,
-                            encoderUrl = request.encoderUrl,
-                            title = request.title,
-                            headers = request.headers,
-                            isLive = request.isLive,
-                            startInDual = request.startInDual,
-                            onBack = close,
-                        )
-                    },
+                    // 视频播放槽位：`:core` 的 `VideoPlayerHost` 端口，Android 这份就是 `:app/media`
+                    // 那页 ExoPlayer 全屏屏（搬迁前是屏上的裸函数参，现在成一个对象的方法）。
+                    videoPlayer = AndroidVideoPlayerHost,
                 )
             }
         }

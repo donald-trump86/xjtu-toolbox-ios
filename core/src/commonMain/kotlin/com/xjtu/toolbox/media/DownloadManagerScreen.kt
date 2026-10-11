@@ -1,68 +1,135 @@
 package com.xjtu.toolbox.media
 
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import com.xjtu.toolbox.ui.adaptive.readableWidth
-import android.content.Context
-import android.content.Intent
-import android.util.Log
-import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.*
-import top.yukonga.miuix.kmp.basic.*
+import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.glassBarColor
+import com.xjtu.toolbox.ui.glass.glassSource
+import com.xjtu.toolbox.ui.glass.glassTop
+import com.xjtu.toolbox.ui.glass.glassTopBar
+import com.xjtu.toolbox.ui.glass.rememberPageGlass
+import com.xjtu.toolbox.ui.glass.withoutTop
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
-import com.xjtu.toolbox.lms.LmsDownloadRecord
-import com.xjtu.toolbox.lms.LmsDownloadStore
-import com.xjtu.toolbox.ui.components.EmptyState
-import com.xjtu.toolbox.ui.glass.*
-
-private const val TAG = "DownloadManagerScreen"
 
 /**
- * 下载管理页面
+ * 下载管理页面（共享屏）。
+ *
+ * 搬迁前它在 `:app`（`media/DownloadManagerScreen.kt`），画法/文案/交互一条未改；切开的缝只有四处：
+ *
+ * | 原来 | 现在 |
+ * |---|---|
+ * | `DownloadManager.getInstance(context)` + `manager.dao.getAll()`（Room 是 `internal`） | [manager]（`:core` 的状态机，`getAllTasks()`） |
+ * | `LmsDownloadStore.getAll(context)`（MediaStore 登记 + 发现） | [files]（宿主端口） |
+ * | `contentResolver.delete(...)` + `LmsDownloadStore.remove(...)` | [DownloadedFilesHost.delete] |
+ * | `Intent.ACTION_VIEW` 打开文件/回放（`openDownloadedFile` / `openReplayFile`） | [DownloadedFilesHost.open] / [onPlayTask] |
+ * | 下载目录说明弹窗里那两句位置与那几条说明（`LmsDownloadStore.publicDisplayPath()` / `Context`） | [dirInfo] + `manager.videoDirPath` |
+ *
+ * 也就是说：**这一屏不再认识 `Context`、MediaStore、`Intent`、Room** —— 它只说「要什么数据、
+ * 用户点了什么」，Android 那一侧由 `AppDownloadManagerScreen` 把宿主能力填上
+ * （与 `AppLmsSink` / `AppTranscriptSaver` 同一个口径）。
+ *
+ * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。桌面端没有那张登记表
+ *   ⇒ 传 null，屏上只列排队下载的回放视频（如实，不是列表被吞了）。
+ * @param onPlayTask 播放一个**已下载完**的回放文件：Android = 外部播放器（Media3 那套只播流，
+ *   播本地文件走的还是 `ACTION_VIEW`），桌面 = 系统播放器。
  */
 @Composable
 fun DownloadManagerScreen(
-    onBack: () -> Unit
+    manager: DownloadManager,
+    onBack: () -> Unit,
+    dirInfo: DownloadDirInfo,
+    files: DownloadedFilesHost? = null,
+    onPlayTask: (DownloadTask) -> Unit = {},
 ) {
-    val context = LocalContext.current
-    val downloadManager = remember { DownloadManager.getInstance(context) }
     val scope = rememberCoroutineScope()
 
-    var allTasks by remember { mutableStateOf<List<DownloadTaskEntity>>(emptyList()) }
-    var lmsDownloads by remember { mutableStateOf<List<LmsDownloadRecord>>(emptyList()) }
-    var stats by remember { mutableStateOf<DownloadManager.DownloadStats?>(null) }
+    var allTasks by remember { mutableStateOf<List<DownloadTask>>(emptyList()) }
+    var stats by remember { mutableStateOf<DownloadStats?>(null) }
+    var fileDownloads by remember { mutableStateOf<List<DownloadedFile>>(emptyList()) }
 
     // 多选批量管理。两份选中集合，因为本页有两套彼此独立的数据源：
-    // 回放视频任务在 Room（按 id），文件类下载在 MediaStore（按 uri）。
+    // 回放视频任务在存储里（按 id），文件类下载在宿主的登记表里（按 uri）。
     var isCleanupMode by remember { mutableStateOf(false) }
     val selectedTaskIds = remember { mutableStateListOf<Long>() }
     val selectedFileUris = remember { mutableStateListOf<String>() }
-    
+
     // 显示下载目录信息弹窗
     val showDirInfo = remember { mutableStateOf(false) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -70,16 +137,13 @@ fun DownloadManagerScreen(
     // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
     val glass = rememberPageGlass()
 
-    // 加载任务列表
+    // 加载任务列表。搬迁前这两发各自 `withContext(Dispatchers.IO)`：Room 的挂起查询
+    // 本来就在自己的查询线程上跑，文件类下载那半已归宿主（见类 KDoc）。
     fun loadTasks() {
         scope.launch {
-            allTasks = withContext(Dispatchers.IO) {
-                downloadManager.dao.getAll()
-            }
-            stats = withContext(Dispatchers.IO) {
-                downloadManager.getDownloadStats()
-            }
-            lmsDownloads = LmsDownloadStore.getAll(context)
+            allTasks = manager.getAllTasks()
+            stats = manager.getDownloadStats()
+            fileDownloads = files?.list() ?: emptyList()
         }
     }
 
@@ -88,8 +152,8 @@ fun DownloadManagerScreen(
     }
 
     // 监听下载进度
-    LaunchedEffect(downloadManager) {
-        downloadManager.progressFlow.collect { _ ->
+    LaunchedEffect(manager) {
+        manager.progressFlow.collect { _ ->
             loadTasks()
         }
     }
@@ -117,16 +181,16 @@ fun DownloadManagerScreen(
                         }
                     },
                     actions = {
-                        // 全选覆盖两类数据源：回放任务（Room）+ 文件类下载（MediaStore）
+                        // 全选覆盖两类数据源：回放任务（存储）+ 文件类下载（宿主登记表）
                         IconButton(onClick = {
                             val allSelected = selectedTaskIds.size == allTasks.size &&
-                                selectedFileUris.size == lmsDownloads.size &&
-                                (allTasks.isNotEmpty() || lmsDownloads.isNotEmpty())
+                                selectedFileUris.size == fileDownloads.size &&
+                                (allTasks.isNotEmpty() || fileDownloads.isNotEmpty())
                             selectedTaskIds.clear()
                             selectedFileUris.clear()
                             if (!allSelected) {
                                 selectedTaskIds.addAll(allTasks.map { it.id })
-                                selectedFileUris.addAll(lmsDownloads.map { it.uri })
+                                selectedFileUris.addAll(fileDownloads.map { it.uri })
                             }
                         }) {
                             Icon(Icons.Default.SelectAll, contentDescription = "全选/取消")
@@ -146,7 +210,7 @@ fun DownloadManagerScreen(
                         }
                         // 有任何可管理的条目就显示入口。条件不能只看回放任务，
                         // 否则只下载过文件的用户进不去批量模式。
-                        if (allTasks.isNotEmpty() || lmsDownloads.isNotEmpty()) {
+                        if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
                             IconButton(onClick = { isCleanupMode = true }) {
                                 Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
                             }
@@ -184,8 +248,7 @@ fun DownloadManagerScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Checkbox(
-                                        state = if (deleteFiles) androidx.compose.ui.state.ToggleableState.On
-                                        else androidx.compose.ui.state.ToggleableState.Off,
+                                        state = if (deleteFiles) ToggleableState.On else ToggleableState.Off,
                                         onClick = { deleteFiles = !deleteFiles },
                                         modifier = Modifier.size(20.dp),
                                     )
@@ -203,15 +266,11 @@ fun DownloadManagerScreen(
                             onClick = {
                                 scope.launch {
                                     selectedTaskIds.toList().forEach { id ->
-                                        downloadManager.deleteTask(id, deleteFile = deleteFiles)
+                                        manager.deleteTask(id, deleteFile = deleteFiles)
                                     }
-                                    withContext(Dispatchers.IO) {
-                                        selectedFileUris.toList().forEach { uri ->
-                                            runCatching {
-                                                context.contentResolver.delete(android.net.Uri.parse(uri), null, null)
-                                            }
-                                            LmsDownloadStore.remove(context, uri)
-                                        }
+                                    // 文件类下载的删除是宿主的事（Android = 删 MediaStore 那条 + 撤销登记）
+                                    selectedFileUris.toList().forEach { uri ->
+                                        fileDownloads.firstOrNull { it.uri == uri }?.let { files?.delete(it) }
                                     }
                                     selectedTaskIds.clear()
                                     selectedFileUris.clear()
@@ -229,7 +288,7 @@ fun DownloadManagerScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         Box(Modifier.padding(padding.withoutTop(glass)).readableWidth().fillMaxSize().glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
-            if (allTasks.isEmpty() && lmsDownloads.isEmpty()) {
+            if (allTasks.isEmpty() && fileDownloads.isEmpty()) {
                 EmptyState(
                     title = "还没下载过东西",
                     subtitle = "思源课件和课堂回放会统一显示在这里",
@@ -237,12 +296,12 @@ fun DownloadManagerScreen(
                     modifier = Modifier.align(Alignment.Center),
                 )
             } else {
-                val groupedDownloads = lmsDownloads.groupBy { it.category }
+                val groupedDownloads = fileDownloads.groupBy { it.category }
                 val fileGroups = listOf(
-                    LmsDownloadStore.CATEGORY_TRANSCRIPT to "电子成绩单",
-                    LmsDownloadStore.CATEGORY_LMS to "思源文件",
-                    LmsDownloadStore.CATEGORY_ZYXF to "仲英学辅资料",
-                    LmsDownloadStore.CATEGORY_OTHER to "其他文件",
+                    DownloadedFile.CATEGORY_TRANSCRIPT to "电子成绩单",
+                    DownloadedFile.CATEGORY_LMS to "思源文件",
+                    DownloadedFile.CATEGORY_ZYXF to "仲英学辅资料",
+                    DownloadedFile.CATEGORY_OTHER to "其他文件",
                 )
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
@@ -253,7 +312,7 @@ fun DownloadManagerScreen(
                         item(key = "global_controls") {
                             GlobalControls(
                                 stats = stats!!,
-                                downloadManager = downloadManager,
+                                manager = manager,
                                 onRefresh = { loadTasks() },
                             )
                         }
@@ -277,21 +336,21 @@ fun DownloadManagerScreen(
                                 },
                                 onPause = {
                                     scope.launch {
-                                        downloadManager.pauseDownload(task.id)
+                                        manager.pauseDownload(task.id)
                                         loadTasks()
                                     }
                                 },
                                 onResume = {
-                                    downloadManager.resumeDownload(task.id)
+                                    manager.resumeDownload(task.id)
                                     loadTasks()
                                 },
                                 onCancel = {
                                     scope.launch {
-                                        downloadManager.cancelDownload(task.id)
+                                        manager.cancelDownload(task.id)
                                         loadTasks()
                                     }
                                 },
-                                onPlay = { openReplayFile(context, task) },
+                                onPlay = { onPlayTask(task) },
                             )
                         }
                     }
@@ -303,7 +362,7 @@ fun DownloadManagerScreen(
                             DownloadSectionHeader(title, records.size)
                         }
                         items(records, key = { "${category}_${it.uri}" }) { record ->
-                            LmsDownloadCard(
+                            DownloadedFileCard(
                                 record = record,
                                 isCleanupMode = isCleanupMode,
                                 isSelected = record.uri in selectedFileUris,
@@ -314,13 +373,12 @@ fun DownloadManagerScreen(
                                         selectedFileUris.add(record.uri)
                                     }
                                 },
-                                onOpen = { openDownloadedFile(context, record) },
+                                onOpen = { files?.open(record) },
                                 onDelete = {
-                                    runCatching {
-                                        context.contentResolver.delete(android.net.Uri.parse(record.uri), null, null)
+                                    scope.launch {
+                                        files?.delete(record)
+                                        loadTasks()
                                     }
-                                    LmsDownloadStore.remove(context, record.uri)
-                                    loadTasks()
                                 },
                             )
                         }
@@ -328,13 +386,12 @@ fun DownloadManagerScreen(
                 }
             }
 
-        // 必须在 Scaffold 的 content 内：OverlayBottomSheet 靠 Scaffold 提供的
-        // LocalDialogStates 宿主渲染，写在 Scaffold 外面会静默不显示。
-    // 下载目录信息弹窗
-    DownloadDirInfoDialog(show = showDirInfo)
+            // 必须在 Scaffold 的 content 内：OverlayBottomSheet 靠 Scaffold 提供的
+            // LocalDialogStates 宿主渲染，写在 Scaffold 外面会静默不显示。
+            // 下载目录信息弹窗
+            DownloadDirInfoDialog(show = showDirInfo, dirInfo = dirInfo, videoDir = manager.videoDirPath)
         }
     }
-    
 }
 
 @Composable
@@ -409,8 +466,8 @@ private fun MetaChip(text: String) {
 }
 
 @Composable
-private fun LmsDownloadCard(
-    record: LmsDownloadRecord,
+private fun DownloadedFileCard(
+    record: DownloadedFile,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     isCleanupMode: Boolean = false,
@@ -434,8 +491,8 @@ private fun LmsDownloadCard(
             }
             LeadingIconWell(
                 icon = when (record.category) {
-                    LmsDownloadStore.CATEGORY_TRANSCRIPT -> Icons.Default.PictureAsPdf
-                    LmsDownloadStore.CATEGORY_ZYXF -> Icons.AutoMirrored.Filled.MenuBook
+                    DownloadedFile.CATEGORY_TRANSCRIPT -> Icons.Default.PictureAsPdf
+                    DownloadedFile.CATEGORY_ZYXF -> Icons.AutoMirrored.Filled.MenuBook
                     else -> Icons.Default.Description
                 }
             )
@@ -450,7 +507,7 @@ private fun LmsDownloadCard(
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    "${record.categoryLabel()} · ${formatTimestamp(record.savedAt)}",
+                    "${record.categoryLabel} · ${formatDownloadTime(record.savedAt)}",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -468,18 +525,10 @@ private fun LmsDownloadCard(
     }
 }
 
-private fun LmsDownloadRecord.categoryLabel(): String = when (category) {
-    LmsDownloadStore.CATEGORY_TRANSCRIPT -> "成绩单"
-    LmsDownloadStore.CATEGORY_LMS -> "思源文件"
-    LmsDownloadStore.CATEGORY_ZYXF -> "仲英学辅"
-    LmsDownloadStore.CATEGORY_OTHER -> "其他"
-    else -> "已下载"
-}
-
 @Composable
 private fun GlobalControls(
-    stats: DownloadManager.DownloadStats,
-    downloadManager: DownloadManager,
+    stats: DownloadStats,
+    manager: DownloadManager,
     onRefresh: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -514,7 +563,7 @@ private fun GlobalControls(
                     text = "取消全部",
                     onClick = {
                         scope.launch {
-                            downloadManager.cancelAll()
+                            manager.cancelAll()
                             delay(300)
                             onRefresh()
                         }
@@ -527,7 +576,7 @@ private fun GlobalControls(
                 Button(
                     onClick = {
                         scope.launch {
-                            downloadManager.pauseAll()
+                            manager.pauseAll()
                             delay(300)
                             onRefresh()
                         }
@@ -539,7 +588,7 @@ private fun GlobalControls(
                 }
                 Button(
                     onClick = {
-                        downloadManager.resumeAll()
+                        manager.resumeAll()
                         scope.launch {
                             delay(500)
                             onRefresh()
@@ -556,7 +605,7 @@ private fun GlobalControls(
 
 @Composable
 private fun DownloadTaskCard(
-    task: DownloadTaskEntity,
+    task: DownloadTask,
     isCleanupMode: Boolean = false,
     isSelected: Boolean = false,
     onToggleSelection: () -> Unit = {},
@@ -566,17 +615,17 @@ private fun DownloadTaskCard(
     onPlay: () -> Unit = {},
 ) {
     val statusTint = when (task.status) {
-        "downloading" -> MiuixTheme.colorScheme.primary
-        "completed" -> MiuixTheme.colorScheme.primary
-        "failed" -> MiuixTheme.colorScheme.error
+        DownloadStatus.DOWNLOADING -> MiuixTheme.colorScheme.primary
+        DownloadStatus.COMPLETED -> MiuixTheme.colorScheme.primary
+        DownloadStatus.FAILED -> MiuixTheme.colorScheme.error
         else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
     }
     Card(
         onClick = if (isCleanupMode) onToggleSelection else {
             when (task.status) {
-                "completed" -> onPlay
-                "paused", "pending", "failed" -> onResume
-                "downloading" -> onPause
+                DownloadStatus.COMPLETED -> onPlay
+                DownloadStatus.PAUSED, DownloadStatus.PENDING, DownloadStatus.FAILED -> onResume
+                DownloadStatus.DOWNLOADING -> onPause
                 else -> ({})
             }
         },
@@ -593,9 +642,9 @@ private fun DownloadTaskCard(
                 }
                 LeadingIconWell(
                     icon = when (task.status) {
-                        "completed" -> Icons.Default.PlayCircle
-                        "failed" -> Icons.Outlined.ErrorOutline
-                        "paused" -> Icons.Default.PauseCircle
+                        DownloadStatus.COMPLETED -> Icons.Default.PlayCircle
+                        DownloadStatus.FAILED -> Icons.Outlined.ErrorOutline
+                        DownloadStatus.PAUSED -> Icons.Default.PauseCircle
                         else -> Icons.Default.Download
                     },
                     tint = statusTint,
@@ -616,7 +665,7 @@ private fun DownloadTaskCard(
                     ) {
                         MetaChip(if (task.cameraType == "instructor") "教师画面" else "电脑屏幕")
                         Text(
-                            formatTimestamp(task.createTime),
+                            formatDownloadTime(task.createTime),
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -624,7 +673,7 @@ private fun DownloadTaskCard(
                 }
                 if (!isCleanupMode) {
                     when (task.status) {
-                        "downloading" -> {
+                        DownloadStatus.DOWNLOADING -> {
                             IconButton(onClick = onPause) {
                                 Icon(Icons.Default.Pause, contentDescription = "暂停")
                             }
@@ -636,7 +685,7 @@ private fun DownloadTaskCard(
                                 )
                             }
                         }
-                        "paused", "pending" -> {
+                        DownloadStatus.PAUSED, DownloadStatus.PENDING -> {
                             IconButton(onClick = onResume) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = "继续")
                             }
@@ -648,7 +697,7 @@ private fun DownloadTaskCard(
                                 )
                             }
                         }
-                        "failed" -> {
+                        DownloadStatus.FAILED -> {
                             IconButton(onClick = onResume) {
                                 Icon(Icons.Default.Refresh, contentDescription = "重试")
                             }
@@ -660,7 +709,7 @@ private fun DownloadTaskCard(
                                 )
                             }
                         }
-                        "completed" -> {
+                        DownloadStatus.COMPLETED -> {
                             IconButton(onClick = onPlay) {
                                 Icon(
                                     Icons.Default.PlayArrow,
@@ -672,7 +721,7 @@ private fun DownloadTaskCard(
                     }
                 }
             }
-            if (task.status == "downloading" || task.status == "paused") {
+            if (task.status == DownloadStatus.DOWNLOADING || task.status == DownloadStatus.PAUSED) {
                 Spacer(Modifier.height(10.dp))
                 LinearProgressIndicator(
                     progress = task.progress.coerceIn(0f, 1f),
@@ -685,29 +734,29 @@ private fun DownloadTaskCard(
                         append("${(task.progress * 100).toInt()}%")
                         if (task.downloadedSize > 0) {
                             append(" · ")
-                            append(formatFileSize(task.downloadedSize))
+                            append(formatDownloadSize(task.downloadedSize))
                             if (task.fileSize > 0) {
                                 append(" / ")
-                                append(formatFileSize(task.fileSize))
+                                append(formatDownloadSize(task.fileSize))
                             }
                         }
-                        if (task.status == "downloading" && task.downloadSpeed > 0) {
+                        if (task.status == DownloadStatus.DOWNLOADING && task.downloadSpeed > 0) {
                             append(" · ")
-                            append("${formatFileSize(task.downloadSpeed)}/s")
+                            append("${formatDownloadSize(task.downloadSpeed)}/s")
                         }
-                        if (task.status == "paused") append(" · 已暂停")
+                        if (task.status == DownloadStatus.PAUSED) append(" · 已暂停")
                     },
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.primary,
                 )
-            } else if (task.status == "completed") {
+            } else if (task.status == DownloadStatus.COMPLETED) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    formatFileSize(task.downloadedSize),
+                    formatDownloadSize(task.downloadedSize),
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
-            } else if (task.status == "failed") {
+            } else if (task.status == DownloadStatus.FAILED) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     task.errorMessage?.takeIf { it.isNotBlank() } ?: "下载失败",
@@ -722,98 +771,13 @@ private fun DownloadTaskCard(
 }
 
 /**
- * 格式化文件大小
- */
-private fun openDownloadedFile(context: Context, record: LmsDownloadRecord) {
-    runCatching {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(
-                android.net.Uri.parse(record.uri),
-                record.mimeType.ifBlank { "*/*" },
-            )
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(intent, "打开文件"))
-    }.onFailure {
-        android.widget.Toast.makeText(context, "文件已被移动或删除", android.widget.Toast.LENGTH_SHORT).show()
-    }
-}
-
-private fun openReplayFile(context: Context, task: DownloadTaskEntity) {
-    try {
-        val file = File(task.filePath)
-        if (!file.exists()) {
-            android.widget.Toast.makeText(context, "视频文件不存在", android.widget.Toast.LENGTH_SHORT).show()
-            return
-        }
-        val mime = android.webkit.MimeTypeMap.getSingleton()
-            .getMimeTypeFromExtension(file.extension.lowercase())
-            ?: "*/*"
-        try {
-            val uri = android.net.Uri.fromFile(file)
-            context.startActivity(
-                Intent.createChooser(
-                    Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, mime)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    },
-                    "选择播放器",
-                )
-            )
-        } catch (_: Exception) {
-            try {
-                val contentUri = androidx.core.content.FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file,
-                )
-                context.startActivity(
-                    Intent.createChooser(
-                        Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(contentUri, mime)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        },
-                        "打开文件",
-                    )
-                )
-            } catch (_: Exception) {
-                android.widget.Toast.makeText(
-                    context,
-                    "无法启动播放器，请使用系统文件管理器查看",
-                    android.widget.Toast.LENGTH_LONG,
-                ).show()
-            }
-        }
-    } catch (e: Exception) {
-        Log.e(TAG, "Play video error", e)
-        android.widget.Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(e, "播放视频"), android.widget.Toast.LENGTH_SHORT).show()
-    }
-}
-
-private fun formatFileSize(bytes: Long): String {
-    return when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-        bytes < 1024L * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
-        else -> String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024))
-    }
-}
-
-/**
- * 格式化时间戳
- */
-private fun formatTimestamp(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
-    return sdf.format(Date(timestamp))
-}
-
-/**
- * 下载目录信息弹窗
+ * 下载目录信息弹窗。
+ *
+ * 两句位置与那几条说明都来自 [DownloadDirInfo]（各端事实不同 —— Android 的「卸载 App 会一并清除」
+ * 是**应用专属外部目录**的性质，桌面写的是 `~/Downloads`），屏只负责画。
  */
 @Composable
-private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
+private fun DownloadDirInfoDialog(show: MutableState<Boolean>, dirInfo: DownloadDirInfo, videoDir: String) {
     BackHandler(enabled = show.value) { show.value = false }
     OverlayDialog(
         show = show.value,
@@ -833,32 +797,19 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                "文件：${LmsDownloadStore.publicDisplayPath()}\n" +
-                    "回放视频：${DownloadManager.getInstance(LocalContext.current).videoDirPath}",
+                "文件：${dirInfo.filesLocation}\n" +
+                    "回放视频：$videoDir",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium
             )
-            Text(
-                "• 成绩单、思源课件、资料站文件统一保存到公共下载目录，系统文件管理器可见，卸载 App 不会丢",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Text(
-                "• 课堂回放视频保存在应用专属目录（无需存储权限），支持外部播放器播放；卸载 App 会一并清除",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Text(
-                "• 删除记录仅删除数据库记录，不删除视频文件",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Text(
-                "• 清理模式下可勾选\"同时删除文件\"彻底删除",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+            dirInfo.notes.forEach { note ->
+                Text(
+                    "• $note",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
             Spacer(Modifier.height(4.dp))
             TextButton(
                 text = "知道了",

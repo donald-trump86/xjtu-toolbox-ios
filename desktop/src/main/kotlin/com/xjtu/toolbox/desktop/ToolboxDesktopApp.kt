@@ -87,6 +87,9 @@ import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.desktop.lms.DesktopLmsSaver
+import com.xjtu.toolbox.desktop.media.DesktopDownloads
+import com.xjtu.toolbox.desktop.media.DesktopVideoPlayerHost
+import com.xjtu.toolbox.media.DownloadManagerScreen
 import com.xjtu.toolbox.jwapp.AppJwappScoreSource
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
 import com.xjtu.toolbox.iclassface.AppIclassfaceSource
@@ -257,6 +260,11 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Transcript to "电子成绩单",
     AppRoute.Coupon to "加餐券",
 
+    // 下载管理（本批的 `download_manager`）：**不需要任何校园会话**（`AppRoute.DownloadManager`
+    // 的 `loginType` 是 null）—— 它读的是本端的下载队列（`:core` 的状态机 + 一份 JSON 落盘）
+    // 与视频落盘目录；真下载由 `:data` 的 `JvmDownloadEngine` 发 HTTP（与 Android 另一份实现，
+    // 同一套语义）。名字照 `:app` 服务表里的叫法（「下载管理」）。
+    AppRoute.DownloadManager to "下载管理",
     AppRoute.DormPower to "宿舍电费",
 
     AppRoute.Attendance to "考勤",
@@ -725,8 +733,8 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         // `:data` 的 `AppLmsSource`（包住搬进 `:data` 的 `LmsApi`）。落盘是 `DesktopLmsSaver`
         //（写 `~/Downloads/<课程名>/…`；桌面没有 MediaStore 与「我的 · 下载管理」，也没有回放
         // 下载队列 ⇒ `supportsVideoQueue = false`，批量对话框不露出「课堂回放」那一档）；落盘缓存
-        // 传 null（桌面没有按账号分文件的宿主存储）。视频播放器（ExoPlayer 全屏页，Android 专属
-        // 组件）⇒ `videoPlayer` 不传，点播放给如实说明页。
+        // 传 null（桌面没有按账号分文件的宿主存储）。视频播放器走 `:core` 的 `VideoPlayerHost`：
+        // 桌面这份把流地址交给系统播放器（没有内置播放器，见 `DesktopVideoPlayerHost` 的 KDoc）。
         // `Lms` 带 `courseId`（`lms?courseId=`）⇒ 与 `:app` 的 `entry<AppRoute.Lms>` 同一条口径：
         // **按类型**分派（`is`），带不带 courseId 都进这一屏（屏自己按 courseId 决定落哪门课）。
         is AppRoute.Lms -> DesktopSiteGate(auth, DesktopAuth.LMS_SITE_KEY, "思源学堂") { site ->
@@ -737,6 +745,7 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 cacheStore = null,
                 showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("lms_hint_shown", true) },
+                videoPlayer = DesktopVideoPlayerHost,
             )
         }
 
@@ -871,6 +880,16 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onBack = back,
             )
         }
+        // 下载管理：`:core` 的共享屏（与 Android 同一份，画法/文案一行未改），这一端填三个缝
+        // —— 队列 + 状态机（`DesktopDownloads.manager`）、存储（0600 的 JSON）、下载目录文案。
+        // 文件类下载那半传 null：桌面还没有那张登记表（如实，见 `DownloadedFilesHost` 的 KDoc）。
+        AppRoute.DownloadManager -> DownloadManagerScreen(
+            manager = DesktopDownloads.manager,
+            onBack = back,
+            dirInfo = DesktopDownloads.dirInfo,
+            files = null,
+            onPlayTask = { task -> DesktopDownloads.openDownloadedFile(task.filePath) },
+        )
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
