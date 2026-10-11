@@ -11,6 +11,7 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
+import com.xjtu.toolbox.lms.LmsFakeUpstream
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
@@ -143,6 +144,14 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      * 本夹具不演门户那一面（见 `AttendanceFakeUpstream` 的 KDoc）。
      */
     val attendance: AttendanceFakeUpstream = AttendanceFakeUpstream()
+
+    /**
+     * 思源学堂（第 18 条真数据路由）：业务在 `lms.xjtu.edu.cn`（**https**）。
+     * 登录那半台 CAS 由 [library] 扮演（`LmsLogin` 直连本域根路径 → 302 到统一认证，直接 CAS 回跳
+     * —— 与教务同型，不经过开放平台/OAuth 授权页）；本夹具只演 lms 那一半（见 [LmsFakeUpstream] 的 KDoc）。
+     */
+    val lms: LmsFakeUpstream = LmsFakeUpstream()
+
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -189,8 +198,8 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
                 }
             CouponFakeUpstream.HOST -> coupon.handleBusiness(exchange)
             DormPowerFakeUpstream.HOST -> dormPower.handle(exchange)
-
             AttendanceFakeUpstream.HOST -> attendance.handle(exchange)
+            LmsFakeUpstream.HOST -> lms.handle(exchange)
             VenueFakeUpstream.HOST -> venue.handle(exchange)
             // 消息收纳（第 12 条真数据路由）的五个域名：门户 + 四路取数（它们都只认一网通办令牌）。
             YwtbFakeUpstream.HOST -> ywtb.handlePortal(exchange)
@@ -267,9 +276,10 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 宿舍电费：`ssn.xjtu.edu.cn` 是 https（业务接口都是；缴费页入口是明文 http，不走隧道 ——
             // 与场馆同款，所以这里只有业务那半台占一枚 SAN）。
             DormPowerFakeUpstream.HOST,
-
             // 考勤：`bk-kq.xjtu.edu.cn` 是 https（登录入口与业务接口都是；本科生直连业务站那条链）。
             AttendanceFakeUpstream.HOST,
+            // 思源学堂（第 18 条真数据路由）：`lms.xjtu.edu.cn` 是 https（登录入口与业务接口都是）。
+            LmsFakeUpstream.HOST,
             // 电子凭证（成绩单）：`dzpz.xjtu.edu.cn` 是 https（它的登录入口页与业务接口都是）。
             DzpzFakeUpstream.HOST,
             // 通知公告那三个源：全是 https（教务处 / 化工学院 / OA）。

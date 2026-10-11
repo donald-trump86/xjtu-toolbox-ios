@@ -4,10 +4,8 @@ import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import android.content.Context
-import android.graphics.BitmapFactory
-import android.util.Log
-import android.widget.Toast
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,17 +14,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import com.xjtu.toolbox.platform.decodeImageFull
+import kotlin.math.roundToLong
+import kotlin.time.Clock
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,10 +35,7 @@ import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.jsoup.Jsoup
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -54,15 +49,14 @@ private const val TAG = "LmsScreen"
 
 @Composable
 internal fun ActivityDetailPage(
-    api: LmsApi,
+    source: LmsSource,
     cache: LmsPageCache,
     course: LmsCourseSummary,
     activity: LmsActivity,
     onBack: () -> Unit,
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
-    val context = LocalContext.current
-    val appLoginState = LocalAppLoginState.current
+    val authExpiry = LocalAuthExpiry.current
     val detail = cache.details[activity.id]
     var isLoading by remember { mutableStateOf(cache.details[activity.id] == null) }
     val listState = rememberRetainedLazyListState("lms_detail_${activity.id}")
@@ -75,30 +69,22 @@ internal fun ActivityDetailPage(
     fun enqueueDownload(video: LmsReplayVideo, title: String) {
         val url = video.downloadUrl
         if (url.isBlank() || url.contains(".m3u8", ignoreCase = true)) {
-            Toast.makeText(context, "该视频不支持下载", Toast.LENGTH_SHORT).show()
+            showBriefMessage("该视频不支持下载")
             return
         }
         scope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    com.xjtu.toolbox.media.DownloadManager.getInstance(context.applicationContext)
-                        .enqueueDownloads(
-                            courseName = course.name,
-                            activityTitle = title,
-                            activityId = activity.id,
-                            videos = listOf(
-                                com.xjtu.toolbox.media.DownloadManager.DownloadItem(
-                                    cameraType = if (video.label.contains("instructor", true)) "instructor" else "encoder",
-                                    url = url,
-                                )
-                            ),
-                        )
-                }
-            }.onSuccess {
-                Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+                source.queueReplayVideos(
+                    courseName = course.name,
+                    activityTitle = title,
+                    activityId = activity.id,
+                    videos = listOf(video),
+                )
+            }.onSuccess { n ->
+                showBriefMessage(if (n > 0) "已加入下载队列" else "本端不支持排队下载")
             }.onFailure {
                 Log.e(TAG, "enqueue lms download failed", it)
-                Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(it, "加入下载"), Toast.LENGTH_SHORT).show()
+                showBriefMessage(com.xjtu.toolbox.error.FriendlyError.of(it, "加入下载"))
             }
         }
     }
@@ -109,12 +95,14 @@ internal fun ActivityDetailPage(
             errorMsg = null
             try {
                 // 详情接口不返回 deadline，得把列表里那条一起传进去（见 LmsApi.mergeBrief）
-                cache.details[activity.id] = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id, activity) }
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
+                cache.details[activity.id] = source.activityDetail(activity.id, activity)
             } catch (e: Exception) {
-                Log.e(TAG, "loadDetail error", e)
-                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程详情")
+                if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
+                    authExpiry.onAuthExpired(AppRoute.Lms(), onBack)
+                } else {
+                    Log.e(TAG, "loadDetail error", e)
+                    errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程详情")
+                }
             } finally {
                 isLoading = false
             }
@@ -168,7 +156,10 @@ internal fun ActivityDetailPage(
                         val desc = d.description.orEmpty()
                         if (desc.isNotBlank()) {
                             item(key = "desc") {
-                                val plainText = remember(desc) { htmlToPlainText(desc) }
+                                // 正文转纯文本用的是 jsoup（在 :data 那边），实现方自己包 IO
+                                val plainText by produceState(initialValue = "", desc) {
+                                    value = source.htmlToPlainText(desc).orEmpty()
+                                }
                                 SectionHeader(if (d.type == LmsActivityType.HOMEWORK) "作业描述" else "内容")
                                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                     Text(
@@ -184,7 +175,7 @@ internal fun ActivityDetailPage(
                         if (d.uploads.isNotEmpty()) {
                             item(key = "uploads_header") { SectionHeader("附件 (${d.uploads.size})") }
                             items(d.uploads, key = { "upload_${it.id}" }) { upload ->
-                                UploadCard(upload, context, api, activityClosed = d.isClosed)
+                                UploadCard(upload, source, activityClosed = d.isClosed)
                             }
                         }
 
@@ -196,7 +187,7 @@ internal fun ActivityDetailPage(
                             if (submissions.isNotEmpty()) {
                                 item(key = "sub_header") { SectionHeader("提交记录 (${submissions.size})") }
                                 items(submissions, key = { "sub_${it.id}" }) { sub ->
-                                    SubmissionCard(sub, context, api, activityClosed = d.isClosed)
+                                    SubmissionCard(sub, source, activityClosed = d.isClosed)
                                 }
                             } else {
                                 // 一条都没有时必须明确说出来。之前这里什么都不渲染，
@@ -241,7 +232,7 @@ internal fun ActivityDetailPage(
 
                             items(d.replayVideos, key = { "replay_${it.id}" }) { video ->
                                 ReplayVideoCard(
-                                    video, context,
+                                    video,
                                     onDownload = { enqueueDownload(video, d.title) },
                                 ) {
                                     // 单机位播放
@@ -339,7 +330,7 @@ internal fun ActivityDetailPage(
                                 d.liveReplayVideos.forEachIndexed { idx, video ->
                                     item(key = "live_replay_${idx}_${video.id}") {
                                         ReplayVideoCard(
-                                            video, context,
+                                            video,
                                             onDownload = { enqueueDownload(video, d.title) },
                                         ) {
                                             if (video.downloadUrl.isNotEmpty()) {
@@ -419,9 +410,9 @@ private fun ActivityInfoCard(activity: LmsActivity) {
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         activity.hasScoreCount?.let { InfoChip("已批阅 $it 人", Icons.Default.People) }
-                        activity.averageScore?.let { InfoChip("平均 ${"%.1f".format(it)}", Icons.Default.Analytics) }
-                        activity.highestScore?.let { InfoChip("最高 ${"%.1f".format(it)}", Icons.AutoMirrored.Filled.TrendingUp) }
-                        activity.lowestScore?.let { InfoChip("最低 ${"%.1f".format(it)}", Icons.AutoMirrored.Filled.TrendingDown) }
+                        activity.averageScore?.let { InfoChip("平均 ${formatScore1f(it)}", Icons.Default.Analytics) }
+                        activity.highestScore?.let { InfoChip("最高 ${formatScore1f(it)}", Icons.AutoMirrored.Filled.TrendingUp) }
+                        activity.lowestScore?.let { InfoChip("最低 ${formatScore1f(it)}", Icons.AutoMirrored.Filled.TrendingDown) }
                     }
                 }
             }
@@ -439,12 +430,12 @@ private fun InfoChip(text: String, icon: ImageVector) {
 @Composable
 private fun UploadCard(
     upload: LmsUpload,
-    context: Context,
-    api: LmsApi? = null,
+    /** 取数与落盘（可空性照搬迁前：null = 只有展示、不能预览/下载那一档）。 */
+    source: LmsSource? = null,
     activityClosed: Boolean = false,
 ) {
     val isImage = upload.type.startsWith("image", ignoreCase = true)
-    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var previewBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -461,7 +452,7 @@ private fun UploadCard(
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    bitmap = previewBitmap!!.asImageBitmap(),
+                    bitmap = previewBitmap!!,
                     contentDescription = upload.name,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxWidth()
@@ -473,30 +464,30 @@ private fun UploadCard(
     Card(
         onClick = {
             if (activityClosed) {
-                Toast.makeText(context, "活动已结束，学堂已关闭下载", Toast.LENGTH_SHORT).show()
+                showBriefMessage("活动已结束，学堂已关闭下载")
                 return@Card
             }
-            if (isImage && api != null) {
+            if (isImage && source != null) {
                 if (!isDownloading) {
                     isDownloading = true
                     scope.launch {
-                        val bytes = withContext(Dispatchers.IO) { api.downloadUploadBytes(upload) }
-                        previewBitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                        val bytes = source.uploadBytes(upload)
+                        previewBitmap = bytes?.let { decodeImageFull(it) }
                         if (previewBitmap == null) {
-                            Toast.makeText(context, "无法预览", Toast.LENGTH_SHORT).show()
+                            showBriefMessage("无法预览")
                         }
                         isDownloading = false
                     }
                 }
-            } else if (api != null) {
+            } else if (source != null) {
                 if (!isDownloading) {
                     isDownloading = true
                     scope.launch {
-                        val result = withContext(Dispatchers.IO) {
-                            saveUploadToDownloads(context, upload, api)
-                        }
+                        val result = source.saveDownload(
+                            LmsDownloadJob(name = upload.name, mimeType = upload.type, folder = "", upload = upload)
+                        )
                         isDownloading = false
-                        Toast.makeText(context, downloadToast(result), Toast.LENGTH_SHORT).show()
+                        showBriefMessage(downloadToast(result))
                     }
                 }
             }
@@ -520,7 +511,7 @@ private fun UploadCard(
                 CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
             } else {
                 Icon(
-                    if (isImage && api != null) Icons.Default.ZoomIn else Icons.Default.Download,
+                    if (isImage && source != null) Icons.Default.ZoomIn else Icons.Default.Download,
                     null, tint = MiuixTheme.colorScheme.primary
                 )
             }
@@ -618,39 +609,35 @@ private fun NoSubmissionCard(closed: Boolean) {
     }
 }
 /**
- * 富文本正文转纯文本：换行只认 `<br>` 和块级元素，HTML 源码里的换行缩进当空格。
- * 段落里套着 span 等行内元素时文字不在 body 直属节点上，不能只取 own text。
+ * `"%.1f".format(x)` 的跨端等价（`java.util.Formatter` 是 JVM 专属，`:core` 还要编到 wasm ——
+ * 与 `:data` 里 `LmsReplayVideo` 的 `oneDecimalMb` 同一条手写口径）。
  */
-internal fun htmlToPlainText(html: String): String {
-    val body = Jsoup.parse(html).body()
-    body.select("*").forEach { el -> el.textNodes().forEach { it.text(it.text()) } }
-    // wholeText 自己会把 <br> 算成换行，块级元素要补
-    body.select("p, div, li, h1, h2, h3, h4, h5, h6, tr, blockquote").after("\n")
-    return body.wholeText().lines().joinToString("\n") { it.trim() }
-        .replace(Regex("\n{3,}"), "\n\n")
-        .trim()
+private fun formatScore1f(value: Double): String {
+    val tenths = (value * 10.0).roundToLong()
+    return "${tenths / 10}.${tenths % 10}"
 }
 
-/** 距截止还剩多久；已过返回「已过期」。解析失败返回 null，不猜。 */
-private fun remainingLabel(deadlineRaw: String): String? = try {
-    val deadline = java.time.ZonedDateTime.parse(deadlineRaw).toInstant()
-    val now = java.time.Instant.now()
-    if (deadline.isBefore(now)) "已过期" else {
-        val minutes = java.time.Duration.between(now, deadline).toMinutes()
-        when {
-            minutes < 60 -> "剩 " + minutes + " 分钟"
-            minutes < 60 * 24 -> "剩 " + (minutes / 60) + " 小时"
-            else -> "剩 " + (minutes / (60 * 24)) + " 天"
-        }
+/**
+ * 距截止还剩多久；已过返回「已过期」。解析失败返回 null，不猜。
+ *
+ * 用 `kotlin.time`（`:core` commonMain 可用的那份）：`java.time` 是 JVM 专属。口径与搬迁前
+ * 逐字一致（`分钟 < 60 → 剩 N 分钟 / < 24 小时 → 剩 N 小时 / 否则剩 N 天`）。
+ */
+private fun remainingLabel(deadlineRaw: String): String? {
+    val deadline = lmsInstant(deadlineRaw) ?: return null
+    val now = Clock.System.now()
+    if (deadline < now) return "已过期"
+    val minutes = (deadline - now).inWholeMinutes
+    return when {
+        minutes < 60 -> "剩 " + minutes + " 分钟"
+        minutes < 60 * 24 -> "剩 " + (minutes / 60) + " 小时"
+        else -> "剩 " + (minutes / (60 * 24)) + " 天"
     }
-} catch (_: Exception) {
-    null
 }
 @Composable
 private fun SubmissionCard(
     sub: LmsSubmissionItem,
-    context: Context,
-    api: LmsApi,
+    source: LmsSource,
     activityClosed: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
@@ -706,7 +693,7 @@ private fun SubmissionCard(
                 Spacer(Modifier.height(8.dp))
                 Text("批改附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 correctUploads.forEach { upload ->
-                    UploadCard(upload, context, api, activityClosed = activityClosed)
+                    UploadCard(upload, source, activityClosed = activityClosed)
                 }
             }
 
@@ -715,7 +702,7 @@ private fun SubmissionCard(
                 Spacer(Modifier.height(8.dp))
                 Text("提交附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 sub.uploads.forEach { upload ->
-                    UploadCard(upload, context, api, activityClosed = activityClosed)
+                    UploadCard(upload, source, activityClosed = activityClosed)
                     if (upload.attachmentUrl.isNotEmpty()) {
                         var downloadingMarked by remember { mutableStateOf(false) }
                         TextButton(
@@ -726,19 +713,17 @@ private fun SubmissionCard(
                                 scope.launch {
                                     val markedName = upload.name.substringBeforeLast('.', upload.name) +
                                         "_批改版." + upload.name.substringAfterLast('.', "bin")
-                                    val result = withContext(Dispatchers.IO) {
-                                        saveToDownloads(context, markedName, upload.type, upload.attachmentUrl, api)
-                                    }
+                                    val result = source.saveDownload(
+                                        LmsDownloadJob(name = markedName, mimeType = upload.type, folder = "", url = upload.attachmentUrl)
+                                    )
                                     downloadingMarked = false
-                                    Toast.makeText(
-                                        context,
+                                    showBriefMessage(
                                         when (result) {
                                             LmsDownloadResult.Ok -> "批改版已保存到下载管理"
                                             LmsDownloadResult.Forbidden -> "活动已结束，学堂已关闭下载"
                                             LmsDownloadResult.Failed -> "批改版下载失败"
-                                        },
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                        }
+                                    )
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -752,7 +737,6 @@ private fun SubmissionCard(
 @Composable
 private fun ReplayVideoCard(
     video: LmsReplayVideo,
-    context: Context,
     onDownload: (() -> Unit)? = null,
     // onPlay 必须是最后一个参数：调用方用尾随 lambda 传它，
     // 放在 onDownload 之前会让尾随 lambda 绑错形参。

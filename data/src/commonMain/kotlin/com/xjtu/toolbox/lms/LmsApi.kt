@@ -13,12 +13,13 @@ import com.xjtu.toolbox.util.isArray
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import com.xjtu.toolbox.util.decodeUrlComponentOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -50,7 +51,7 @@ private fun JsonElement?.safeObject(): JsonObject? =
  * `deadline` 上游只在列表里给（详情 79 个键里没有），只能这样拿。合并不到时才退回
  * [LmsActivity.endTime]——它和真截止最多差 20 天，但总比显示"未设置截止时间"强。
  */
-internal fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
+fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
     val start = startTime?.takeIf { it.isNotBlank() } ?: brief?.startTime?.takeIf { it.isNotBlank() }
     val visibleStart = visibleStartAt?.takeIf { it.isNotBlank() } ?: brief?.visibleStartAt?.takeIf { it.isNotBlank() }
     val end = endTime?.takeIf { it.isNotBlank() } ?: brief?.endTime?.takeIf { it.isNotBlank() }
@@ -70,7 +71,7 @@ internal fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
  * 平时成绩细则）在 `data.content`。两处都试一次——实测页面型的 description 长度是 0，
  * 正文只在 content 里；讨论区的说明则在 description 里。
  */
-internal fun lmsActivityBody(data: JsonObject?): String? =
+fun lmsActivityBody(data: JsonObject?): String? =
     data?.get("description").safeString()?.takeIf { it.isNotBlank() }
         ?: data?.get("content").safeString()?.takeIf { it.isNotBlank() }
 
@@ -382,12 +383,26 @@ class LmsApi(private val site: SiteSession) {
     private suspend fun getLessonPlayerToken(lessonActivityId: Int): String {
         playerTokenCache[lessonActivityId]?.let { return it }
         val playerUrl = getLessonPlayerUrl(lessonActivityId)
-        val token = try {
-            android.net.Uri.parse(playerUrl).getQueryParameter("token")
-        } catch (_: Exception) { null }
+        val token = queryParameter(playerUrl, "token")
             ?: throw RuntimeException("没有找到视频的播放凭证，请稍后重试")
         playerTokenCache[lessonActivityId] = token
         return token
+    }
+
+    /**
+     * 取 URL 的 query 参数值（`android.net.Uri.getQueryParameter` 的等价物，百分号编码照解）。
+     * 搬迁前那行是 `android.net.Uri.parse(playerUrl).getQueryParameter("token")` ——
+     * `android.net` 进不了 `:data`（见 §5.1 那批「真硬耦合」的 Lms），换成这个手写版，语义不变。
+     */
+    private fun queryParameter(url: String, name: String): String? {
+        val queryStart = url.indexOf('?')
+        if (queryStart < 0) return null
+        val query = url.substring(queryStart + 1).substringBefore('#')
+        val raw = query.split('&').firstOrNull { it.substringBefore('=') == name }
+            ?.substringAfter('=', "")
+            ?.takeIf { it.isNotEmpty() } ?: return null
+        // Uri.getQueryParameter 返回的是解码后的值；解码失败（`%` 凑不齐两位）按原样用
+        return decodeUrlComponentOrNull(raw) ?: raw
     }
 
     private suspend fun exchangeEmbedToken(playerToken: String): String {

@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.lms
 
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
@@ -11,9 +11,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.schedule.defaultCourseColor
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,12 +41,12 @@ private const val TAG = "LmsScreen"
 
 @Composable
 internal fun CourseListPage(
-    api: LmsApi,
+    source: LmsSource,
     cache: LmsPageCache,
     onBack: () -> Unit,
     onCourseSelected: (LmsCourseSummary) -> Unit
 ) {
-    val appLoginState = LocalAppLoginState.current
+    val authExpiry = LocalAuthExpiry.current
     val courses = cache.courses
     var isLoading by remember { mutableStateOf(cache.courses.isEmpty()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -68,12 +66,14 @@ internal fun CourseListPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.syncCourses(api)
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
+                cache.syncCourses(source)
             } catch (e: Exception) {
-                Log.e(TAG, "loadCourses error", e)
-                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程")
+                if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
+                    authExpiry.onAuthExpired(AppRoute.Lms(), onBack)
+                } else {
+                    Log.e(TAG, "loadCourses error", e)
+                    errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程")
+                }
             } finally {
                 isLoading = false
             }

@@ -71,6 +71,9 @@ import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.dormpower.DormPowerApi
 import com.xjtu.toolbox.dormpower.DormPowerScreen
+import com.xjtu.toolbox.lms.AppLmsSource
+import com.xjtu.toolbox.lms.LmsScreen
+import com.xjtu.toolbox.desktop.lms.DesktopLmsSaver
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
@@ -222,6 +225,11 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.DormPower to "宿舍电费",
 
     AppRoute.Attendance to "考勤",
+    // `Lms` 是带 `courseId` 的 data class（其余多数是 data object）⇒ 这一栏要用**默认实例**
+    // `AppRoute.Lms()`（`id` = "lms"，与 :app 服务表里那一条同一个 id）。
+    AppRoute.Lms() to "思源学堂",
+
+
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -649,6 +657,30 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onOpenIclassface = { onNavigate(DesktopTarget.App(AppRoute.Iclassface)) },
             )
         }
+        // 思源学堂（第十八条真数据路由）：站点是 **https** 的 `lms.xjtu.edu.cn`，而且**不借别的
+        // 已搬站点的会话** —— `LmsLogin.loginUrl` 就是 lms 根路径：先摸 lms → 302 到统一认证
+        //（CAS 签票）→ 回跳 lms 种 session cookie，与教务同型（没有 dzpz/coupon 那种独立登录页）。
+        // 会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它。
+        //
+        // 屏在 `:core`（`LmsScreen`：课程列表 → 活动列表 → 活动详情，画法与文案一行未改），取数是
+        // `:data` 的 `AppLmsSource`（包住搬进 `:data` 的 `LmsApi`）。落盘是 `DesktopLmsSaver`
+        //（写 `~/Downloads/<课程名>/…`；桌面没有 MediaStore 与「我的 · 下载管理」，也没有回放
+        // 下载队列 ⇒ `supportsVideoQueue = false`，批量对话框不露出「课堂回放」那一档）；落盘缓存
+        // 传 null（桌面没有按账号分文件的宿主存储）。视频播放器（ExoPlayer 全屏页，Android 专属
+        // 组件）⇒ `videoPlayer` 不传，点播放给如实说明页。
+        // `Lms` 带 `courseId`（`lms?courseId=`）⇒ 与 `:app` 的 `entry<AppRoute.Lms>` 同一条口径：
+        // **按类型**分派（`is`），带不带 courseId 都进这一屏（屏自己按 courseId 决定落哪门课）。
+        is AppRoute.Lms -> DesktopSiteGate(auth, DesktopAuth.LMS_SITE_KEY, "思源学堂") { site ->
+            val hintPrefs = remember { keyValueStore("feature_hints") }
+            LmsScreen(
+                source = remember(site) { AppLmsSource(site, DesktopLmsSaver) },
+                onBack = back,
+                cacheStore = null,
+                showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
+                onFirstUseHintRead = { hintPrefs.putBoolean("lms_hint_shown", true) },
+            )
+        }
+
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },

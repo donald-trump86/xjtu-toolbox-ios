@@ -68,6 +68,9 @@ import com.xjtu.toolbox.jwapp.JwappScoreScreen
 import com.xjtu.toolbox.library.AppLibrarySource
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.LibraryStatus
+import com.xjtu.toolbox.lms.AppLmsCache
+import com.xjtu.toolbox.lms.AppLmsSink
+import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.main.AppRouter
 import com.xjtu.toolbox.media.DownloadManagerScreen
@@ -368,7 +371,35 @@ fun AppNavHost(
             DownloadManagerScreen(onBack = back)
         }
         entry<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { route ->
-            WithSite("lms") { LmsScreen(site = it, onBack = back, initialCourseId = route.courseId) }
+            // 思源学堂整域已搬进共享内核（桌面端第 18 条真数据路由）：屏在 `:core`（同一条路由在
+            // 桌面也在用），这里只填三件宿主能力 —— 取数 `AppLmsSource`（包住 `:data` 的 LmsApi，
+            // 与桌面**同一份实现**）、落盘 `AppLmsSink`（MediaStore + 下载管理，方法体原样搬出）、
+            // 落盘缓存 `AppLmsCache`（DataCache，按账号分命名空间，老缓存照旧读得出）、
+            // 视频播放器（内置 ExoPlayer 全屏页，Android 专属 —— 桌面没有它，见 `:core` 屏的 slot）。
+            WithSite("lms") { site ->
+                val lmsContext = LocalContext.current
+                val accountId = loginState.accountId
+                val hintPrefs = remember { lmsContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
+                LmsScreen(
+                    source = remember(site) { AppLmsSource(site, AppLmsSink(lmsContext)) },
+                    onBack = back,
+                    initialCourseId = route.courseId,
+                    cacheStore = remember(accountId) { AppLmsCache(lmsContext, accountId.ifEmpty { null }) },
+                    showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
+                    onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },
+                    videoPlayer = { request, close ->
+                        com.xjtu.toolbox.media.DirectVideoPlayerScreen(
+                            instructorUrl = request.instructorUrl,
+                            encoderUrl = request.encoderUrl,
+                            title = request.title,
+                            headers = request.headers,
+                            isLive = request.isLive,
+                            startInDual = request.startInDual,
+                            onBack = close,
+                        )
+                    },
+                )
+            }
         }
         entry<AppRoute.Jiaocai>(transition = expand(AppRoute.Jiaocai::class)) {
             WithSite("jiaocai") {

@@ -27,10 +27,12 @@ import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
+import com.xjtu.toolbox.lms.LmsFakeUpstream
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.yellowpage.YellowPageApi
@@ -66,6 +68,7 @@ import kotlinx.coroutines.runBlocking
  * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
  * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
  * | `attendance.png` | 考勤屏（真路由：外壳 → `AppRoute.Attendance` → `DesktopSiteGate` → `AppAttendanceSource`） | 第十六条真数据路由：`bk-kq.xjtu.edu.cn` **有自己的独立登录入口**（`AttendanceLogin` 直连业务站的 CAS `student-pc` 入口 → 回调带 loginRequestId+ticket 换业务令牌），屏/VM 与取数端口都在 `:core`，桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认；图上「流水」那一栏的夹具课名（光电子学（假））与姓名行都是夹具样本 |
+ * | `lms.png` | 思源学堂屏（真路由：外壳 → `AppRoute.Lms` → `DesktopSiteGate` → `AppLmsSource`） | 第十八条真数据路由：`lms.xjtu.edu.cn` **直接 CAS 回跳**（`LmsLogin.loginUrl` = lms 根路径，与教务同型、没有独立登录页），屏在 `:core`，落盘是 `DesktopLmsSaver`；图上课程列表那门夹具课（数据结构（示例课））与老师名都是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -420,6 +423,28 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Attendance)) }
         check(attendanceShown) {
             "attendance.png：屏上没有夹具那条课名（${AttendanceFakeUpstream.COURSE_NAME}）—— 多半没取到数"
+        }
+
+        // 思源学堂（第十八条真数据路由）：走**真路由**（外壳 → `AppRoute.Lms` → `DesktopSiteGate`
+        // → `AppLmsSource`）。登录链直连 lms 根路径 → 统一认证 CAS 回跳（与教务同型，没有独立
+        // 登录页；那台 CAS 仍由 [LibraryFakeUpstream] 扮演）。图上应当是课程列表：夹具那门课
+        //（数据结构（示例课））的课程卡 —— 不是错误页，也不是转圈。
+        // ⚠️ 先把「功能说明弹过了没」置成已读：lms 的说明弹窗用的是 WindowDialog（在离屏场景里
+        // 是独立 AWT 窗口，建不出来 —— 见文件头那条坑），置已读就不会弹。
+        keyValueStore("feature_hints").putBoolean("lms_hint_shown", true)
+        var lmsShown = false
+        shot(
+            "lms.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!lmsShown && frame >= 5) lmsShown = hasText(scene, LmsFakeUpstream.COURSE_NAME)
+            },
+        // ⚠️ `Lms` 是带 `courseId` 的 data class（`@Serializable` ⇒ 它有一个合成的 Companion）
+        // ⇒ 这里必须写默认实例 `AppRoute.Lms()`；只写 `AppRoute.Lms` 拿到的是那个 Companion，
+        // 类型对不上（而且不会报在报错看得见的地方）。
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Lms())) }
+        check(lmsShown) {
+            "lms.png：屏上没有夹具那门课（${LmsFakeUpstream.COURSE_NAME}）—— 多半没取到数"
         }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，

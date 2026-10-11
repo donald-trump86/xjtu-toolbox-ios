@@ -22,6 +22,7 @@ import com.xjtu.toolbox.auth.VenueSession
 import com.xjtu.toolbox.auth.YwtbSession
 import com.xjtu.toolbox.auth.SsnSession
 import com.xjtu.toolbox.auth.AttendanceSession
+import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.error.FriendlyError
@@ -136,6 +137,13 @@ class DesktopAuth(
         // 门户），CAS 回调带 loginRequestId+ticket 换业务令牌 —— 不借校园卡 / 教务的会话（见
         // `AttendanceSession` 的 KDoc）。与校园卡/场馆一样，「登录页那一步」只是尽力预热它。
         register(AttendanceSession())
+
+        // 思源学堂（`:data` 的 `LmsSession` + `LmsLogin`）：`lms` 这条路由进门时要用它
+        //（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**不借别的已搬站点的会话** ——
+        // 直接 CAS 回跳（`LmsLogin.loginUrl` = lms 根路径 → 302 到统一认证 → 回 lms 种会话 cookie，
+        // 与教务同型；不是 dzpz/coupon 那种自带独立登录页）。与校园卡/场馆一样，
+        // 「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
+        register(LmsSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -378,6 +386,10 @@ class DesktopAuth(
 
         /** 考勤（`new_attendance`）。考勤那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
         const val ATTENDANCE_SITE_KEY = AttendanceSession.SITE_KEY
+
+        /** 思源学堂（`lms`）。那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val LMS_SITE_KEY = LmsSession.SITE_KEY
+
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
@@ -400,6 +412,9 @@ class DesktopAuth(
             SSN_SITE_KEY,
 
             ATTENDANCE_SITE_KEY,
+
+            LMS_SITE_KEY,
+
         )
     }
 }

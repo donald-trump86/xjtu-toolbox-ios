@@ -2,9 +2,6 @@ package com.xjtu.toolbox.lms
 
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
-import android.content.ContentValues
-import android.content.Context
-import android.provider.MediaStore
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -20,37 +17,54 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.nav.AppRoute
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+/**
+ * 思源学堂（课程学习平台）的路由外壳与课程列表 —— 屏从 `:app` 搬进 `:core`（桌面端第 18 条真数据
+ * 路由），取数与落盘都切了缝（下表即「原来」→「现在」）：
+ *
+ * | 原来 | 现在 |
+ * |---|---|
+ * | `site: SiteSession` + 屏上 `LmsApi(site)` | [source]（`:data` 的 `AppLmsSource`，包住搬进 `:data` 的 `LmsApi`） |
+ * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
+ * | `DataCache(context, accountId)` 落盘 | [LmsCacheStore] 端口（`:app` 按账号建、桌面传 null = 不缓存） |
+ * | `context.getSharedPreferences("feature_hints")` | [showFirstUseHint] / [onFirstUseHintRead] 槽位 |
+ * | `media.DirectVideoPlayerScreen(...)`（Android 的 ExoPlayer 全屏页） | [videoPlayer] 槽位；不传就是如实说明页（桌面端） |
+ * | 课件落盘走 `MediaStore` + 下载管理 | `source.saveDownload(...)`（`:app` = `AppLmsSink`，桌面 = `DesktopLmsSaver`） |
+ * | `"%.1f".format(...)` / `java.time` 格式化时间 | 手写格式化（[formatLmsTime]；`java.time` 是 JVM 专属，`:core` 还要编到 wasm） |
+ *
+ * **画法与文案一行未改**：三个页面（课程列表 / 活动列表 / 活动详情）、深链占位、返回栈口径、
+ * 学期与类型筛选、提交态补查、批量下载的编排都照搬。
+ */
 /**
  * 页面数据缓存。
  *
  * [LmsScreen] 在课程列表 / 活动列表 / 活动详情之间切换时始终保持组合，数据和筛选放这里，
  * 返回上一层不再请求、也不丢筛选。课程列表和活动列表另外落盘：下次进来先显示上次的，
  * 联网拿到再换上，不用对着转圈等登录和请求。
+ *
+ * 落盘那一半是宿主缝（[LmsCacheStore]）：搬迁前这里写的是 `DataCache`（Android 的按账号
+ * SharedPreferences），现在由调用方传进来；`null` = 本端没有那份存储（桌面端），不缓存。
  */
-internal class LmsPageCache(private val disk: DataCache) {
+internal class LmsPageCache(private val disk: LmsCacheStore?) {
     var courses by mutableStateOf<List<LmsCourseSummary>>(emptyList())
     var selectedSemester by mutableStateOf<String?>(null)
     val activities = mutableStateMapOf<Int, List<LmsActivity>>()
@@ -64,16 +78,16 @@ internal class LmsPageCache(private val disk: DataCache) {
 
     fun activitiesSynced(courseId: Int) = courseId in syncedActivities
 
-    suspend fun syncCourses(api: LmsApi) {
-        if (courses.isEmpty()) disk.readIo<List<LmsCourseSummary>>(COURSES_KEY)?.let { courses = it }
-        courses = withContext(Dispatchers.IO) { api.getMyCourses().also { disk.writeSafe(COURSES_KEY, it) } }
+    /** 取数与落盘的 IO 都由实现方自己包（见 [LmsSource] / [LmsCacheStore]），这里只按顺序编排。 */
+    suspend fun syncCourses(source: LmsSource) {
+        if (courses.isEmpty()) disk?.readCourses()?.let { courses = it }
+        courses = source.myCourses().also { writeSafe { disk?.writeCourses(it) } }
         coursesSynced = true
     }
 
-    suspend fun syncActivities(api: LmsApi, courseId: Int) {
-        val key = "lms_activities_$courseId"
-        if (activities[courseId] == null) disk.readIo<List<LmsActivity>>(key)?.let { activities[courseId] = it }
-        activities[courseId] = withContext(Dispatchers.IO) { api.getCourseActivities(courseId).also { disk.writeSafe(key, it) } }
+    suspend fun syncActivities(source: LmsSource, courseId: Int) {
+        if (activities[courseId] == null) disk?.readActivities(courseId)?.let { activities[courseId] = it }
+        activities[courseId] = source.courseActivities(courseId).also { writeSafe { disk?.writeActivities(courseId, it) } }
         syncedActivities += courseId
     }
 
@@ -85,29 +99,26 @@ internal class LmsPageCache(private val disk: DataCache) {
         details[activity.id]?.let { it.userSubmitCount > 0 } ?: submittedById[activity.id]
 
     /** 并发查没查过的作业，查完一起写入，列表只重排一次；查失败的下次再查。 */
-    suspend fun syncSubmitted(api: LmsApi, homework: List<LmsActivity>) {
+    suspend fun syncSubmitted(source: LmsSource, homework: List<LmsActivity>) {
         val todo = homework.filter { submitted(it) == null }
         if (todo.isEmpty()) return
         val gate = Semaphore(4)
         val found = coroutineScope {
+            // 只限并发，不挑调度器：IO 由取数实现自己包（搬迁前这里是 Dispatchers.IO，
+            // 而 `:core` commonMain 连它都没有 —— wasm 没有 IO 调度器）。
             todo.map { a ->
-                async(Dispatchers.IO) { gate.withPermit { runCatching { a.id to (api.getUserSubmitCount(a.id) > 0) }.getOrNull() } }
+                async { gate.withPermit { runCatching { a.id to (source.userSubmitCount(a.id) > 0) }.getOrNull() } }
             }.awaitAll().filterNotNull()
         }
         submittedById.putAll(found)
     }
 
-    private suspend inline fun <reified T> DataCache.readIo(key: String): T? =
-        withContext(Dispatchers.IO) { read<T>(key, DataCache.TERM_TTL_MS) }
-
-    private inline fun <reified T> DataCache.writeSafe(key: String, value: T) {
-        runCatching { write(key, value) }.onFailure { android.util.Log.w("LmsPageCache", "write $key failed", it) }
-    }
-
-    private companion object {
-        const val COURSES_KEY = "lms_courses"
+    /** 落盘失败只记日志，不影响这一次取数的结果（与搬迁前的 `writeSafe` 逐字同义）。 */
+    private inline fun writeSafe(block: () -> Unit) {
+        runCatching { block() }.onFailure { Log.w("LmsPageCache", "write lms cache failed", it) }
     }
 }
+
 // ════════════════════════════════════════
 //  导航状态
 // ════════════════════════════════════════
@@ -133,7 +144,8 @@ private sealed class LmsPage {
 
 @Composable
 fun LmsScreen(
-    site: SiteSession,
+    /** 本端的取数与落盘（Android / 桌面 = `:data` 的 `AppLmsSource`）。 */
+    source: LmsSource,
     onBack: () -> Unit,
     /**
      * 从日程页点「思源学堂」进来时带的课程 ID：课程列表一到就直接翻到那门课的活动页。
@@ -141,16 +153,27 @@ fun LmsScreen(
      * 用户到了他要去的系统，只是少了一跳。
      */
     initialCourseId: Int? = null,
+    /**
+     * 课程列表 / 活动列表的落盘缓存：[LmsCacheStore] 已在**按账号分命名空间**那一层建好
+     *（`:app` 的 `AppLmsCache` 用 `remember(accountId)` 包；桌面传 null = 不缓存，取数照常）。
+     */
+    cacheStore: LmsCacheStore? = null,
+    /** 「功能说明」弹过了没。`:app` 与原实现同一个 pref 文件、同一个键（`feature_hints` / `lms_hint_shown`）。 */
+    showFirstUseHint: Boolean = false,
+    onFirstUseHintRead: () -> Unit = {},
+    /**
+     * 视频播放槽位：`:app` 传内置播放器的全屏页（`media.DirectVideoPlayerScreen`，ExoPlayer）；
+     * 桌面端没有播放器（ExoPlayer 是 Android 专属组件）⇒ 不传，屏上给一句如实说明页。
+     * TODO：桌面播放器属《桌面端移植方案》§5.4 的宿主能力族，本轮只降级不假装。
+     */
+    videoPlayer: (@Composable (request: LmsVideoRequest, onClose: () -> Unit) -> Unit)? = null,
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val context = LocalContext.current
-    val api = remember(site) { LmsApi(site) }
+    val authExpiry = LocalAuthExpiry.current
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
-    // DataCache 构造时绑定账号，切账号后必须换新实例
-    val cache = remember(appLoginState.accountId) {
-        LmsPageCache(DataCache(context, appLoginState.accountId.ifEmpty { null }))
-    }
+    // 落盘缓存按账号分命名空间（`:app` 的实现是 `AppLmsCache`，切账号会换新实例），
+    // 所以那份实例由调用方 remember 后传进来，这里只按它缓存数据。
+    val cache = remember(cacheStore) { LmsPageCache(cacheStore) }
 
     // 只跳一次：跳完把意图消费掉，否则用户从活动页返回课程列表会被立刻弹回去。
     var pendingCourseId by remember { mutableStateOf(initialCourseId) }
@@ -164,7 +187,7 @@ fun LmsScreen(
         // 匹配上并清掉它，那样会把还在进行的联网刷新取消掉。
         if (pendingCourseId != null && !cache.coursesSynced) {
             runCatching {
-                cache.syncCourses(api)
+                cache.syncCourses(source)
             }.onSuccess {
                 if (cache.courses.isEmpty()) { pendingCourseId = null; listPlaceholder = false }
             }.onFailure {
@@ -185,12 +208,15 @@ fun LmsScreen(
         if (hit != null) currentPage = LmsPage.ActivityList(hit) else listPlaceholder = false
     }
 
-    // 首次使用提示
-    val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
-    val showHint = remember { mutableStateOf(!prefs.getBoolean("lms_hint_shown", false)) }
+    // 首次使用提示（`:app` 与原实现同一个 pref 文件、同一个键；桌面端也走 `keyValueStore` 的同一份）
+    val showHint = remember(showFirstUseHint) { mutableStateOf(showFirstUseHint) }
+    fun dismissHint() {
+        showHint.value = false
+        onFirstUseHintRead()
+    }
 
     if (showHint.value) {
-        BackHandler { showHint.value = false; prefs.edit().putBoolean("lms_hint_shown", true).apply() }
+        BackHandler { dismissHint() }
         // 用 Window* 而非 Overlay*：本函数是路由外壳，Scaffold 在各子页面里
         // （CourseListPage / ActivityListPage…），而 Overlay* 需要 Scaffold 提供的
         // LocalDialogStates 宿主才会渲染，写在外壳里拿不到宿主会静默不显示。
@@ -199,10 +225,7 @@ fun LmsScreen(
             show = showHint.value,
             title = "功能说明",
             summary = "数据来自思源学堂 lms.xjtu.edu.cn",
-            onDismissRequest = {
-                showHint.value = false
-                prefs.edit().putBoolean("lms_hint_shown", true).apply()
-            }
+            onDismissRequest = { dismissHint() }
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Text(
@@ -213,10 +236,7 @@ fun LmsScreen(
                 Spacer(Modifier.height(12.dp))
                 TextButton(
                     text = "知道了",
-                    onClick = {
-                        showHint.value = false
-                        prefs.edit().putBoolean("lms_hint_shown", true).apply()
-                    },
+                    onClick = { dismissHint() },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -244,17 +264,23 @@ fun LmsScreen(
     }
 
     // 视频播放器独立渲染（全屏，不参与 AnimatedContent）
+    // 视频播放器独立渲染（全屏，不参与 AnimatedContent）；没有播放器槽位时给一句如实说明
     val videoPage = currentPage as? LmsPage.VideoPlayer
     if (videoPage != null) {
-        com.xjtu.toolbox.media.DirectVideoPlayerScreen(
+        val request = LmsVideoRequest(
+            title = videoPage.title,
             instructorUrl = videoPage.instructorUrl,
             encoderUrl = videoPage.encoderUrl,
-            title = videoPage.title,
-            headers = videoPage.headers,
             isLive = videoPage.isLive,
+            headers = videoPage.headers,
             startInDual = videoPage.startInDual,
-            onBack = { currentPage = videoPage.returnPage }
         )
+        val close = { currentPage = videoPage.returnPage }
+        if (videoPlayer != null) {
+            videoPlayer(request, close)
+        } else {
+            LmsVideoUnavailable(request, close)
+        }
         return
     }
 
@@ -288,14 +314,14 @@ fun LmsScreen(
                 }
             } else {
                 CourseListPage(
-                    api = api,
+                    source = source,
                     cache = cache,
                     onBack = onBack,
                     onCourseSelected = { currentPage = LmsPage.ActivityList(it) }
                 )
             }
             is LmsPage.ActivityList -> ActivityListPage(
-                api = api,
+                source = source,
                 cache = cache,
                 course = page.course,
                 // 标题栏的返回箭头要和系统返回键一致：深链进来的直接退出，
@@ -304,7 +330,7 @@ fun LmsScreen(
                 onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) }
             )
             is LmsPage.ActivityDetail -> ActivityDetailPage(
-                api = api,
+                source = source,
                 cache = cache,
                 course = page.course,
                 activity = page.activity,
@@ -396,54 +422,42 @@ internal fun downloadToast(result: LmsDownloadResult): String = when (result) {
     LmsDownloadResult.Forbidden -> "活动已结束，学堂已关闭下载"
     LmsDownloadResult.Failed -> "下载失败"
 }
-internal suspend fun saveUploadToDownloads(context: Context, upload: LmsUpload, api: LmsApi): LmsDownloadResult =
-    saveToDownloads(context, upload.name, upload.type, url = null, api = api, upload = upload)
-internal suspend fun saveToDownloads(
-    context: Context,
-    name: String,
-    mimeType: String,
-    url: String?,
-    api: LmsApi,
-    upload: LmsUpload? = null,
-): LmsDownloadResult {
-    val mime = mimeType.ifBlank { "application/octet-stream" }
-    val cv = ContentValues().apply {
-        put(MediaStore.Downloads.DISPLAY_NAME, name)
-        put(MediaStore.Downloads.MIME_TYPE, mime)
-        put(MediaStore.Downloads.RELATIVE_PATH, LmsDownloadStore.RELATIVE_PATH)
-        put(MediaStore.Downloads.IS_PENDING, 1)
-    }
-    val resolver = context.contentResolver
-    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
-        ?: return LmsDownloadResult.Failed
-    return try {
-        val out = resolver.openOutputStream(uri) ?: return LmsDownloadResult.Failed
-        val result = out.use { stream ->
-            if (upload != null) api.downloadUpload(upload, stream)
-            else if (api.downloadToStream(checkNotNull(url), stream)) LmsDownloadResult.Ok
-            else LmsDownloadResult.Failed
-        }
-        cv.clear()
-        cv.put(MediaStore.Downloads.IS_PENDING, 0)
-        resolver.update(uri, cv, null, null)
-        if (result is LmsDownloadResult.Ok) {
-            LmsDownloadStore.add(
-                context,
-                LmsDownloadRecord(
-                    name = name,
-                    mimeType = mime,
-                    uri = uri.toString(),
-                    savedAt = System.currentTimeMillis(),
-                    category = LmsDownloadStore.CATEGORY_LMS
-                )
-            )
-        } else {
-            resolver.delete(uri, null, null)
-        }
-        result
-    } catch (e: Exception) {
-        resolver.delete(uri, null, null)
-        LmsDownloadResult.Failed
+
+/**
+ * 一个视频播放请求（直播 HLS / 单机位回放 / 多机位）—— [LmsScreen.videoPlayer] 槽位的参数。
+ */
+data class LmsVideoRequest(
+    val title: String,
+    val instructorUrl: String?,
+    val encoderUrl: String?,
+    val isLive: Boolean,
+    val headers: Map<String, String> = emptyMap(),
+    val startInDual: Boolean = false,
+)
+
+/**
+ * 没有播放器槽位时的如实说明页（桌面端）：视频播放器是 Android 专属组件（ExoPlayer 全屏页），
+ * 这一轮没搬 —— 不假装能播，把「这一端做不到什么」写在脸上。TODO 见 [LmsScreen] 的 KDoc。
+ */
+@Composable
+private fun LmsVideoUnavailable(request: LmsVideoRequest, onBack: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(request.title, color = MiuixTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "这一端没有视频播放器，播不了直播与回放。",
+            color = MiuixTheme.colorScheme.error,
+            fontSize = 13.sp,
+        )
+        Text(
+            "播放器是 Android 专属组件（ExoPlayer 全屏页），还没收成共享端口 —— TODO：桌面播放器" +
+                "属《桌面端移植方案》§5.4 的宿主能力族，这一轮只降级不假装。",
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            fontSize = 12.sp,
+        )
+        TextButton(text = "返回", onClick = onBack, minWidth = 120.dp)
     }
 }
 internal fun fileTypeIcon(type: String): ImageVector = when {
@@ -467,7 +481,7 @@ internal fun fileTypeIcon(type: String): ImageVector = when {
  * 其余类型：只给 `start_time ~ end_time`，不加标签——课堂/直播的 endTime 是下课时间，
  * 叫「截止」是错的。
  */
-internal fun lmsActivityTimeLine(activity: LmsActivity): String {
+fun lmsActivityTimeLine(activity: LmsActivity): String {
     val isHomework = activity.type == LmsActivityType.HOMEWORK
     val begin = activity.startTime ?: activity.visibleStartAt
     val beginLabel = if (!isHomework) "" else if (activity.startTime == null) "可见 " else "开始 "
@@ -484,16 +498,16 @@ internal fun lmsActivityTimeLine(activity: LmsActivity): String {
 /**
  * 格式化 LMS 时间字符串 (ISO 8601 → 友好显示)
  */
-internal fun formatLmsTime(raw: String): String {
-    return try {
-        val zdt = java.time.ZonedDateTime.parse(raw)
-        zdt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
-    } catch (_: Exception) {
-        try {
-            val ldt = java.time.LocalDateTime.parse(raw.replace(" ", "T"))
-            ldt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
-        } catch (_: Exception) {
-            raw.take(16).replace("T", " ")
-        }
+fun formatLmsTime(raw: String): String {
+    // 上游给的是带偏移量的 ISO 串（`2026-09-16T00:38:21Z` 或 `…+08:00[Asia/Shanghai]`）。
+    // 搬迁前用 `java.time.ZonedDateTime.parse(...).format(...)` —— 输出就是字符串里写着的
+    // 年月日时分（偏移量只有被显式写在串里时才换算，写 `Z`/`+08:00` 都是原样打印）。
+    // `java.time` 是 JVM 专属进不了 `:core`（wasm 编不过），所以这里直接取时间数字段 ——
+    // 对上面两种形状输出逐字一致（`:app` 的 `LmsActivityTimeLineTest` 钉着）。
+    val m = Regex("""(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})""").find(raw)
+    if (m != null) {
+        val (y, mo, d, h, mi) = m.destructured
+        return "$y/$mo/$d $h:$mi"
     }
+    return raw.take(16).replace("T", " ")
 }

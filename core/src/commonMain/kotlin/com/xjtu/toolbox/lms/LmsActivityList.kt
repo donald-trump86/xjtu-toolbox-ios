@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.lms
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -13,16 +13,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.schedule.CourseColorDialog
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,19 +44,18 @@ private const val TAG = "LmsScreen"
 
 @Composable
 internal fun ActivityListPage(
-    api: LmsApi,
+    source: LmsSource,
     cache: LmsPageCache,
     course: LmsCourseSummary,
     onBack: () -> Unit,
     onActivitySelected: (LmsActivity) -> Unit
 ) {
-    val appLoginState = LocalAppLoginState.current
+    val authExpiry = LocalAuthExpiry.current
     val activities = cache.activities[course.id].orEmpty()
     var isLoading by remember { mutableStateOf(cache.activities[course.id] == null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var selectedType by remember { mutableStateOf(cache.selectedTypes[course.id]) }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
     // ── 批量下载（照 yan-xiaoo/XJTUToolBox）：勾选活动 → 选下载内容 → 后台收集并下载 ──
     var selecting by remember { mutableStateOf(false) }
@@ -80,12 +76,14 @@ internal fun ActivityListPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.syncActivities(api, course.id)
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
+                cache.syncActivities(source, course.id)
             } catch (e: Exception) {
-                Log.e(TAG, "loadActivities error", e)
-                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载活动")
+                if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
+                    authExpiry.onAuthExpired(AppRoute.Lms(), onBack)
+                } else {
+                    Log.e(TAG, "loadActivities error", e)
+                    errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载活动")
+                }
             } finally {
                 isLoading = false
             }
@@ -101,7 +99,7 @@ internal fun ActivityListPage(
     // 只看作业时（筛了「作业」，或这门课只有作业）补查提交态，交过的沉底
     val homeworkOnly = (selectedType ?: types.singleOrNull()) == LmsActivityType.HOMEWORK
     LaunchedEffect(homeworkOnly, activities) {
-        if (homeworkOnly) cache.syncSubmitted(api, activities.filter { it.type == LmsActivityType.HOMEWORK })
+        if (homeworkOnly) cache.syncSubmitted(source, activities.filter { it.type == LmsActivityType.HOMEWORK })
     }
 
     val filtered = (if (selectedType == null) activities else activities.filter { it.type == selectedType })
@@ -140,12 +138,14 @@ internal fun ActivityListPage(
         if (showBatchDialog) {
             BatchDownloadDialog(
                 count = picked.size,
+                pathLabel = source.publicPathLabel(),
+                supportsVideoQueue = source.supportsVideoQueue,
                 hasHomework = activities.any { it.id in picked && it.type == LmsActivityType.HOMEWORK },
                 hasLesson = activities.any { it.id in picked && it.type == LmsActivityType.LESSON },
                 onDismiss = { showBatchDialog = false },
                 onStart = { options ->
                     showBatchDialog = false
-                    LmsBatchDownload.start(context, api, course.name, activities.filter { it.id in picked }, options)
+                    LmsBatchDownload.start(source, course.name, activities.filter { it.id in picked }, options)
                     selecting = false
                     picked.clear()
                 },
@@ -205,7 +205,7 @@ internal fun ActivityListPage(
                         }
                         val batch = batchState
                         if (batch !is LmsBatchDownload.State.Idle) fullLineItem(key = "batch") {
-                            BatchProgressCard(batch)
+                            BatchProgressCard(batch, source.publicPathLabel())
                         }
                         fullLineItem(key = "count") {
                             Text(
@@ -278,6 +278,10 @@ private val BATCH_TYPES = setOf(LmsActivityType.MATERIAL, LmsActivityType.HOMEWO
 @Composable
 private fun BatchDownloadDialog(
     count: Int,
+    /** 「下载到哪儿」的展示前缀（Android = `Download/XJTUToolBox/`，桌面 = `~/Downloads/`）。 */
+    pathLabel: String,
+    /** 本端能不能把回放排进下载队列 —— 不能时「课堂回放」那一行不露出（桌面端）。 */
+    supportsVideoQueue: Boolean,
     hasHomework: Boolean,
     hasLesson: Boolean,
     onDismiss: () -> Unit,
@@ -292,7 +296,7 @@ private fun BatchDownloadDialog(
     top.yukonga.miuix.kmp.overlay.OverlayDialog(
         show = true,
         title = "批量下载 $count 个活动",
-        summary = "存到「${LmsDownloadStore.publicDisplayPath()}课程名/」",
+        summary = "存到「${pathLabel}课程名/」",
         onDismissRequest = onDismiss,
     ) {
         Column {
@@ -301,8 +305,9 @@ private fun BatchDownloadDialog(
             if (hasHomework) {
                 BatchOptionRow("我的提交", "自己交过的作业文件", submissions) { submissions = it }
                 BatchOptionRow("批阅附件", "老师批改后的标注版", marked) { marked = it }
+            if (hasLesson && supportsVideoQueue) {
+                BatchOptionRow("课堂回放", "视频较大，加入下载管理排队下载", replays) { replays = it }
             }
-            if (hasLesson) {
                 BatchOptionRow("课堂回放", "视频较大，加入下载管理排队下载", replays) { replays = it }
             }
             Spacer(Modifier.height(16.dp))
@@ -312,7 +317,7 @@ private fun BatchDownloadDialog(
                 TextButton(
                     text = "开始下载",
                     onClick = {
-                        onStart(LmsBatchDownload.Options(perActivity, uploads, submissions && hasHomework, marked && hasHomework, replays && hasLesson))
+                        onStart(LmsBatchDownload.Options(perActivity, uploads, submissions && hasHomework, marked && hasHomework, replays && hasLesson && supportsVideoQueue))
                     },
                     enabled = uploads || (hasHomework && (submissions || marked)) || (hasLesson && replays),
                     modifier = Modifier.weight(1f),
@@ -333,7 +338,7 @@ private fun BatchOptionRow(title: String, summary: String, checked: Boolean, onC
     }
 }
 @Composable
-private fun BatchProgressCard(state: LmsBatchDownload.State) {
+private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer),
@@ -376,7 +381,7 @@ private fun BatchProgressCard(state: LmsBatchDownload.State) {
                             }
                             if (notes.isNotEmpty()) Text(notes.joinToString("；"), style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            Text("在「${LmsDownloadStore.publicDisplayPath()}${state.courseName}」",
+                            Text("在「${pathLabel}${state.courseName}」",
                                 style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         TextButton(text = "知道了", onClick = { LmsBatchDownload.dismiss() })

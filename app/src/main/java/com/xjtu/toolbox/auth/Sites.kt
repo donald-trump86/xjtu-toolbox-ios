@@ -85,22 +85,11 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = fal
 // 类名与包路径都没变 ⇒ 下面 AppLoginState / HeadlessSessions 的 `register(...)` 一行不用改。
 
 // ── LMS 思源学堂 ─────────────────────────────────────────────────────
-
-// mustUseWebVpn=false：永远直连原域名。护网结束后 lms.xjtu.edu.cn 已放开公网直连，
-// 校外通常也可用；若学校重新收紧，需连校园官方 VPN 或回到校园网。
-class LmsSession : CasSiteSession("lms", "思源学堂", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.lms.LmsLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        // 活动已结束时 /api/uploads/{id}/blob 也是 403 + 「没有权限」。
-        // 这是业务拒绝，不是掉登录，按 403 重登只会空转。
-        if (response.code == 403 && bodyPreview?.contains("没有权限") == true) return false
-        if (response.code == 401 || XJTULogin.isCasLoginUrl(response.request.url)) return true
-        if (bodyPreview != null) return XJTULogin.isAuthFailureResponse(bodyPreview)
-        return false
-    }
-}
+// `LmsSession` 与它的 `LmsLogin` 已搬进 `:data`（同一个包、同一个类名）：思源学堂是
+// 「桌面端第 18 条真数据路由」，桌面要自己登 lms、自己取课程/活动/详情。类名与包路径都
+// 没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处 `register(LmsSession())`、
+// `LmsDeadlineWorker` / `OwnInbox` / `DownloadManagerScreen` / `ProfileTab` 里那些取数调用点，
+// 一行都不用改。
 
 // ── ICLASSFACE 人脸识别签到 ──────────────────────────────────────────────
 
