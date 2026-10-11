@@ -67,6 +67,7 @@ import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
+import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.jiaocai.AppJiaocaiSource
@@ -472,6 +473,10 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             } else {
                 ScoreReportScreen(
                     source = remember(site, studentId) { scoreReportSource(site, studentId) },
+                    // SWR 缓存：与 `:app` 同一个键（`score_report_$studentId`）。读到旧成绩先秒显、
+                    // 同时再拉一发；拉回来写回去。`:desktop` 这边落在平台键值缝上
+                    // （见 DesktopScoreReportCache；`:app` 的那一份仍在 `:app`，本批零改动）。
+                    cache = remember(studentId) { DesktopScoreReportCache(studentId) },
                     onBack = back,
                 )
             }
