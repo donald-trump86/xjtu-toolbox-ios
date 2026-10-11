@@ -108,6 +108,8 @@ import com.xjtu.toolbox.pay.PaymentCodeApi
 import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
+import com.xjtu.toolbox.settings.SettingsScreen
+import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.appRouteOf
@@ -187,6 +189,16 @@ internal fun ToolboxDesktopApp(
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
 
+    // 外观设置：`:core` 的 `SettingsStore`（这一端落盘在 0600 的 `app_settings.properties`）。
+    // 键值缝没有监听器 ⇒ 设置页改完由 `DesktopSettingsHost.onAppearanceChanged` 戳一下这个计数，
+    // 外壳重新读一次（于是「在设置页把深色模式改成始终深色」当场就变 —— 这也是设置项在
+    // 桌面上「真能读写」的可见证据：`:app` 那边是 `AppearanceSettings` 监听同一个文件，不用这一戳）。
+    var appearanceTick by remember { mutableIntStateOf(0) }
+    val darkModeOverride = remember(appearanceTick) { desktopSettings.darkMode }
+    val dynamicColor = remember(appearanceTick) { desktopSettings.dynamicColor }
+
+    XJTUToolBoxTheme(darkModeOverride = darkModeOverride, dynamicColor = dynamicColor) {
+
     // 冷启动：有落盘凭据就直接进主界面（幂等，重复组合无害）
     LaunchedEffect(auth) { auth.restore() }
 
@@ -207,7 +219,7 @@ internal fun ToolboxDesktopApp(
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 when (val t = target) {
-                    is DesktopTarget.App -> DesktopPage(auth, t.route) { target = it }
+                    is DesktopTarget.App -> DesktopPage(auth, t.route, { appearanceTick++ }) { target = it }
                     DesktopTarget.Routes -> RoutesPage(auth) { target = it }
                 }
             }
@@ -217,6 +229,7 @@ internal fun ToolboxDesktopApp(
 
     // 登录页与主界面都要挂：登录本身就可能要短信二验
     DesktopMfaDialog(auth)
+    }
 }
 
 /** 当前页：`:core` 路由表里的一屏，或「全部页面」那张索引页。 */
@@ -422,7 +435,13 @@ private fun DesktopSiteGate(
  * 一屏共享页 —— 见文件上方那段 KDoc（「每个屏只注入这一端能提供的东西」）。
  */
 @Composable
-private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (DesktopTarget) -> Unit) {
+private fun DesktopPage(
+    auth: DesktopAuth,
+    route: AppRoute,
+    /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
+    onAppearanceChanged: () -> Unit,
+    onNavigate: (DesktopTarget) -> Unit,
+) {
     // 这一端没有返回栈，底栏就是导航 ⇒ 屏上的返回一律回图书馆首页（与 Stage 0 同一条口径）
     val back = { onNavigate(DesktopTarget.App(AppRoute.Library)) }
     when (route) {
@@ -919,6 +938,15 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             dirInfo = DesktopDownloads.dirInfo,
             files = null,
             onPlayTask = { task -> DesktopDownloads.openDownloadedFile(task.filePath) },
+        )
+        // 设置（第 27 条真数据路由）：屏在 `:core`（`SettingsScreen`，与 `:app` 同一份），
+        // 这一端只装配两样：落盘的偏好存储（`desktopSettings`）与宿主槽位（`DesktopSettingsHost`，
+        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 数据与隐私 / 更新）
+        // 整组不画 —— 见那个类的 KDoc 里那张表与 TODO。
+        AppRoute.Settings -> SettingsScreen(
+            store = desktopSettings,
+            host = remember { DesktopSettingsHost(onAppearanceChanged) },
+            onBack = back,
         )
         AppRoute.Games -> GamesScreen(
             onBack = back,

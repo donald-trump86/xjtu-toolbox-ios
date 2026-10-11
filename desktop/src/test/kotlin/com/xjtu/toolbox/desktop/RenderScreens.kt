@@ -47,6 +47,8 @@ import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.desktop.media.DesktopDownloads
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
+import com.xjtu.toolbox.platform.secureKeyValueStore
+import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
@@ -92,6 +94,7 @@ import kotlinx.coroutines.runBlocking
  * | `jiaocai1.png` | 教材全文库屏（真路由：外壳 → `AppRoute.Jiaocai1` → `DesktopSiteGate(教材中心)` → `AppJiaocai1Source`） | 第二十三条真数据路由：站点是**教材中心**（`jiaocai.lib`）—— 全文库借它的会话（`/entry/login` → CAS → 超星 SSO），业务侧那张 `var logoutUrl=…` 的跳转页由 `PortalRedirect` 自己跟；屏（书架 + 全文库）在 `:core`，取数与页字节在 `:data`，书架落盘在 `:desktop`。图上那本书是证据运行点两下分类树检索出来的夹具书目 |
  * | `jiaocai1-reader.png` | 教材阅读器（同一条路由的参数形态：`AppRoute.Jiaocai1Reader(ssno, title)`） | 同一条真数据路由的**页加载**那一半：页图是夹具现场画的 JPEG（700×1050，程序生成、不是截图），解码走 `:core` 的图片缝、磁盘缓存在 `:data`；底栏那个「1 / 34」就是夹具那本书的线性页表 |
  * | `jiaocai.png` | 教材查询屏（真路由：外壳 → `AppRoute.Jiaocai` → `DesktopSiteGate(教材中心)` → `AppJiaocaiSource`） | 第二十四条真数据路由：同一个站点（教材中心）的**另一条路由** —— `jiaocai` 域的合并页 `TextbookScreen` 现在也在 `:core`，桌面这一支默认落在「查教材」栅（与 `:app` 的 `initialTab = 0` 同一条口径）。这个栅进屏时关键词是空的，证据运行点了一下搜索建议（`高等数学`）才发起检索；图上那本教材与「本地全文」那个标志都是从假教材中心拉回来的。**「本学期我的教材」那一段在桌面上不显示**（桌面还没有教务课表缓存 ⇒ 端口回空表），这是如实的降级 |
+ * | `settings.png` | 设置屏（真路由：外壳 → `AppRoute.Settings` → `:core` 的 `SettingsScreen`） | 第二十七条真数据路由：屏与偏好存储（`SettingsStore`，键值缝）本轮才搬进 `:core`，这一端把偏好落到 0600 的 `app_settings.properties`（与 `:app` 同一批键）。图上是**深色**的 —— 外壳按「深色模式」偏好套主题，所以那一项不只是存下来、这一端真照着办了；拍的过程中还点了一下「跟随系统取色」并断言它落盘。桌面没有的那三组（通知与提醒 / 数据与隐私 / 更新）与那几行（默认启动 Tab / 课表来源 / 触感 / 连接模式）**一个字都不画** —— 见 `DesktopSettingsHost` 的表与 TODO |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -138,7 +141,8 @@ fun main(args: Array<String>) {
     // ① 落盘存储指到临时目录：证据运行绝不碰用户真实数据（`~/.local/share/xjtu-toolbox`），
     //    也绝不会把「假登录」产生的 cookie 留在一个真账号旁边。必须在任何
     //    `secureKeyValueStore` / `PersistentCookieJar` 被碰之前设。
-    dataRootOverride = Files.createTempDirectory("xjtu-desktop-shots").toFile()
+    val shotsRoot = Files.createTempDirectory("xjtu-desktop-shots").toFile()
+    dataRootOverride = shotsRoot
     // ② 常驻代理 selector（此刻端口 0 = 不走代理）+ 假上游那枚自签 https 证书的信任库。
     //    两者都必须在 `HttpClients.base` 第一次被初始化**之前**装：它抄下的是「没有代理」，
     //    而客户端建出来那一刻就把平台 trust manager 也抄走了（体测是 https）。
@@ -734,6 +738,43 @@ fun main(args: Array<String>) {
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
         shot("routes.png", height = 1900, frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
+
+        // 设置（第二十七条真数据路由）：走**真路由**（外壳 → `AppRoute.Settings` → `:core` 的
+        // `SettingsScreen` + 本端那份落盘 store）。
+        //
+        // 这张图要证明两件事，所以先做两件事再拍：
+        //  ① 先往落盘的 store 里写 `dark_mode=dark` —— 外壳按这两个外观偏好套主题，于是图上
+        //    是**深色**的：设置项不只是存下来了，这一端真照着办了；
+        //  ② 拍的过程中用 semantics 点一下「跟随系统取色」那个开关 ⇒ 断言它落到了磁盘上
+        //    （`dynamic_color=true`）—— 「设置项真能读写落盘」的判据。
+        secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE).putString("dark_mode", SettingsStore.DARK_MODE_DARK)
+        var settingsShown = false
+        var settingsToggled = false
+        var settingsDegraded = false
+        shot(
+            "settings.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (frame >= 4) {
+                    if (!settingsShown) settingsShown = hasText(scene, "版本号")
+                    if (!settingsToggled) settingsToggled = clickByLabel(scene, "跟随系统取色")
+                    if (settingsShown && settingsToggled && !settingsDegraded) {
+                        // 桌面没有的那三组 + 那几行：屏上**一个字都不该出现**
+                        settingsDegraded = listOf("新通知提醒", "立即检查更新", "默认启动 Tab", "课表显示考勤")
+                            .none { hasText(scene, it) }
+                    }
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Settings)) }
+        check(settingsShown) { "settings.png：屏上没有「版本号」那一行 —— 多半没渲染出设置页" }
+        check(settingsToggled) { "settings.png：没点到「跟随系统取色」那个开关（semantics 里没找到）" }
+        check(settingsDegraded) {
+            "settings.png：屏上出现了桌面没有的那几项（通知提醒 / 检查更新 / 默认启动 Tab / 课表考勤）"
+        }
+        check(desktopSettings.dynamicColor) { "settings.png：点了开关，但偏好没落盘" }
+        val settingsFile = File(shotsRoot, "${SettingsStore.APP_SETTINGS_FILE}.properties")
+        check(settingsFile.exists()) { "settings.png：落盘文件不存在：${settingsFile.absolutePath}" }
+        println("设置落盘：${settingsFile.absolutePath}")
     }
 
     exitProcess(0)

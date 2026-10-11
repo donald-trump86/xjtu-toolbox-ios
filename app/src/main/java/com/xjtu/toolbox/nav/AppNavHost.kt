@@ -90,9 +90,12 @@ import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.score.appScoreReportCache
 import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
+import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.settings.rememberAppSettingsHost
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
@@ -539,7 +542,17 @@ fun AppNavHost(
             )
         }
         entry<AppRoute.Settings>(transition = expand(AppRoute.Settings::class)) {
-            SettingsScreen(credentialStore = credentialStore, onBack = back)
+            // 屏在 `:core`（与桌面同一份）；这里只装配本端的两样：设置偏好的存储
+            // （`app_settings` 那份 SharedPreferences —— 与搬迁前同一个文件、同一批键）与
+            // Android 独有的那三组设置（通知与提醒 / 数据与隐私 / 更新，见 `AppSettings.kt`）。
+            SettingsScreen(
+                store = remember { SettingsStore(keyValueStore(SettingsStore.APP_SETTINGS_FILE)) },
+                host = rememberAppSettingsHost(
+                    credentialStore = credentialStore,
+                    onNetworkModeChanged = { loginState.onNetworkChanged() },
+                ),
+                onBack = back,
+            )
         }
         entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
             // 取数（学校那四路）已经搬进 `:data` 的 `AppInboxSource`；屏与 store/rules 都在 `:core`。
