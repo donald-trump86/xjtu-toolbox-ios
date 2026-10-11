@@ -1,44 +1,59 @@
 package com.xjtu.toolbox.jwapp
 
-import android.content.Context
-import com.xjtu.toolbox.error.FriendlyError
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.xjtu.toolbox.auth.AppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.data.DataCache
-import com.xjtu.toolbox.judge.JudgeApi
-import com.xjtu.toolbox.score.ScoreReportApi
+import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.error.SessionExpiredFailure
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.score.ReportedGrade
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-internal data class ScoreMessage(val text: String, val long: Boolean = false)
+/** 成绩屏上飘过的一句话（`long = true` 走 SnackbarDuration.Long）。 */
+data class ScoreMessage(val text: String, val long: Boolean = false)
 
 /**
  * 成绩：jwapp 的学期成绩为底，教务的 xscjcx 替换成精确的总评和绩点，
  * 再从成绩报表补上未评教（jwapp 不显示）的课程。加工后的结果整份缓存，下次先秒显。
+ *
+ * 从 `:app` 的 `jwapp/JwappScoreViewModel.kt` 搬进 `:core`（桌面端第 19 条真数据路由），
+ * **编排逻辑一行未改**（三路并行、各自容忍失败、缓存先显后刷、失败与提示文案），只换了四处「住址」：
+ *
+ *  - `JwappApi(site)` → 端口 [source]（`:data` 的 `AppJwappScoreSource`）；
+ *  - `jwxtSite`（`SiteSession?`）→ 端口 [jwxt]（[JwxtScoreSupplement]）—— 两个站点各自的会话
+ *    不进共享层，但「教务拿不到就只出 jwapp 那一份」这条早退分支照原样留着；
+ *  - `DataCache(context, accountId)` → 端口 [cache]（App 那一份还是 `DataCache`，同一个 key）；
+ *  - `AppLoginState` 那一枪强制重登 → 端口上的 [JwappScoreSource.reAuthenticate]；
+ *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app`/`:data` 的
+ *    `AuthExpiredException` 实现了它）—— `catch` 抓不了接口，先抓 `Exception` 再判，与考勤/成绩同一条缝。
+ *
+ * `android.util.Log` 换成了 `:core` 的 [Log]（tag 与级别不变）。
+ *
+ * 还有一处**必须**跟着搬的替换：搬迁前那五处 `withContext(Dispatchers.IO)`（缓存读、整表拉取、
+ * 缓存写、强制重登、拉分项）拿掉了 —— `Dispatchers.IO` 是 JVM 专属，`:core` 有 wasm 目标
+ *（实测 `:core:compileKotlinWasmJs` 报 `Unresolved reference 'IO'`）。阻塞都在**端口实现方**那一层包：
+ * `:data` 的 `AppJwappScoreSource` 五个方法自己 `withContext(Dispatchers.IO)`；缓存端口
+ * [JwappScoreCache] 的两个方法也是挂起的，`:app` 那份实现自己包 IO（与 `lms/LmsSource.kt` 的
+ * `LmsCacheStore` 同一条口径）。所以在 Android / 桌面上这些阻塞调用**依旧在 IO 线程上**，
+ * 只是挑调度器的人从 VM 换成了实现方。
+ *
+ * @param source 传 null = 这一端没有 jwapp 会话（`canRefresh` 为 false，只读缓存）；
+ * @param jwxt 传 null = 这一端没有教务会话（只出 jwapp 那一份，与搬迁前同一条分支）；
+ * @param cache 传 null = 这一端不落盘（每次都真拉）。
  */
-internal class JwappScoreViewModel(
-    context: Context,
-    accountId: String,
-    private val site: SiteSession?,
-    private val jwxtSite: SiteSession?,
+class JwappScoreViewModel(
+    private val source: JwappScoreSource?,
+    private val jwxt: JwxtScoreSupplement?,
     private val studentId: String,
-    private val login: AppLoginState,
+    private val cache: JwappScoreCache? = null,
 ) : ViewModel() {
-    private val api = site?.let { JwappApi(it) }
-    private val dataCache = DataCache(context.applicationContext, accountId.ifEmpty { null })
     private val messageChannel = Channel<ScoreMessage>(Channel.BUFFERED)
     val messages = messageChannel.receiveAsFlow()
 
@@ -53,7 +68,7 @@ internal class JwappScoreViewModel(
     var unevaluatedCourses by mutableStateOf<Set<String>>(emptySet()); private set
     /** 从报表补了几门课的提示。 */
     var reportHint by mutableStateOf<String?>(null); private set
-    val canRefresh get() = api != null
+    val canRefresh get() = source != null
 
     init { load() }
 
@@ -63,28 +78,29 @@ internal class JwappScoreViewModel(
         viewModelScope.launch {
             // 先用缓存秒显；未登录时用极长 TTL，保证能看到缓存
             var cachedCount = -1
-            if (!silent) {
-                val ttl = if (api != null) DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
-                withContext(Dispatchers.IO) { dataCache.read<List<TermScore>>(CACHE_KEY, ttl) }
+            val cache = cache
+            if (!silent && cache != null) {
+                val ttl = if (source != null) JwappScoreCache.DEFAULT_TTL_MS else Long.MAX_VALUE
+                cache.read(ttl)
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { cached ->
                         allTermScores = cached
                         cachedCount = cached.sumOf { it.scoreList.size }
                         isLoading = false
-                        isRefreshing = api != null
+                        isRefreshing = source != null
                     }
             }
-            val api = api
-            if (api == null) {
+            val source = source
+            if (source == null) {
                 if (allTermScores.isEmpty()) errorMessage = "暂无成绩缓存"
                 isLoading = false
                 isRefreshing = false
                 return@launch
             }
             try {
-                val grades = withContext(Dispatchers.IO) { fetch(api) }
+                val grades = fetch(source)
                 allTermScores = grades
-                withContext(Dispatchers.IO) { runCatching { dataCache.write(CACHE_KEY, grades) } }
+                if (cache != null) runCatching { cache.write(grades) }
                 val freshCount = grades.sumOf { it.scoreList.size }
                 when {
                     cachedCount < 0 -> Unit
@@ -93,13 +109,15 @@ internal class JwappScoreViewModel(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: AuthExpiredException) {
-                // 不弹回主页：jwapp 拒绝 token 时和自动重登会形成「进-退-进」死循环；停在这页给提示
-                if (allTermScores.isNotEmpty()) messageChannel.send(ScoreMessage("成绩同步暂不可用，显示缓存数据。下拉刷新可重试", long = true))
-                else errorMessage = "成绩查询服务暂不可用：${FriendlyError.of(e, "查询成绩")}"
             } catch (e: Exception) {
-                if (allTermScores.isNotEmpty()) messageChannel.send(ScoreMessage("网络异常，显示的可能不是最新数据", long = true))
-                else errorMessage = FriendlyError.of(e, "加载成绩")
+                if (e is SessionExpiredFailure) {
+                    // 不弹回主页：jwapp 拒绝 token 时和自动重登会形成「进-退-进」死循环；停在这页给提示
+                    if (allTermScores.isNotEmpty()) messageChannel.send(ScoreMessage("成绩同步暂不可用，显示缓存数据。下拉刷新可重试", long = true))
+                    else errorMessage = "成绩查询服务暂不可用：${FriendlyError.of(e, "查询成绩")}"
+                } else {
+                    if (allTermScores.isNotEmpty()) messageChannel.send(ScoreMessage("网络异常，显示的可能不是最新数据", long = true))
+                    else errorMessage = FriendlyError.of(e, "加载成绩")
+                }
             } finally {
                 isLoading = false
                 isRefreshing = false
@@ -113,28 +131,26 @@ internal class JwappScoreViewModel(
         errorMessage = null
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    login.sessionManager?.credentials?.let { (user, password) -> site?.ensureLogin(user, password, force = true, userInitiated = true) }
-                }
+                source?.reAuthenticate()
             }
             load()
         }
     }
 
     /** jwapp 成绩、xscjcx 精确成绩、未评教名单三路互不依赖，并行拉。 */
-    private suspend fun fetch(api: JwappApi): List<TermScore> = coroutineScope {
-        val jwxt = jwxtSite ?: return@coroutineScope api.getGrade(null)
+    private suspend fun fetch(source: JwappScoreSource): List<TermScore> = coroutineScope {
+        val jwxt = jwxt ?: return@coroutineScope source.getGrade(null)
         val precise = async { preciseScores(jwxt) }
         val uneval = if (studentId.isNotEmpty()) async { unevaluated(jwxt) } else null
-        var grades = api.getGrade(null)
+        var grades = source.getGrade(null)
         grades = withPreciseScores(grades, precise.await())
         grades = grades.map { ts -> ts.copy(scoreList = ts.scoreList.map(::withCourseGroup)) }
         if (uneval != null) grades = withUnevaluated(grades, jwxt, uneval.await())
         grades
     }
 
-    private suspend fun preciseScores(jwxt: SiteSession): List<CjcxApi.CjcxScore>? = try {
-        CjcxApi(jwxt).getAllScores()
+    private suspend fun preciseScores(jwxt: JwxtScoreSupplement): List<CjcxScore>? = try {
+        jwxt.preciseScores()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -143,13 +159,13 @@ internal class JwappScoreViewModel(
     }
 
     /** 教务的 xscjcx 有精确总评和绩点，按学期 + 课程名（退而求其次按课程号）对上就替换。 */
-    private fun withPreciseScores(grades: List<TermScore>, precise: List<CjcxApi.CjcxScore>?): List<TermScore> {
+    private fun withPreciseScores(grades: List<TermScore>, precise: List<CjcxScore>?): List<TermScore> {
         if (precise == null) return grades
-        val lookup = precise.associateBy { "${it.termCode}|${CjcxApi.normalizeName(it.courseName)}" }
+        val lookup = precise.associateBy { "${it.termCode}|${normalizeCjcxCourseName(it.courseName)}" }
         val byCode = precise.associateBy { it.kch }
         return grades.map { ts ->
             ts.copy(scoreList = ts.scoreList.map { score ->
-                val p = lookup["${ts.termCode}|${CjcxApi.normalizeName(score.courseName)}"]
+                val p = lookup["${ts.termCode}|${normalizeCjcxCourseName(score.courseName)}"]
                     ?: score.courseCode?.let { byCode[it] }
                 if (p == null) score
                 else score.copy(
@@ -173,8 +189,8 @@ internal class JwappScoreViewModel(
         return score.copy(courseGroup = group)
     }
 
-    private suspend fun unevaluated(jwxt: SiteSession): Set<String> = try {
-        JudgeApi(jwxt).unfinishedQuestionnaires().map { it.KCM }.toSet()
+    private suspend fun unevaluated(jwxt: JwxtScoreSupplement): Set<String> = try {
+        jwxt.unevaluatedCourseNames()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -183,12 +199,12 @@ internal class JwappScoreViewModel(
     }
 
     /** 未评教的课 jwapp 不给成绩，从成绩报表里补上。 */
-    private suspend fun withUnevaluated(grades: List<TermScore>, jwxt: SiteSession, uneval: Set<String>): List<TermScore> {
+    private suspend fun withUnevaluated(grades: List<TermScore>, jwxt: JwxtScoreSupplement, uneval: Set<String>): List<TermScore> {
         unevaluatedCourses = uneval
         if (uneval.isEmpty()) return grades
         return try {
             val existing = grades.flatMap { ts -> ts.scoreList.map { courseKey(ts.termCode, it.courseName) } }.toMutableSet()
-            val extras = ScoreReportApi(jwxt).getReportedGrade(studentId)
+            val extras = jwxt.reportedGrades(studentId)
                 .filter { it.courseName in uneval && existing.add(courseKey(it.term, it.courseName)) }
                 .groupBy({ it.term }, { it.toScoreItem() })
                 .toMutableMap()
@@ -210,7 +226,7 @@ internal class JwappScoreViewModel(
     private fun courseKey(term: String, name: String): String {
         val n = name.trim()
             .replace("　", " ")
-            .replace(" ", " ")
+            .replace(" ", " ")
             .replace(Regex("\\s+"), " ")
             .replace("（", "(").replace("）", ")")
             .replace("＋", "+").replace("－", "-")
@@ -224,11 +240,11 @@ internal class JwappScoreViewModel(
     /** 分项成绩：没有分项的课也记一份空的，免得每次展开都再问。 */
     fun loadDetail(item: ScoreItem) {
         if (courseDetails.containsKey(item.id) || detailLoading == item.id) return
-        val api = api ?: return
+        val source = source ?: return
         detailLoading = item.id
         viewModelScope.launch {
             try {
-                val detail = withContext(Dispatchers.IO) { api.getDetail(item.id) }
+                val detail = source.getScoreDetail(item.id)
                 courseDetails = courseDetails + (item.id to detail)
             } catch (e: CancellationException) {
                 throw e
@@ -246,11 +262,10 @@ internal class JwappScoreViewModel(
 
     private companion object {
         const val TAG = "JwappScore"
-        const val CACHE_KEY = "score_all_terms"
     }
 }
 
-private fun com.xjtu.toolbox.score.ReportedGrade.toScoreItem(): ScoreItem = ScoreItem(
+private fun ReportedGrade.toScoreItem(): ScoreItem = ScoreItem(
     id = "report_${term}_${courseName.hashCode()}",
     termCode = term,
     courseName = courseName,

@@ -1,11 +1,14 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.auth.XJTULogin
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import com.xjtu.toolbox.auth.XJTULogin
+
+private const val TAG = "IclassfaceLogin"
 
 /**
  * 西交人脸识别签到系统（iclassface.xjtu.edu.cn）登录
@@ -20,6 +23,16 @@ import com.xjtu.toolbox.auth.XJTULogin
  * 所有后续请求凭 cookie 发起即可，不需要额外头信息。
  *
  * 仅支持校园网：iclassface.xjtu.edu.cn 不开放校外访问，WebVPN 可作为校外备选。
+ *
+ * ## 它为什么搬进 `:data`
+ *
+ * 与它的站点类 [com.xjtu.toolbox.auth.IclassfaceSession] 一起从 `:app` 的
+ * `iclassface/IclassfaceLogin.kt` / `auth/Sites.kt` 剪出来（桌面端第 20 条真数据路由：
+ * 桌面要自己登 `iclassface`、自己查今天的刷卡/人脸记录）。类名与包路径一字未改 ⇒ `:app` 的
+ * `AppLoginState` / `HeadlessSessions` 里那两处 `register(IclassfaceSession())` 一行不用改。
+ *
+ * 搬迁时被替换的写法只有两处：`android.util.Log` → `:core` 的 `Log`（tag 与级别不变）；
+ * `com.xjtu.toolbox.webvpn.WebVpnUtil` 的全限定名换成顶部 import（同一个类，本来就在 `:data`）。
  */
 class IclassfaceLogin(
     session: OkHttpClient? = null,
@@ -35,7 +48,7 @@ class IclassfaceLogin(
         // 走 WebVPN 时 finalUrl 形如 https://webvpn.xjtu.edu.cn/https/{AES加密域名}/face/detect，
         // 明文 "iclassface.xjtu.edu.cn" 根本不出现——原来的字符串包含判断必然为 false，
         // 于是明明已经 200 落在 /face/detect 上，却仍被判为"登录回调异常"。
-        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "iclassface.xjtu.edu.cn")) {
+        if (WebVpnUtil.isAtTargetSite(finalUrl, "iclassface.xjtu.edu.cn")) {
             sessionReady = true
             return
         }
@@ -46,7 +59,7 @@ class IclassfaceLogin(
             ).execute()
             val land = resp.request.url.toString()
             resp.close()
-            sessionReady = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
+            sessionReady = WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
             Log.d(TAG, "postLogin: fallback access land=$land, ready=$sessionReady")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: fallback access failed", e)
@@ -55,7 +68,6 @@ class IclassfaceLogin(
     }
 
     companion object {
-        private const val TAG = "IclassfaceLogin"
         const val BASE_URL = "https://iclassface.xjtu.edu.cn"
         const val FACE_DETECT_URL = "$BASE_URL/face/detect"
         const val CHECKIN_URL = "$BASE_URL/checkin/records"

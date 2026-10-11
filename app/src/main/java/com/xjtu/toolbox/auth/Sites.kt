@@ -26,49 +26,11 @@ import okhttp3.Response
 // `AppLoginState` / `HeadlessSessions` 里那两处 `register(JwxtSession())` 一行不用改。
 
 // ── JWAPP 移动教务系统 ───────────────────────────────────────────────
-
-// mustUseWebVpn=false：永远直连原域名。CAS 入口走 org.xjtu.edu.cn 开放平台，若该入口
-// 与 jwapp.xjtu.edu.cn 本身对公网开放，校外可直连；若学校收紧访问，需连校园官方 VPN。
-class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        JwappLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? JwappLogin)?.authToken?.takeIf { it.isNotEmpty() }?.let {
-            localToken["auth_token"] = it
-        }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["auth_token"]?.let { builder.header("Authorization", it) }
-        return builder
-    }
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val token = localToken["auth_token"] ?: return@withIo false
-        val resp = client.newCall(
-            Request.Builder()
-                .url("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
-                .header("Authorization", token)
-                .get().build()
-        ).execute()
-        try {
-            resp.code == 200
-        } finally { resp.close() }
-    }
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        if (super.isAuthFailureResponse(response, bodyPreview)) return true
-        val body = bodyPreview ?: return false
-        // 分项成绩接口对「这门课没有细则」也会给 JSON code=401，不能单凭数字当掉登录。
-        return body.contains("Authentication error", ignoreCase = true) ||
-            (body.contains("token", ignoreCase = true) && body.contains("过期")) ||
-            (""""code"\s*:\s*401""".toRegex().containsMatchIn(body) &&
-                (body.contains("authentication", ignoreCase = true) ||
-                    body.contains("未登录") ||
-                    body.contains("过期")))
-    }
-}
+//
+// `JwappSession` 与它的 `JwappLogin` 已搬进 `:data`（同一个包、同一个类名）：移动教务是「桌面端第 18
+// 条真数据路由」，桌面要自己登它、自己取学期成绩与分项成绩（`:data` 的 `JwappApi` / `CjcxApi` +
+// `AppJwappScoreSource`）。`mustUseWebVpn = false`（永远直连原域名）跟着类一起搬。类名与包路径都没变 ⇒
+// `AppLoginState` / `HeadlessSessions` 里那两处 `register(JwappSession())` 一行不用改。
 
 // ── YWTB 一网通办 ─────────────────────────────────────────────────────
 //
@@ -91,12 +53,15 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = fal
 // `LmsDeadlineWorker` / `OwnInbox` / `DownloadManagerScreen` / `ProfileTab` 里那些取数调用点，
 // 一行都不用改。
 
-// ── ICLASSFACE 人脸识别签到 ──────────────────────────────────────────────
-
-class IclassfaceSession : CasSiteSession("iclassface", "快速考勤流水", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.iclassface.IclassfaceLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
+// ── ICLASSFACE 人脸识别签到 ──────────────────────────────────────────
+//
+// `IclassfaceSession` 与它的 `IclassfaceLogin` 已搬进 `:data`（同一个包、同一个类名）：人脸识别
+// 签到是「桌面端第 20 条真数据路由」（考勤屏上的「快速考勤流水」二级入口），桌面要自己登
+// `iclassface`、自己查今天的刷卡与人脸记录（`:data` 的 `IclassfaceApi` + `AppIclassfaceSource`）。
+// 登录形态如实交代：它有自己的独立登录链（CAS OAuth2 `client_id=1543` → `org.xjtu.edu.cn`
+// 开放平台 `authorizesw` 中转 → 回落到 `/oauth/callback/xjtu_new`），落地后凭据就是 `PHPSESSID`
+// cookie。类名与包路径都没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处
+// `register(IclassfaceSession())` 一行不用改。
 
 // ── ATTENDANCE 考勤 kq.xjtu.edu.cn ────────────────────────────────
 //

@@ -28,6 +28,11 @@ import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
 import com.xjtu.toolbox.lms.LmsFakeUpstream
+import com.xjtu.toolbox.jwapp.JwappFakeUpstream
+import com.xjtu.toolbox.iclassface.IclassfaceFakeUpstream
+import com.xjtu.toolbox.community.CommunityFakeUpstream
+import com.xjtu.toolbox.community.GithubDeviceAccessToken
+import com.xjtu.toolbox.community.SecureGithubSession
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.platform.JvmCredentialStore
@@ -69,6 +74,9 @@ import kotlinx.coroutines.runBlocking
  * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
  * | `attendance.png` | 考勤屏（真路由：外壳 → `AppRoute.Attendance` → `DesktopSiteGate` → `AppAttendanceSource`） | 第十六条真数据路由：`bk-kq.xjtu.edu.cn` **有自己的独立登录入口**（`AttendanceLogin` 直连业务站的 CAS `student-pc` 入口 → 回调带 loginRequestId+ticket 换业务令牌），屏/VM 与取数端口都在 `:core`，桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认；图上「流水」那一栏的夹具课名（光电子学（假））与姓名行都是夹具样本 |
  * | `lms.png` | 思源学堂屏（真路由：外壳 → `AppRoute.Lms` → `DesktopSiteGate` → `AppLmsSource`） | 第十八条真数据路由：`lms.xjtu.edu.cn` **直接 CAS 回跳**（`LmsLogin.loginUrl` = lms 根路径，与教务同型、没有独立登录页），屏在 `:core`，落盘是 `DesktopLmsSaver`；图上课程列表那门夹具课（数据结构（示例课））与老师名都是夹具样本 |
+ * | `jwapp.png` | 成绩屏（真路由：外壳 → `AppRoute.JwappScore` → `DesktopSiteGate` → `AppJwappScoreSource`） | 第十九条真数据路由：`jwapp.xjtu.edu.cn` **有自己的独立登录链**（开放平台 `appId=1370` → CAS → 回跳带 `token`，令牌从回调 URL 里抠出来当 `Authorization`）；这一屏的上游是**两个站点**（jwapp 那份粗分 + 教务 `xscjcx` 的精确总评，各自一份会话）；图上那门课（高等数学（上））与精确成绩都是夹具样本 |
+ * | `iclassface.png` | 快速考勤流水屏（真路由：外壳 → `AppRoute.Iclassface` → `DesktopSiteGate` → `AppIclassfaceSource`） | 第二十条真数据路由：`iclassface.xjtu.edu.cn` 走 CAS OAuth2 `client_id=1543` → 开放平台 `authorizesw` 中转 → 回落 `/oauth/callback/xjtu_new`（凭据就是 `PHPSESSID`）；图上那行签到记录（姓名 / 时间 / 地点 / 类型）是夹具样本 |
+ * | `community.png` | 社区屏（真路由：外壳 → `AppRoute.Community`；登录态与取数都是 `:data` 的实现） | 第二十一条真数据路由：上游是 GitHub（`github.com/login` 的设备码 + `api.github.com` 的 GraphQL），不套 `DesktopSiteGate`（没有学校会话可建）；这张图先把一份夹具令牌写进 `SecureGithubSession`（同一个存储名与键），于是图上那条帖子（示例讨论…）与分类都是从假 GitHub 拉回来的 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -445,6 +453,75 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Lms())) }
         check(lmsShown) {
             "lms.png：屏上没有夹具那门课（${LmsFakeUpstream.COURSE_NAME}）—— 多半没取到数"
+        }
+
+        // 成绩（移动教务，第十九条真数据路由）：走**真路由**（外壳 → `AppRoute.JwappScore` →
+        // `DesktopSiteGate(JWAPP_SITE_KEY)` → `AppJwappScoreSource`）。登录链走开放平台
+        // `appId=1370` → 统一认证 → 带 `token` 回 `jwapp.xjtu.edu.cn/app/index`（那台 CAS 仍由
+        // [LibraryFakeUpstream] 扮演）；这一屏的第二条上游是**教务**（`xscjcx` 的精确总评），
+        // 它的会话在登录页那一步已经预热过。图上是那门夹具课（高等数学（上））：屏上显示的总评是
+        // jwapp 的粗分（86），**绩点 3.9 是教务精确成绩那一份**（`withPreciseScores` 换的是
+        // scoreValue/gpa，不动 `score` 那个字符串 —— 搬迁前的行为就是这样）。下面「报表·…」那一栏
+        // 是第三条上游（未评教名单 + 成绩报表）补上来的同名课 —— 三条上游都真的走了，不是转圈也
+        // 不是错误页。
+        var scoreShown = false
+        shot(
+            "jwapp.png",
+            frames = 24,
+            onFrame = { frame, scene ->
+                if (!scoreShown && frame >= 6) scoreShown = hasText(scene, JwappFakeUpstream.COURSE_NAME)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.JwappScore)) }
+        check(scoreShown) {
+            "jwapp.png：屏上没有夹具那门课（${JwappFakeUpstream.COURSE_NAME}）—— 多半没取到数"
+        }
+
+        // 快速考勤流水（第二十条真数据路由）：走**真路由**（外壳 → `AppRoute.Iclassface` →
+        // `DesktopSiteGate(ICLASSFACE_SITE_KEY)` → `AppIclassfaceSource`）。登录链是 CAS OAuth2
+        // `client_id=1543` → 开放平台 `authorizesw` 中转 → 回落本域的 `/oauth/callback/xjtu_new`
+        //（凭据就是 `PHPSESSID`）。图上应当是那行夹具签到记录（地点「中3-2306」）。
+        var iclassfaceShown = false
+        shot(
+            "iclassface.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!iclassfaceShown && frame >= 5) {
+                    iclassfaceShown = hasText(scene, IclassfaceFakeUpstream.RECORD_LOCATION)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Iclassface)) }
+        check(iclassfaceShown) {
+            "iclassface.png：屏上没有夹具那条记录（${IclassfaceFakeUpstream.RECORD_LOCATION}）—— 多半没取到数"
+        }
+
+        // 社区（第二十一条真数据路由）：**不套 `DesktopSiteGate`**（上游是 GitHub，没有学校会话要建）。
+        // 这一屏是「登录之后才看得到帖子」的：先把一份夹具令牌写进同一份登录态（`SecureGithubSession`
+        // 的存储名与键与搬迁前逐字相同），`signIn` 会先用它查一次用户名（那一枪也打向假 GitHub）——
+        // 于是图上那条夹具帖子、分类与作者都是从假 API 拉回来的，而不是登录页。
+        val communityLogin = runBlocking {
+            SecureGithubSession.get().signIn(
+                GithubDeviceAccessToken(
+                    accessToken = CommunityFakeUpstream.ACCESS_TOKEN,
+                    tokenType = "bearer",
+                    scopes = emptySet(),
+                )
+            )
+        }
+        check(communityLogin.getOrNull() == CommunityFakeUpstream.VIEWER_LOGIN) {
+            "社区那张图要先拿到一份夹具登录态：$communityLogin"
+        }
+        var communityShown = false
+        shot(
+            "community.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!communityShown && frame >= 5) {
+                    communityShown = hasText(scene, CommunityFakeUpstream.DISCUSSION_TITLE)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Community)) }
+        check(communityShown) {
+            "community.png：屏上没有夹具那条帖子（${CommunityFakeUpstream.DISCUSSION_TITLE}）—— 多半没取到数"
         }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，

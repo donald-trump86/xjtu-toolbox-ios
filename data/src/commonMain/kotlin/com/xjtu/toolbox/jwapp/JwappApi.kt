@@ -1,39 +1,43 @@
 package com.xjtu.toolbox.jwapp
 
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.buildJsonObject
-import com.xjtu.toolbox.util.requireArr
-import com.xjtu.toolbox.util.requireObj
-import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isArray
 import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.isObject
-import com.xjtu.toolbox.util.isArray
-import com.xjtu.toolbox.util.obj
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.util.redactBody
-import android.util.Log
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.safeString
-import com.xjtu.toolbox.util.safeStringOrNull
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeDoubleOrNull
 import com.xjtu.toolbox.util.safeInt
-import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.serialization.Serializable
+import com.xjtu.toolbox.util.safeString
+import com.xjtu.toolbox.util.safeStringOrNull
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "JwappGPA"
 
-// ── 数据类 ──────────────────────────────
-// ⚠️ 成绩/GPA 的模型（`ScoreSource` / `CourseGroup` / `ScoreItem` / `ScoreDetail` / `TermScore` /
-// `GpaInfo` 与 `NoScoreDetailException`）已经搬进 **:core** 的 `jwapp/ScoreModels.kt` ——
-// 因为 GPA 算法（`score/ScoreCalculator`）现在在那边，模型留在这里两边都编不了。
-// 本文件只剩 okhttp 取数。
-
+// ── 移动教务的 okhttp 取数 ────────────────────────────────────────────
+//
+// 从 `:app` 的 `jwapp/JwappApi.kt` 搬进 `:data`（桌面端第 19 条真数据路由：桌面要自己登 jwapp、
+// 自己取学期成绩与分项成绩）。类名与包路径一字未改，两件事跟着走：
+//
+//  - 成绩/GPA 的模型（`ScoreSource` / `CourseGroup` / `ScoreItem` / `ScoreDetail` / `TermScore` /
+//    `GpaInfo` / `NoScoreDetailException`）早就在 **:core** 的 `jwapp/ScoreModels.kt` 里；
+//  - `isNoScoreDetailMessage` 与 `CjcxApi.normalizeName` 也搬到了 **:core**（那边有第二个消费方：
+//    分居两个模块之后，判据与归一化都只能有一份）。
+//
+// `android.util.Log` → `:core` 的 `Log`（tag 与级别不变）。
 
 class JwappApi(private val site: SiteSession) {
 
@@ -181,9 +185,4 @@ class JwappApi(private val site: SiteSession) {
         val allGrades = getGrade(null)
         return allGrades.map { it.termCode to it.termName }
     }
-}
-
-internal fun isNoScoreDetailMessage(msg: String?): Boolean {
-    if (msg.isNullOrBlank()) return false
-    return listOf("无分项", "没有分项", "暂无", "不存在", "未查询", "无明细", "无细则", "没有明细", "无成绩").any { it in msg }
 }

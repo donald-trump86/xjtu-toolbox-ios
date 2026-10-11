@@ -74,6 +74,15 @@ import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.desktop.lms.DesktopLmsSaver
+import com.xjtu.toolbox.jwapp.AppJwappScoreSource
+import com.xjtu.toolbox.jwapp.JwappScoreScreen
+import com.xjtu.toolbox.iclassface.AppIclassfaceSource
+import com.xjtu.toolbox.iclassface.IclassfaceScreen
+import com.xjtu.toolbox.community.CommunityRepo
+import com.xjtu.toolbox.community.CommunityScreen
+import com.xjtu.toolbox.community.GithubNetwork
+import com.xjtu.toolbox.community.GithubOAuthDeviceAuthRepository
+import com.xjtu.toolbox.community.SecureGithubSession
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
@@ -229,7 +238,11 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // `AppRoute.Lms()`（`id` = "lms"，与 :app 服务表里那一条同一个 id）。
     AppRoute.Lms() to "思源学堂",
 
-
+    // 三域的名字照 `:app` 服务表里的叫法（`AppServices.kt`）：「成绩」（jwapp）/
+    // 「快速考勤流水」（iclassface） / 「社区」。桌面索引页上这一栏就是同名同 id。
+    AppRoute.JwappScore to "成绩",
+    AppRoute.Iclassface to "快速考勤流水",
+    AppRoute.Community to "社区",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -681,6 +694,64 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             )
         }
 
+        // 成绩（移动教务，第十九条真数据路由）：站点是 `jwapp.xjtu.edu.cn`，它**有自己的独立登录链**
+        // （开放平台 `org.xjtu.edu.cn` 的 `authorize?appId=1370` → 统一认证 → 带 `token` 回
+        // `jwapp.xjtu.edu.cn/app/index`，token 从回调 URL 里抠出来当 `Authorization` 头）。
+        // 会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它。
+        //
+        // 屏在 `:core`（`JwappScoreScreen` + VM：本学期成绩 / GPA / 分项 / 选课计算，画法与文案一行未改），
+        // 取数是 `:data` 的 `AppJwappScoreSource`——它同时实现那两个端口：`source`（jwapp 一站）与
+        // `jwxt`（教务一站，精确成绩 `xscjcx.do` / 未评教名单 / 成绩报表）。两个站点各自独立会话，
+        // 所以这一屏要的站点是两个（jwxt 已在登录页那一步预热过）。
+        //
+        // 学号照成绩报表 / 评教那两屏同一条口径：用登录时写进 `AccountContext.activeAccountId` 的
+        // 那个（桌面没有「登录取学号」那一套）。`cache` 传 null：桌面没有按账号分文件的 `DataCache`
+        // ⇒ 这一屏不先给缓存秒显，其余流程一字不改。
+        AppRoute.JwappScore -> DesktopSiteGate(auth, DesktopAuth.JWAPP_SITE_KEY, "移动教务") { _ ->
+            val source = remember(auth) { AppJwappScoreSource(auth.sessionManager) }
+            JwappScoreScreen(
+                source = source,
+                studentId = AccountContext.activeAccountId.orEmpty(),
+                onBack = back,
+                onOpenReport = { onNavigate(DesktopTarget.App(AppRoute.ScoreReport)) },
+                onOpenTranscript = if (AccountContext.activeAccountType == AccountType.UNDERGRADUATE) {
+                    { onNavigate(DesktopTarget.App(AppRoute.Transcript)) }
+                } else null,
+                jwxt = source,
+                cache = null,
+            )
+        }
+
+        // 快速考勤流水（人脸识别签到，第二十条真数据路由）：站点是 `iclassface.xjtu.edu.cn`，它也有
+        // 自己的独立登录链（CAS OAuth2 `client_id=1543` → `org.xjtu.edu.cn` 开放平台中转 → 回落
+        // `/oauth/callback/xjtu_new`，凭据就是 `PHPSESSID` cookie）。`mustUseWebVpn = true`，
+        // 但登不登得上交给会话内核判（`IclassfaceLogin` 本身认 WebVPN 形态的落地页）。
+        //
+        // 屏在 `:core`（`IclassfaceScreen`：选日期 → 表格，画法与文案一行未改），取数是 `:data` 的
+        // `AppIclassfaceSource`（包住 `IclassfaceApi` 的 `POST /checkin/records` + Jsoup 解表）。
+        AppRoute.Iclassface -> DesktopSiteGate(auth, DesktopAuth.ICLASSFACE_SITE_KEY, "快速考勤流水") { site ->
+            IclassfaceScreen(
+                source = remember(site) { AppIclassfaceSource(site) },
+                onBack = back,
+            )
+        }
+
+        // 社区（第二十一条真数据路由）：上游是 GitHub（`api.github.com` 的 GraphQL + `github.com/login`
+        // 的设备码流程），与学校的站点无关，所以**不套** `DesktopSiteGate`（没有学校会话要建）。
+        //
+        // 登录态是 `:data` 的 `SecureGithubSession`：存储名与键与搬迁前逐字相同
+        // （`github_community` / `token` / `login`；Android 的 actual 仍是 `SecurePrefs`，桌面是一份
+        // 0600 的落盘文件）⇒ Android 上已有的登录态与桌面不会互盖。取数与设备码都是 `:data` 里那两份
+        // （与 Android 同一份实现）。「旧版反馈」在桌面还没搬（那是 `:app` 的 WebView 页）⇒
+        // 跳过去是那张如实说明页，不假装它在这儿。
+        AppRoute.Community -> CommunityScreen(
+            session = remember { SecureGithubSession.get() },
+            deviceAuth = remember {
+                GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
+            },
+            onBack = back,
+            onOpenLegacyFeedback = { onNavigate(DesktopTarget.App(AppRoute.Feedback)) },
+        )
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },

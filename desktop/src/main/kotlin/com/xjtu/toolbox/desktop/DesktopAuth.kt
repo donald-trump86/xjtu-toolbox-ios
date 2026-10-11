@@ -23,6 +23,8 @@ import com.xjtu.toolbox.auth.YwtbSession
 import com.xjtu.toolbox.auth.SsnSession
 import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.auth.LmsSession
+import com.xjtu.toolbox.auth.JwappSession
+import com.xjtu.toolbox.auth.IclassfaceSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.error.FriendlyError
@@ -137,6 +139,18 @@ class DesktopAuth(
         // 门户），CAS 回调带 loginRequestId+ticket 换业务令牌 —— 不借校园卡 / 教务的会话（见
         // `AttendanceSession` 的 KDoc）。与校园卡/场馆一样，「登录页那一步」只是尽力预热它。
         register(AttendanceSession())
+
+        // 移动教务（`:data` 的 `JwappSession` + `JwappLogin`）：`jwapp_score` 这条路由进门时要用它
+        // （见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**有自己的独立登录链**（开放平台
+        // `org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1370` → 统一认证 → 带 `token` 回
+        // `jwapp.xjtu.edu.cn/app/index`，token 从回调 URL 里抠出来当 `Authorization`），不借别的
+        // 站点会话。⚠️ 成绩屏的第二条上游是**教务**（`jwxt`），两个站点各自独立（见 `JwxtScoreSupplement`）。
+        register(JwappSession())
+
+        // 人脸识别签到（`:data` 的 `IclassfaceSession` + `IclassfaceLogin`）：考勤屏上那个二级入口
+        // （`AppRoute.Iclassface`）进门时要用它。它也有自己的独立登录链（CAS OAuth2 `client_id=1543`
+        // → `org.xjtu.edu.cn` 开放平台中转 → 回落 `/oauth/callback/xjtu_new`，凭据就是 `PHPSESSID`）。
+        register(IclassfaceSession())
 
         // 思源学堂（`:data` 的 `LmsSession` + `LmsLogin`）：`lms` 这条路由进门时要用它
         //（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**不借别的已搬站点的会话** ——
@@ -390,6 +404,12 @@ class DesktopAuth(
         /** 思源学堂（`lms`）。那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
         const val LMS_SITE_KEY = LmsSession.SITE_KEY
 
+        /** 移动教务（`jwapp`）。成绩那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val JWAPP_SITE_KEY = JwappSession.SITE_KEY
+
+        /** 人脸识别签到（`iclassface`）。那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val ICLASSFACE_SITE_KEY = IclassfaceSession.SITE_KEY
+
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
@@ -415,6 +435,8 @@ class DesktopAuth(
 
             LMS_SITE_KEY,
 
+            JWAPP_SITE_KEY,
+            ICLASSFACE_SITE_KEY,
         )
     }
 }

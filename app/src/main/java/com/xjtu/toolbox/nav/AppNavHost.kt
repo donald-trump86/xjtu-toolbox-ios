@@ -31,7 +31,11 @@ import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.appCampusCardStore
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.card.CouponEntryStat
+import com.xjtu.toolbox.community.CommunityRepo
 import com.xjtu.toolbox.community.CommunityScreen
+import com.xjtu.toolbox.community.GithubNetwork
+import com.xjtu.toolbox.community.GithubOAuthDeviceAuthRepository
+import com.xjtu.toolbox.community.SecureGithubSession
 import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
@@ -57,6 +61,7 @@ import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.game.hop.rememberHopLandmarkImages
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
+import com.xjtu.toolbox.iclassface.AppIclassfaceSource
 import com.xjtu.toolbox.iclassface.IclassfaceScreen
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.jiaocai.JiaocaiScreen
@@ -64,7 +69,9 @@ import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Screen
 import com.xjtu.toolbox.judge.GraduateJudgeScreen
 import com.xjtu.toolbox.judge.JudgeScreen
+import com.xjtu.toolbox.jwapp.AppJwappScoreSource
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
+import com.xjtu.toolbox.jwapp.appJwappScoreCache
 import com.xjtu.toolbox.library.AppLibrarySource
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.LibraryStatus
@@ -173,14 +180,26 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.JwappScore>(transition = expand(AppRoute.JwappScore::class)) {
+            // 屏/VM 已搬进 `:core`（桌面端第 19 条真数据路由）：屏只认两个端口 —— `source`
+            //（jwapp 一站）与 `jwxt`（教务一站）。`AppJwappScoreSource` 同时填这两个：它包住原来的
+            // `JwappApi` / `CjcxApi` / `JudgeApi` / `ScoreReportApi`，「重试前强制重登」那一枪也
+            // 从 `loginState` 移进去了（读的是同一份会话管家凭据）。缓存仍是原来的 `DataCache`
+            //（同一个 key `score_all_terms`，老缓存无缝沿用），它是唯一要 `Context` 的一档。
+            val scoreContext = LocalContext.current
+            val scoreSource = remember(loginState.sessionManager) {
+                loginState.sessionManager?.let { AppJwappScoreSource(it) }
+            }
             JwappScoreScreen(
-                site = loginState.sessionManager?.getSiteOrNull("jwapp"),
-                jwxtSite = loginState.sessionManager?.getSiteOrNull("jwxt"),
+                source = scoreSource,
                 studentId = loginState.activeUsername,
                 onBack = back,
                 onOpenReport = { router.open(AppRoute.ScoreReport) },
                 // 成绩单只有本科生的流程，研究生不显示入口
                 onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
+                jwxt = scoreSource,
+                cache = remember(scoreContext, loginState.accountId) {
+                    appJwappScoreCache(scoreContext, loginState.accountId)
+                },
             )
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
@@ -473,7 +492,15 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.Iclassface>(transition = expand(AppRoute.Iclassface::class)) {
-            WithSite("iclassface") { IclassfaceScreen(site = it, onBack = back) }
+            // 屏已搬进 `:core`（桌面端第 20 条真数据路由，考勤屏上的「快速考勤流水」入口）：
+            // 屏只认 `:core` 的 `IclassfaceSource` 端口，这里填 `:data` 的 `AppIclassfaceSource`
+            // —— 与桌面端**同一份实现**（取数一个字没改，只是 `Dispatchers.IO` 从屏里挪进了源里）。
+            WithSite("iclassface") { site ->
+                IclassfaceScreen(
+                    source = remember(site) { AppIclassfaceSource(site) },
+                    onBack = back,
+                )
+            }
         }
         // WebView 常有横向滚动，关掉页内侧滑返回
         entry<AppRoute.Browser>(
@@ -518,15 +545,18 @@ fun AppNavHost(
             )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
-            // 社区那几屏已搬进 :core：登录态（加密偏好）与设备码登录（okhttp）留在 :app，
-            // 由导航层注入 —— 与 GithubDiscussionsRepository 是同一条缝，界面不再自己 get(context)。
-            val communityContext = LocalContext.current
+            // 社区那几屏已在 `:core`；登录态（密文键值存储）与设备码登录（okhttp）本轮也搬进了
+            // `:data`（桌面端第 21 条真数据路由）：`SecureGithubSession` 的存储就是**同一个
+            // 文件名、同一批键**（`github_community` / `token` / `login`，Android 的 actual 仍是
+            // `SecurePrefs`）⇒ 老登录态无缝沿用；设备码那几个端点与 GraphQL 的 okhttp 传输
+            // （`GithubNetwork` / `GithubOAuthDeviceAuthRepository` / `HttpGithubDiscussionsRepository`）
+            // 也在那里，与桌面端**同一份实现**。`：app` 因此一行装配都没有，只剩这三行注入。
             CommunityScreen(
-                session = remember { com.xjtu.toolbox.community.PrefsGithubSession.get(communityContext) },
+                session = remember { SecureGithubSession.get() },
                 deviceAuth = remember {
-                    com.xjtu.toolbox.community.GithubOAuthDeviceAuthRepository(
-                        com.xjtu.toolbox.community.GithubNetwork.client,
-                        com.xjtu.toolbox.community.CommunityRepo.CLIENT_ID,
+                    GithubOAuthDeviceAuthRepository(
+                        GithubNetwork.client,
+                        CommunityRepo.CLIENT_ID,
                     )
                 },
                 onBack = back,

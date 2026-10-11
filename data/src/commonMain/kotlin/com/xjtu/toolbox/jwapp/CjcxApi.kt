@@ -1,16 +1,16 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.util.intValue
 import com.xjtu.toolbox.util.requireArr
 import com.xjtu.toolbox.util.requireObj
-import com.xjtu.toolbox.util.stringValue
-import com.xjtu.toolbox.util.intValue
-import kotlinx.serialization.json.jsonObject
-import android.util.Log
-import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
+import com.xjtu.toolbox.util.stringValue
+import kotlinx.serialization.json.jsonObject
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -19,6 +19,12 @@ private const val TAG = "CjcxApi"
 /**
  * JWXT 精确成绩查询 (xscjcx.do)
  * ZCJ/XFJD 对所有课程（含等级制）均有精确数值，优于 JWAPP termScore
+ *
+ * 从 `:app` 的 `jwapp/CjcxApi.kt` 搬进 `:data`（桌面端第 19 条真数据路由：桌面要自己登教务、
+ * 自己取精确成绩好替换 jwapp 的粗分）。类名与包路径一字未改，两处跟着走：
+ *  - `CjcxScore` 与课程名归一化搬到了 **:core** 的 `jwapp/ScoreModels.kt`
+ *    （`CjcxScore` 是 `:core` 那个 VM 的输入模型；归一化在那边有第二个消费方）；
+ *  - `android.util.Log` → `:core` 的 `Log`（tag 与级别不变）。
  */
 class CjcxApi(private val site: SiteSession) {
 
@@ -32,25 +38,6 @@ class CjcxApi(private val site: SiteSession) {
             if (!response.isSuccessful) throw RuntimeException("xscjcx.do HTTP ${response.code}")
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-
-    data class CjcxScore(
-        val courseName: String,
-        val termCode: String,
-        val zcj: Double,
-        val xfjd: Double,
-        val xf: Double,
-        val djcjlxdm: String,
-        val djcjmc: String?,
-        val pscj: Double?,
-        val pscjxs: String?,
-        val qmcj: Double?,
-        val qmcjxs: String?,
-        val kch: String,
-        val jxbid: String,
-        val passFlag: Boolean,
-        val examProp: String,
-        val kclbdm: String,
-    )
 
     private suspend fun ensureSession() {
         val now = System.currentTimeMillis()
@@ -122,21 +109,5 @@ class CjcxApi(private val site: SiteSession) {
 
         Log.d(TAG, "获取 ${all.size} 门精确成绩")
         return all
-    }
-
-    companion object {
-        /** 标准化课程名（空格/全角/罗马数字/符号统一） */
-        fun normalizeName(name: String): String = name.trim()
-            .replace("\u3000", " ").replace("\u00A0", " ")
-            .replace(Regex("\\s+"), " ")
-            .replace("（", "(").replace("）", ")")
-            .replace("＋", "+").replace("－", "-")
-            .replace("Ⅰ", "I").replace("Ⅱ", "II").replace("Ⅲ", "III")
-            .replace("Ⅳ", "IV").replace("Ⅴ", "V").replace("Ⅵ", "VI")
-            .replace("ⅰ", "I").replace("ⅱ", "II").replace("ⅲ", "III")
-            .replace("ⅳ", "IV").replace("ⅴ", "V").replace("ⅵ", "VI")
-            .replace(Regex("[◇◆◎○●★☆※▲△▼▽]"), "")
-            .replace(Regex("\\([A-Z]{2,}\\d{4,}\\)$"), "")
-            .trim().lowercase()
     }
 }

@@ -8,6 +8,7 @@ import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.util.formatFixed
 import androidx.compose.material.icons.filled.Description
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -62,7 +63,6 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.auth.LocalAppLoginState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -77,7 +77,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
-import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
@@ -85,20 +84,40 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.*
 
+/**
+ * 成绩查询 —— 从 `:app/jwapp/JwappScoreScreen.kt` 搬进 `:core`（978 行，逐字搬）。
+ *
+ * 屏上画的东西（GPA 卡、学期下拉、搜索/分组筛选、选课算 GPA、分项成绩展开、GPA 映射表）
+ * 一个字没改；被换掉的写法只有开头这三件，与成绩报表/考勤那一批同型：
+ *
+ *  1. `site` / `jwxtSite`（`SiteSession?`）× 2 + `AppLoginState` → 注入的 [source] / [jwxt] 两个端口
+ *     与一个 `studentId`（两个站点的会话与「过渡期借的凭据」都不进共享层）；
+ *  2. `DataCache(context, accountId)` → 注入的 [cache] 端口（App 那一份仍是 `DataCache`：
+ *     同一个 key、同一个 TTL，老缓存无缝沿用）；
+ *  3. VM 的 key：原来用 `appLoginState.accountId` + `System.identityHashCode(site)`
+ *     （`identityHashCode` 是 JVM 专属），改成 `studentId` —— 在 App 上它就是那个 `accountId`，
+ *     所以「换账号 ⇒ 换一个 VM」的语义不变。
+ *
+ * 「成绩同步暂不可用」那条会话失效走向本来就在 VM 里（屏上不处理），所以这里没有
+ * `LocalAuthExpiry` 这一档。
+ *
+ * @param source 传 null = 这一端没有 jwapp 会话（只读缓存）；
+ * @param jwxt 传 null = 这一端没有教务会话（只出 jwapp 那一份）；
+ * @param cache 传 null = 这一端不落盘。
+ */
 @Composable
 fun JwappScoreScreen(
-    site: SiteSession?,
-    jwxtSite: SiteSession? = null,
+    source: JwappScoreSource?,
     studentId: String = "",
     onBack: () -> Unit,
     onOpenReport: () -> Unit = {},
     /** 电子成绩单入口；只有本科生传，研究生不传就不显示。 */
     onOpenTranscript: (() -> Unit)? = null,
+    jwxt: JwxtScoreSupplement? = null,
+    cache: JwappScoreCache? = null,
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val vm: JwappScoreViewModel = viewModel(key = "score-${appLoginState.accountId}-${System.identityHashCode(site)}") {
-        JwappScoreViewModel(context, appLoginState.accountId, site, jwxtSite, studentId, appLoginState)
+    val vm: JwappScoreViewModel = viewModel(key = "score-$studentId") {
+        JwappScoreViewModel(source, jwxt, studentId, cache)
     }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
@@ -578,28 +597,28 @@ fun GpaCard(
             ) {
                 GpaStatColumn(
                     value = gpaInfo?.gpa,
-                    format = { "%.${precision}f".format(it) },
+                    format = { formatFixed(it, precision) },
                     label = "GPA",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
                     value = gpaInfo?.averageScore?.takeIf { it > 0 },
-                    format = { "%.${precision}f".format(it) },
+                    format = { formatFixed(it, precision) },
                     label = "均分",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
                     value = (gpaInfo?.courseCount ?: totalCourses).toDouble(),
-                    format = { "%.0f".format(it) },
+                    format = { formatFixed(it, 0) },
                     label = "课程",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
                     value = gpaInfo?.totalCredits ?: totalCredits,
-                    format = { "%.1f".format(it) },
+                    format = { formatFixed(it, 1) },
                     label = "学分",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
@@ -681,7 +700,7 @@ private fun ScoreRow(
             ?: scoreItem.majorFlag?.takeIf { it.isNotBlank() }?.let { add(it) }
         if (scoreItem.examProp.isNotEmpty() && scoreItem.examProp != "初修") add(scoreItem.examProp)
         if (scoreItem.examType.isNotEmpty()) add(scoreItem.examType)
-        if (courseGpa != null) add("GPA %.1f".format(courseGpa))
+        if (courseGpa != null) add("GPA ${formatFixed(courseGpa, 1)}")
     }.joinToString("  ·  ")
 
     Card(
@@ -800,7 +819,7 @@ private fun ScoreTag(text: String, color: androidx.compose.ui.graphics.Color, co
 fun ScoreDetailRow(item: ScoreDetailItem) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(item.itemName, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
-        Text("%.0f%%".format(item.itemPercent * 100), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(48.dp))
+        Text(formatFixed(item.itemPercent * 100, 0) + "%", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(48.dp))
         // 同上：跨模块要落成本地 val
         val itemScoreValue = item.itemScoreValue
         if (itemScoreValue != null) {
@@ -954,9 +973,9 @@ fun GpaModeBreakdown(
                     results.forEach { (label, gpa, count) ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                            Text("%.${precision}f".format(gpa.gpa), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
-                            Text(if (gpa.averageScore > 0) "%.${precision}f".format(gpa.averageScore) else "—", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
-                            Text("%.1f".format(gpa.totalCredits), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
+                            Text(formatFixed(gpa.gpa, precision), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
+                            Text(if (gpa.averageScore > 0) formatFixed(gpa.averageScore, precision) else "—", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+                            Text(formatFixed(gpa.totalCredits, 1), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
                             Text("$count", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
                         }
                     }

@@ -10,8 +10,11 @@ import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
+import com.xjtu.toolbox.jwapp.JwappFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.lms.LmsFakeUpstream
+import com.xjtu.toolbox.iclassface.IclassfaceFakeUpstream
+import com.xjtu.toolbox.community.CommunityFakeUpstream
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
@@ -152,6 +155,34 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      */
     val lms: LmsFakeUpstream = LmsFakeUpstream()
 
+    /**
+     * 移动教务（第 19 条真数据路由）：
+     * - 开放平台 `org.xjtu.edu.cn`（https）= 登录入口那一跳（`authorize?appId=1370` → 302 到统一认证）；
+     * - 业务站 `jwapp.xjtu.edu.cn`（回跳是**明文 http**、业务接口是 https）= 落点与三条取数。
+     *
+     * 两面都由 [JwappFakeUpstream] 扮（两个域名，一个夹具 —— 它们属于同一条登录链，见那个类的
+     * KDoc）；CAS 那半台在 [library] 里。⚠️ 成绩屏的第二条上游是**教务**（`CjcxApi` 的
+     * `xscjcx.do`）—— 那一条在 [jwxt] 里（同一个教务域名，与其他教务取数共用）。
+     */
+    val jwapp: JwappFakeUpstream = JwappFakeUpstream()
+
+    /**
+     * 人脸识别签到（第 20 条真数据路由）：
+     * - 开放平台 `org.xjtu.edu.cn/openplatform/oauth/authorizesw`（https）= 登录链的中转那一跳
+     *   （与加餐券**同一个路径**，靠 `redirect_uri` 指向谁分流）；
+     * - 业务站 `iclassface.xjtu.edu.cn`（https）= 回跳、首页与取数。
+     *
+     * CAS 那半台在 [library] 里（`client_id=1543` 的 OAuth2 授权入口）。
+     */
+    val iclassface: IclassfaceFakeUpstream = IclassfaceFakeUpstream()
+
+    /**
+     * 社区（第 21 条真数据路由）：两个域名 —— `github.com`（设备码那两个端点）与
+     * `api.github.com`（GraphQL）：社区三屏的取数与登录都在 GitHub 上，与学校站点无关。
+     * 两个入口分得很开（[CommunityFakeUpstream.handleLogin] / [CommunityFakeUpstream.handleApi]），
+     * 因为它们本来就是两套 API（OAuth 设备码报文 vs GraphQL）。
+     */
+    val community: CommunityFakeUpstream = CommunityFakeUpstream()
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -188,22 +219,37 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             EmptyRoomFakeUpstream.JS_HOST -> emptyRoom.handleJs(exchange)
             EmptyRoomFakeUpstream.CDN_HOST -> emptyRoom.handleCdn(exchange)
             VenueFakeUpstream.OAUTH_HOST ->
-                // 同一台 `org.xjtu.edu.cn` 开放平台，三个消费方：场馆走 `/openplatform/oauth/authorize`（appId=1659）、
-                // 加餐券走 `/openplatform/oauth/authorizesw`、宿舍电费也走 `/openplatform/oauth/authorize`（appId=1759）——
-                // 分派表只有 host 一维，所以按路径 + appId 再分（authorize 那个路径两个消费方，靠 appId 区分）。
+                // 同一台 `org.xjtu.edu.cn` 开放平台，四个消费方：场馆走 `/openplatform/oauth/authorize`（appId=1659）、
+                // 宿舍电费也走 `/openplatform/oauth/authorize`（appId=1759）、移动教务也走它（appId=1370）；
+                // 加餐券与**人脸识别签到**走 `/openplatform/oauth/authorizesw`。
+                // 分派表只有 host 一维，所以按路径 + appId + redirect_uri 再分：
+                // `authorizesw` 那条两个消费方靠 `redirect_uri` 指向谁区分（加餐券是 base64 的 egc 接收页，
+                // iclassface 是明文的内层回调）。
                 when {
-                    exchange.requestURI.path.startsWith("/openplatform/oauth/authorizesw") -> coupon.handleOrg(exchange)
+                    exchange.requestURI.path.startsWith("/openplatform/oauth/authorizesw") ->
+                        if (exchange.requestURI.query?.contains(IclassfaceFakeUpstream.HOST) == true) {
+                            iclassface.handleOrg(exchange)
+                        } else {
+                            coupon.handleOrg(exchange)
+                        }
                     exchange.requestURI.query?.contains("appId=1759") == true -> dormPower.handleOauth(exchange)
+                    exchange.requestURI.query?.contains("appId=${JwappFakeUpstream.APP_ID}") == true -> jwapp.handleOauth(exchange)
                     else -> venue.handleOauth(exchange)
                 }
             CouponFakeUpstream.HOST -> coupon.handleBusiness(exchange)
             DormPowerFakeUpstream.HOST -> dormPower.handle(exchange)
             AttendanceFakeUpstream.HOST -> attendance.handle(exchange)
             LmsFakeUpstream.HOST -> lms.handle(exchange)
+            JwappFakeUpstream.HOST -> jwapp.handle(exchange)
             VenueFakeUpstream.HOST -> venue.handle(exchange)
             // 消息收纳（第 12 条真数据路由）的五个域名：门户 + 四路取数（它们都只认一网通办令牌）。
             YwtbFakeUpstream.HOST -> ywtb.handlePortal(exchange)
             YwtbFakeUpstream.MESSAGE_HOST -> ywtb.handleMessages(exchange)
+            // 社区（第 21 条真数据路由）：GitHub 那两个域名（设备码 / GraphQL）。
+            CommunityFakeUpstream.LOGIN_HOST -> community.handleLogin(exchange)
+            CommunityFakeUpstream.API_HOST -> community.handleApi(exchange)
+            // 人脸识别签到（第 20 条真数据路由）。
+            IclassfaceFakeUpstream.HOST -> iclassface.handle(exchange)
             YwtbFakeUpstream.TRANSACTION_HOST -> ywtb.handleTodos(exchange)
             YwtbFakeUpstream.RESERVATION_HOST -> ywtb.handleBookings(exchange)
             YwtbFakeUpstream.BUS_HOST -> ywtb.handleBus(exchange)
@@ -269,6 +315,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 体育场馆的登录入口那一跳（`org.xjtu.edu.cn` 的 OAuth 授权页）；业务那半台是**明文**
             // `202.117.17.144:8080`，不走隧道，所以不在这里。
             VenueFakeUpstream.OAUTH_HOST,
+            // 移动教务的回跳落点那一半（`jwapp.xjtu.edu.cn`）：回跳那一枪是**明文 http**（不走隧道），
+            // 但它三个业务接口都是 https —— 同一个 host 两种形态，所以这枚 SAN 必须有。
+            JwappFakeUpstream.HOST,
             // 加餐券：`egc.xjtu.edu.cn` 是 https（业务接口都是；登录链上的开放平台
             // `org.xjtu.edu.cn` 与场馆共用一枚 SAN，见 VenueFakeUpstream.OAUTH_HOST）。
             CouponFakeUpstream.HOST,
@@ -280,6 +329,12 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             AttendanceFakeUpstream.HOST,
             // 思源学堂（第 18 条真数据路由）：`lms.xjtu.edu.cn` 是 https（登录入口与业务接口都是）。
             LmsFakeUpstream.HOST,
+            // 人脸识别签到（第 20 条真数据路由）：`iclassface.xjtu.edu.cn` 是 https。
+            IclassfaceFakeUpstream.HOST,
+            // 社区（第 21 条真数据路由）：`github.com`（设备码两个端点）与 `api.github.com`
+            //（GraphQL）都是 https —— 两枚 SAN。
+            CommunityFakeUpstream.LOGIN_HOST,
+            CommunityFakeUpstream.API_HOST,
             // 电子凭证（成绩单）：`dzpz.xjtu.edu.cn` 是 https（它的登录入口页与业务接口都是）。
             DzpzFakeUpstream.HOST,
             // 通知公告那三个源：全是 https（教务处 / 化工学院 / OA）。
