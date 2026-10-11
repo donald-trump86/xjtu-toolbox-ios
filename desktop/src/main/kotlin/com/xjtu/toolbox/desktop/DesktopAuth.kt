@@ -424,7 +424,7 @@ class DesktopAuth(
          * 会话（`AppRoute.Jiaocai1` 的 `loginType` = `LoginType.JIAOCAI`，`:app` 导航层那句是
          * `WithSite("jiaocai")`），所以常量直接取 [JiaocaiSession.SITE_KEY]，不另造一个字符串。
          */
-        const val JIAOCAI1_SITE_KEY = JiaocaiSession.SITE_KEY
+        const val JIAOCAI_SITE_KEY = JiaocaiSession.SITE_KEY
 
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
@@ -454,7 +454,7 @@ class DesktopAuth(
 
             ICLASSFACE_SITE_KEY,
             // 教材全文库那两条路由借的就是教材中心的会话（站点 key = `jiaocai`）
-            JIAOCAI1_SITE_KEY,
+            JIAOCAI_SITE_KEY,
         )
     }
 }

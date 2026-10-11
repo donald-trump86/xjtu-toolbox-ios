@@ -74,7 +74,6 @@ class Jiaocai1FakeUpstream {
         const val BOOK_CLASSIFY_PATH = "工业技术 > 电工技术"
 
         /** 未命中任何书的检索词（用来演「没有匹配的书目」那一屏）。 */
-        /** 未命中任何书的检索词（用来演「没有匹配的书目」那一屏）。 */
         const val MISS_KEYWORD = "不存在的书名示例"
 
         /** 第二页的结果（总页数是 2：屏上的「加载更多」那一发会拉到它）。 */
@@ -108,7 +107,24 @@ class Jiaocai1FakeUpstream {
         /** 页图尺寸：与真站点的扫描页同比例（700:1050），但字节小得多。 */
         const val PAGE_WIDTH = 700
         const val PAGE_HEIGHT = 1050
+
+        // ── 教材中心（`jiaocai.lib`）那一半："查教材"栅的检索 ──
+
+        /** 检索命中的那本书（`content` 里只给文字，`ssno` 要进详情才拿得到）。 */
+        const val SEARCH_BOOK_TITLE = "示例教材：高等数学（第七版）上册"
+        const val SEARCH_BOOK_AUTHOR = "示例乙"
+        const val SEARCH_BOOK_APP_ID = 7
+        const val SEARCH_BOOK_ENGINE_ID = 3
+
+        /** 未命中任何教材的检索词（`dataList` 空掉那一档）。 */
+        const val MISS_SEARCH_KEYWORD = "没有这门课的教材示例"
     }
+
+    /** 最近一次「查教材」检索的关键词（断言检索参数用）。 */
+    @Volatile
+    var lastJiaocaiKeyword: String? = null
+
+        private set
 
     // ── 断言用：请求计数 ──
 
@@ -123,6 +139,12 @@ class Jiaocai1FakeUpstream {
 
     /** 取页图（`/jpath/` 下那些 `.jpg`）被要了几次。 */
     val pageImageCalls = AtomicInteger(0)
+
+    /** `jiaocai.lib` 的检索（`/engine2/search/search-list`）被摸了几次。 */
+    val jiaocaiSearchCalls = AtomicInteger(0)
+
+    /** `jiaocai.lib` 的书目详情（`/engine2/d/…`）被摸了几次（屏上进详情才补 ssno）。 */
+    val jiaocaiDetailCalls = AtomicInteger(0)
 
     /** 检索被 POST 了几次。 */
     val searchCalls = AtomicInteger(0)
@@ -143,6 +165,7 @@ class Jiaocai1FakeUpstream {
     fun handleJiaocai(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
+        val cookie = exchange.requestHeaders.getFirst("Cookie").orEmpty()
         when {
             path == "/entry/login" -> {
                 loginEntryCalls.incrementAndGet()
@@ -155,7 +178,30 @@ class Jiaocai1FakeUpstream {
                     redirect(exchange, casLogin("https://$JIAOCAI_HOST$path"))
                 }
             }
-            else -> respond(exchange, 404, "text/plain; charset=utf-8", "夹具没有这条路径：$path".toByteArray())
+            // 「查教材」栏那两个端点（`JiaocaiApi`）：检索与书目详情。
+            // 真站点上它们也受同一套 JS 跳转登录链保护 ⇒ 会话没建立时同样只发一张跳转页；
+            // 登录链跑完后（CAS 已种下会话 cookie）重新发原始请求就能拿到数据。
+            path == "/engine2/search/search-list" -> {
+                if (SESSION_COOKIE in cookie) {
+                    jiaocaiSearchCalls.incrementAndGet()
+                    lastJiaocaiKeyword = java.net.URLDecoder.decode(
+                        query.substringAfter("keyWord=", "").substringBefore('&'),
+                        "UTF-8",
+                    )
+                    val body = if (lastJiaocaiKeyword == MISS_SEARCH_KEYWORD) emptySearchListJson() else searchListJson()
+                    respond(exchange, 200, "application/json; charset=utf-8", body.toByteArray())
+                } else {
+                    jumpPageFor(exchange)
+                }
+            }
+            path.startsWith("/engine2/d/") -> {
+                if (SESSION_COOKIE in cookie) {
+                    jiaocaiDetailCalls.incrementAndGet()
+                    respond(exchange, 200, "text/html; charset=utf-8", detailHtml().toByteArray())
+                } else {
+                    jumpPageFor(exchange)
+                }
+            }
         }
     }
 
@@ -222,12 +268,48 @@ class Jiaocai1FakeUpstream {
         }
     }
 
-    /** 跳转页：内容形状照真站点（只有一行 `var logoutUrl = "…"`，路径带转义的 `/`）。 */
+    /** 跳转页：内容形状照真站点（只有一行 `var logoutUrl = "…"`，路径带转义的 `/`）。
+     *
+     * 两个域名共用一张形状 —— 教材中心那边业务接口的跳转页也指向全文库的 `portalLogin`
+     * （真站点上它就是同一个门户），所以 `PortalRedirect.follow` 那一套在这边一样能跑完。
+     */
     private fun jumpPage(): String = """
         <html><head><script>
         var logoutUrl = "https:\/\/$JIAOCAI1_HOST\/front\/user\/portalLogin?channel=$CHANNEL";
         location.href = logoutUrl;
         </script></head><body></body></html>
+    """.trimIndent()
+
+    private fun jumpPageFor(exchange: HttpExchange) {
+        portalJumpCalls.incrementAndGet()
+        respond(exchange, 200, "text/html; charset=utf-8", jumpPage().toByteArray())
+    }
+
+    /**
+     * `search-list` 的响应，形状照真站点：一行书目在 `data.dataList` 里，`content` 是
+     * `<br>` 分行的富文本 —— 里面**没有** `<a>`，只有「获取方式一：本地全文」这句文字
+     * （与真站一致：链接与 ssno 得进详情才拿得到，见 `JiaocaiApi.fetchSsno`）。
+     */
+    private fun searchListJson(): String = """
+        {"data":{"dataList":[{
+          "id":"general_55258665",
+          "appId":$SEARCH_BOOK_APP_ID,
+          "engineInstanceId":$SEARCH_BOOK_ENGINE_ID,
+          "title":"<b>$SEARCH_BOOK_TITLE</b>",
+          "author":"$SEARCH_BOOK_AUTHOR",
+          "content":"获取方式一：本地全文<br>课程名称：示例课<br>教材名称：$SEARCH_BOOK_TITLE；编者：$SEARCH_BOOK_AUTHOR；出版社：示例出版社；ISBN号：978-7-0000-0000-1"
+        }]}}
+    """.trimIndent()
+
+    /** 「查不到」那一档：`dataList` 是空的（与真站点同构）。 */
+    private fun emptySearchListJson(): String = """{"data":{"dataList":[]}}"""
+
+    /** 书目详情：真站点在这里给出完整富文本，`本地全文` 链接带着 `ssno`。 */
+    private fun detailHtml(): String = """
+        <html><body><div class="detail">
+        <p>获取方式一：本地全文</p>
+        <p><a href="http://$JIAOCAI1_HOST:9088/guajie/common?ssno=$SSNO&cpage=1&channel=$CHANNEL">本地全文</a></p>
+        </div></body></html>
     """.trimIndent()
 
     private fun casLogin(service: String): String =

@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.jiaocai
 
-import com.xjtu.toolbox.schedule.ScheduleCache
+import com.xjtu.toolbox.jiaocai1.Jiaocai1Source
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.spring
@@ -22,14 +22,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
-import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
@@ -37,33 +33,11 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import com.xjtu.toolbox.data.DataCache
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import com.xjtu.toolbox.nav.AppRoute
-
-@Composable
-fun JiaocaiScreen(
-    site: SiteSession,
-    onBack: () -> Unit,
-    onOpenFullText: (ssno: String, title: String) -> Unit,
-) {
-    // PR L 之后这只是薄包装：真正的页面是合并了「查教材/书架/全文库」三栏的
-    // TextbookScreen，本函数只是把老路由（快捷方式、全局搜索、屁岱工具可能还在用）
-    // 接到它的「查教材」栏。
-    TextbookScreen(
-        site = site,
-        onBack = onBack,
-        onOpenBook = onOpenFullText,
-        initialTab = 0,
-        authExpiredRoute = AppRoute.Jiaocai,
-    )
-}
 
 /**
  * 「查教材」栏内容，不带 Scaffold / TopAppBar：检索框 + 教材中心检索结果，
@@ -72,7 +46,9 @@ fun JiaocaiScreen(
  */
 @Composable
 internal fun JiaocaiSearchContent(
-    site: SiteSession,
+    source: JiaocaiSource,
+    termTextbooks: JiaocaiTermTextbooks,
+    jiaocai1: Jiaocai1Source,
     vm: JiaocaiViewModel,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -123,7 +99,8 @@ internal fun JiaocaiSearchContent(
             }
             // 搜索框为空、还没搜过：先看看本学期课程自己配的教材，不必非得手动搜。
             MyTextbooksSection(
-                site = site,
+                termTextbooks = termTextbooks,
+                jiaocai1 = jiaocai1,
                 onOpenFullText = onOpenFullText,
                 snackbarHostState = snackbarHostState,
             )
@@ -189,7 +166,7 @@ internal fun JiaocaiSearchContent(
 
         selected?.let { book ->
             JiaocaiBookSheet(
-                site = site,
+                source = source,
                 book = book,
                 onDismiss = { vm.selected = null },
                 onRead = { ssno -> onOpenFullText(ssno, book.title) },
@@ -267,7 +244,7 @@ private fun BookCard(book: JiaocaiBook, onClick: () -> Unit) {
 
 @Composable
 private fun JiaocaiBookSheet(
-    site: SiteSession,
+    source: JiaocaiSource,
     book: JiaocaiBook,
     onDismiss: () -> Unit,
     onRead: (String) -> Unit,
@@ -277,7 +254,7 @@ private fun JiaocaiBookSheet(
     LaunchedEffect(book.id) {
         if (ssno != null || !book.hasFullText) return@LaunchedEffect
         resolving = true
-        ssno = withContext(Dispatchers.IO) { JiaocaiApi(site).fetchSsno(book) }
+        ssno = source.fetchSsno(book)
         resolving = false
     }
 
@@ -352,8 +329,8 @@ private val HIDDEN_FIELDS = setOf("获取方式一", "获取方式二", "获取�
 // - 这里的「课程选用教材」答的是「我这学期的课用什么书」，数据来自教务、
 //   已经缓存在 schedule_textbooks_$term，跟下面的教材中心检索无关；
 // - 「查教材」栏主体（上面 AnimatedContent 那部分）答的是「某门课配什么书（全校范围）」，
-//   来自 JiaocaiApi.search；
-// - 「全文库」栏答的是「读书」，来自 Jiaocai1Api，全文库只认 IP、不走 CAS，校外大概率用不了。
+//   来自 JiaocaiApi.search（现在屏只认 JiaocaiSource 端口）；
+// - 「全文库」栏答的是「读书」，来自 Jiaocai1Api（现在屏只认 Jiaocai1Source 端口），全文库只认 IP、不走 CAS，校外大概率用不了。
 // 这里把「我这学期的教材」和「读全文」串起来：先读缓存拿到 isbn/书名，
 // 点了「读全文」才去全文库解析 ssno，不进页面就逐行请求。
 
@@ -366,15 +343,15 @@ private sealed class FullTextOutcome {
 
 @Composable
 private fun MyTextbooksSection(
-    site: SiteSession,
+    termTextbooks: JiaocaiTermTextbooks,
+    jiaocai1: Jiaocai1Source,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
 ) {
-    val context = LocalContext.current
     // null = 还没读完缓存；空列表是"读完了但没有"，跟"还没读"要分得开，否则一进来会闪一下空态。
-    var textbooks by remember { mutableStateOf<List<TextbookItem>?>(null) }
+    var textbooks by remember { mutableStateOf<List<JiaocaiTermTextbook>?>(null) }
     LaunchedEffect(Unit) {
-        textbooks = withContext(Dispatchers.IO) { loadCurrentTermTextbooks(context) }
+        textbooks = termTextbooks.currentTerm()
     }
     val list = textbooks ?: return
     if (list.isEmpty()) return
@@ -385,7 +362,7 @@ private fun MyTextbooksSection(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             list.forEach { item ->
                 MyTextbookRow(
-                    site = site,
+                    jiaocai1 = jiaocai1,
                     item = item,
                     onOpenFullText = onOpenFullText,
                     snackbarHostState = snackbarHostState,
@@ -397,8 +374,8 @@ private fun MyTextbooksSection(
 
 @Composable
 private fun MyTextbookRow(
-    site: SiteSession,
-    item: TextbookItem,
+    jiaocai1: Jiaocai1Source,
+    item: JiaocaiTermTextbook,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
 ) {
@@ -437,7 +414,7 @@ private fun MyTextbookRow(
                 onClick = {
                     resolving = true
                     scope.launch {
-                        val outcome = withContext(Dispatchers.IO) { resolveFullText(site, item) }
+                        val outcome = resolveFullText(jiaocai1, item)
                         resolving = false
                         when (outcome) {
                             is FullTextOutcome.Found -> onOpenFullText(outcome.ssno, item.textbookName)
@@ -451,31 +428,32 @@ private fun MyTextbookRow(
     }
 }
 
-/** 本学期的选用教材缓存，滤掉「无教材」这类空信息。 */
-private fun loadCurrentTermTextbooks(context: android.content.Context): List<TextbookItem> {
-    val dc = DataCache(context)
-    val term = ScheduleCache.readCurrentTerm(dc) ?: return emptyList()
-    return ScheduleCache.readTextbooks(dc, term, Long.MAX_VALUE).orEmpty().filter { it.hasSubstantiveTextbook }
-}
 
 /**
  * isbn 非空就按 ISBN 精确检索；isbn 为空退回书名检索，但只认书名完全一致的结果，
  * 防止张冠李戴（全文库里同名异书不少见）。
  *
- * 注意：[Jiaocai1Api.search] 内部把网络异常也吞成了空结果（见该文件），
+ * 注意：[com.xjtu.toolbox.jiaocai1.Jiaocai1Source.search] 内部把网络异常也吞成了空结果（见该文件），
  * 所以实际的"校外打不开"目前基本都会走到 [FullTextOutcome.NotFound]，
  * 不会走到 [FullTextOutcome.Failed]——这是全文库检索接口本身的既有行为，
  * 这次没有改它（改动面会波及全文库检索/分类浏览，超出本 PR 范围）。
  * [FullTextOutcome.Failed] 分支留着兜运行时异常（比如空指针），不是摆设。
  */
-private suspend fun resolveFullText(site: SiteSession, item: TextbookItem): FullTextOutcome = try {
+private suspend fun resolveFullText(jiaocai1: Jiaocai1Source, item: JiaocaiTermTextbook): FullTextOutcome = try {
     val isbn = item.isbn.trim()
     val result = if (isbn.isNotBlank()) {
-        Jiaocai1Api(site).search(keyword = normalizeIsbn(isbn), field = Jiaocai1SearchField.ISBN)
+        jiaocai1.search(
+            keyword = normalizeIsbn(isbn),
+            field = Jiaocai1SearchField.ISBN,
+            cls = "",
+            page = 1,
+        )
     } else {
-        val byName = Jiaocai1Api(site).search(
+        val byName = jiaocai1.search(
             keyword = item.textbookName.trim(),
             field = Jiaocai1SearchField.BOOK_NAME,
+            cls = "",
+            page = 1,
         )
         byName.copy(books = byName.books.filter { it.title.trim() == item.textbookName.trim() })
     }

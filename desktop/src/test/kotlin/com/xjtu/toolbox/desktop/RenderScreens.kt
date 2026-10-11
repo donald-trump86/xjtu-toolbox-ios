@@ -84,6 +84,7 @@ import kotlinx.coroutines.runBlocking
  * | `feedback.png` | 反馈屏（真路由：外壳 → `AppRoute.Feedback` → `AppFeedbackSource`） | 第二十二条真数据路由，也是唯一一条**没有校园站点会话**的：上游是飞书开放平台（`open.feishu.cn`），凭据是宿主注入的 `app_id` + `app_secret` 换一张租户令牌；屏与本地账本在 `:core`（键值缝，与 Android 同一份 `feedback` 存储），取数在 `:data`。图上那张工单与那句开发者回复、两条公开问答都是从假飞书拉回来的（证据运行先往本地账本补一张工单） |
  * | `jiaocai1.png` | 教材全文库屏（真路由：外壳 → `AppRoute.Jiaocai1` → `DesktopSiteGate(教材中心)` → `AppJiaocai1Source`） | 第二十三条真数据路由：站点是**教材中心**（`jiaocai.lib`）—— 全文库借它的会话（`/entry/login` → CAS → 超星 SSO），业务侧那张 `var logoutUrl=…` 的跳转页由 `PortalRedirect` 自己跟；屏（书架 + 全文库）在 `:core`，取数与页字节在 `:data`，书架落盘在 `:desktop`。图上那本书是证据运行点两下分类树检索出来的夹具书目 |
  * | `jiaocai1-reader.png` | 教材阅读器（同一条路由的参数形态：`AppRoute.Jiaocai1Reader(ssno, title)`） | 同一条真数据路由的**页加载**那一半：页图是夹具现场画的 JPEG（700×1050，程序生成、不是截图），解码走 `:core` 的图片缝、磁盘缓存在 `:data`；底栏那个「1 / 34」就是夹具那本书的线性页表 |
+ * | `jiaocai.png` | 教材查询屏（真路由：外壳 → `AppRoute.Jiaocai` → `DesktopSiteGate(教材中心)` → `AppJiaocaiSource`） | 第二十四条真数据路由：同一个站点（教材中心）的**另一条路由** —— `jiaocai` 域的合并页 `TextbookScreen` 现在也在 `:core`，桌面这一支默认落在「查教材」栅（与 `:app` 的 `initialTab = 0` 同一条口径）。这个栅进屏时关键词是空的，证据运行点了一下搜索建议（`高等数学`）才发起检索；图上那本教材与「本地全文」那个标志都是从假教材中心拉回来的。**「本学期我的教材」那一段在桌面上不显示**（桌面还没有教务课表缓存 ⇒ 端口回空表），这是如实的降级 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -629,6 +630,31 @@ fun main(args: Array<String>) {
             )
         }
         check(readerShown) { "jiaocai1-reader.png：屏上没有「1 / 34」—— 多半没打开那本书" }
+        // 教材查询（`jiaocai` 域，第 24 条真数据路由）：同一个站点（教材中心）、同一个外壳，
+        // 走的是那个合并页的**第一栅**（`AppRoute.Jiaocai` → `initialTab = 0`）。
+        // 图上要有夹具那本书：进屏时搜索框是空的（先看「搜索建议」那行词），所以用 semantics
+        // 点一下建议词 ⇒ 触发教材中心检索。点不到、或结果里没有那本书就是响亮地失败。
+        // 「本学期我的教材」那一段在桌面上不显示（没有教务课表缓存 ⇒ 端口回空表，见
+        // `DesktopJiaocaiTermTextbooks`）—— 这张图会如实把它拍成「没有那一段」。
+        var jiaocaiSuggestTapped = false
+        var jiaocaiSearchBookShown = false
+        shot(
+            "jiaocai.png",
+            frames = 24,
+            onFrame = { frame, scene ->
+                if (frame >= 4) {
+                    if (!jiaocaiSuggestTapped) {
+                        jiaocaiSuggestTapped = clickByLabel(scene, JIAOCAI_SUGGESTION)
+                    } else if (!jiaocaiSearchBookShown) {
+                        jiaocaiSearchBookShown = hasText(scene, Jiaocai1FakeUpstream.SEARCH_BOOK_TITLE)
+                    }
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Jiaocai)) }
+        check(jiaocaiSuggestTapped) { "jiaocai.png：没点到搜索建议（$JIAOCAI_SUGGESTION）" }
+        check(jiaocaiSearchBookShown) {
+            "jiaocai.png：屏上没有夹具那本教材（${Jiaocai1FakeUpstream.SEARCH_BOOK_TITLE}）—— 多半没取到数"
+        }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
@@ -637,6 +663,13 @@ fun main(args: Array<String>) {
 
     exitProcess(0)
 }
+
+/**
+ * 「查教材」栅那行搜索建议里的一个词（与 `JiaocaiSearchContent` 里的字面量一致）。
+ * 证据图点它一下就会发起那一发检索 —— 点的是夹具认得的任意关键词都行（夹具对
+ * `MISS_SEARCH_KEYWORD` 之外的关键词都回同一行书目）。
+ */
+private const val JIAOCAI_SUGGESTION = "高等数学"
 
 /** 假上游：`withFakeCampus` 期间有效（把端口灌给常驻 selector 的就是它）。 */
 private lateinit var fake: FakeCampusProxy

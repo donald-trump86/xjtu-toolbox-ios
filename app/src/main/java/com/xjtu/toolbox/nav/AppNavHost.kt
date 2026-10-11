@@ -66,7 +66,7 @@ import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.iclassface.AppIclassfaceSource
 import com.xjtu.toolbox.iclassface.IclassfaceScreen
 import com.xjtu.toolbox.home.HomeStats
-import com.xjtu.toolbox.jiaocai.JiaocaiScreen
+import com.xjtu.toolbox.jiaocai.AppJiaocaiScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
 import com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore
 import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
@@ -425,20 +425,21 @@ fun AppNavHost(
         }
         entry<AppRoute.Jiaocai>(transition = expand(AppRoute.Jiaocai::class)) {
             WithSite("jiaocai") {
-                JiaocaiScreen(
+                AppJiaocaiScreen(
                     site = it,
                     onBack = back,
-                    onOpenFullText = { ssno, title -> router.open(AppRoute.Jiaocai1Reader(ssno, title)) },
+                    onOpenBook = { ssno, title -> router.open(AppRoute.Jiaocai1Reader(ssno, title)) },
+                    initialTab = 0,
+                    authExpiredRoute = AppRoute.Jiaocai,
                 )
             }
         }
         entry<AppRoute.Jiaocai1>(transition = expand(AppRoute.Jiaocai1::class)) {
             WithSite("jiaocai") {
-                // `:app` 里那个薄包装 `Jiaocai1Screen` 就是在调这一屏的第三栏
-                //（`TextbookScreen(initialTab = 2)`）—— 本轮它整份搬进了 `:core`（成了
-                // `jiaocai1/Jiaocai1LibraryScreen`，供桌面端那条路由用），所以这里直接把
-                // 原来的参数摆到 `TextbookScreen` 上，行为与搬迁前逐字相同。
-                com.xjtu.toolbox.jiaocai.TextbookScreen(
+                // 两条 `jiaocai` 路由共用一个宿主适配（`jiaocai/AppJiaocai.kt`）：屏与两个
+                // ViewModel 都在 `:core`，取数在 `:data`，这里只有 initialTab 不同 ——
+                // `JIAOCAI` 落在「查教材」栅，`JIAOCAI1` 落在「全文库」栅（与收编前同一条口径）。
+                AppJiaocaiScreen(
                     site = it,
                     onBack = back,
                     onOpenBook = { ssno, title -> router.open(AppRoute.Jiaocai1Reader(ssno, title)) },

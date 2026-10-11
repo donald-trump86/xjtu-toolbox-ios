@@ -32,7 +32,7 @@ import kotlinx.coroutines.runBlocking
  * 书架在桌面这份落盘实现上的往返。
  *
  * 与 `:data` 的 `Jiaocai1ApiJvmTest` 的分工：那边验字段解析与页字节的缓存口径；这里验**桌面这一端
- * 的装配** —— `DesktopAuth` 注册了教材中心站点、`JIAOCAI1_SITE_KEY` 进 `SESSION_SITE_KEYS`、
+ * 的装配** —— `DesktopAuth` 注册了教材中心站点、`JIAOCAI_SITE_KEY` 进 `SESSION_SITE_KEYS`、
  * 缓存根目录走 XDG（证据/测试里跟着 `dataRootOverride`）、书架是那份 0600 的 JSON 落盘。
  *
  * 手法同 `DesktopAuthLmsJvmTest`：`:testkit` 假上游（`FakeCampusProxy` 一个本地代理按 host 分派）
@@ -91,13 +91,13 @@ class DesktopAuthJiaocai1JvmTest {
         assertTrue(fake.library.credentialPosts.get() > 0, "应当真提交过一次凭据")
 
         // 路由进门的那条路（ToolboxDesktopApp 的 DesktopSiteGate）：教材中心会话按需建
-        runBlocking { auth.ensureSession(DesktopAuth.JIAOCAI1_SITE_KEY) }
+        runBlocking { auth.ensureSession(DesktopAuth.JIAOCAI_SITE_KEY) }
         val site = assertNotNull(
-            auth.sessionManager.getSiteOrNull(DesktopAuth.JIAOCAI1_SITE_KEY),
+            auth.sessionManager.getSiteOrNull(DesktopAuth.JIAOCAI_SITE_KEY),
             "教材中心站点应已注册并拿到会话（站点 key = `jiaocai`）",
         )
         assertTrue(site.hasLogin, "教材中心会话应当真的建起来")
-        assertEquals("jiaocai", DesktopAuth.JIAOCAI1_SITE_KEY, "站点 key 就是教材中心那一个")
+        assertEquals("jiaocai", DesktopAuth.JIAOCAI_SITE_KEY, "站点 key 就是教材中心那一个")
 
         // 桌面这份装配：取数 + 页字节（缓存根目录走 XDG，测试里跟着临时数据根）
         val source = AppJiaocai1Source(site, jiaocai1CacheRoot())
@@ -149,8 +149,8 @@ class DesktopAuthJiaocai1JvmTest {
     fun `ViewModel：分类树取回来后缓存端口为 null 也不影响（桌面没有 DataCache）`() = withFakeCampus {
         val auth = newAuth()
         assertTrue(login(auth), "真登录应当成功")
-        runBlocking { auth.ensureSession(DesktopAuth.JIAOCAI1_SITE_KEY) }
-        val site = assertNotNull(auth.sessionManager.getSiteOrNull(DesktopAuth.JIAOCAI1_SITE_KEY))
+        runBlocking { auth.ensureSession(DesktopAuth.JIAOCAI_SITE_KEY) }
+        val site = assertNotNull(auth.sessionManager.getSiteOrNull(DesktopAuth.JIAOCAI_SITE_KEY))
 
         val source = AppJiaocai1Source(site, jiaocai1CacheRoot())
         val shelf = DesktopJiaocai1ShelfStore(keyValueStore("jiaocai1_shelf_vm_test"))

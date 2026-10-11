@@ -14,17 +14,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.jiaocai1.Jiaocai1BrowseContent
-import com.xjtu.toolbox.jiaocai1.AppJiaocai1Cache
-import com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore
-import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
+import com.xjtu.toolbox.jiaocai1.Jiaocai1Cache
 import com.xjtu.toolbox.jiaocai1.Jiaocai1PageImages
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfContent
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfStore
+import com.xjtu.toolbox.jiaocai1.Jiaocai1Source
 import com.xjtu.toolbox.jiaocai1.Jiaocai1UsageNotice
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ViewModel
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -52,33 +49,29 @@ import com.xjtu.toolbox.nav.AppRoute
  * 不在这一层重复处理。
  *
  * @param initialTab 默认打开哪一栏：0=查教材，1=书架，2=全文库。旧路由 `JIAOCAI`/`JIAOCAI1`
- *   分别落在 0 和 2 上，靠 [com.xjtu.toolbox.jiaocai.JiaocaiScreen]、
- *   [com.xjtu.toolbox.jiaocai1.Jiaocai1Screen] 这两个薄包装接住。
- * @param initialKeyword 进全文库栏时预填的检索词（原 `Jiaocai1Screen.initialKeyword`，
- *   目前仓库里没有调用方传非默认值，这里原样保留只是不丢参数）。
- * @param authExpiredRoute 会话过期后 `handleAuthExpired` 要带回的路由，
- *   两个旧路由各自传自己的，行为和收编前一致。
+ *   分别落在 0 和 2 上，靠 `:app` 的 `jiaocai/AppJiaocai.kt`（它把宿主能力填成下面那几条端口）
+ *   与 `:core` 的 `jiaocai1/Jiaocai1Screen.kt` 这两个薄包装接住。
  */
 @Composable
 fun TextbookScreen(
-    site: SiteSession,
+    source: JiaocaiSource,
+    termTextbooks: JiaocaiTermTextbooks,
+    jiaocai1Source: Jiaocai1Source,
+    jiaocai1Shelf: Jiaocai1ShelfStore,
+    jiaocai1Cache: Jiaocai1Cache?,
     onBack: () -> Unit,
     onOpenBook: (ssno: String, title: String) -> Unit,
     initialTab: Int = 0,
     initialKeyword: String = "",
     authExpiredRoute: AppRoute = AppRoute.Jiaocai,
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val context = LocalContext.current
-    val jiaocaiVm: JiaocaiViewModel = viewModel()
-    jiaocaiVm.bind(site)
-    // jiaocai1（全文库）那一半本轮搬进了共享内核：取数/页字节在 `:data`（`AppJiaocai1Source`），
-    // 书架与分类树缓存切成了两个端口（Android 这两份实现都在 `jiaocai1/AppJiaocai1.kt` 里，
-    // 包住原来的 Room DAO 与 DataCache，表名/键名/TTL 一字未改），页图解码在 `:core`。
-    val jiaocai1Source = remember(site) { AppJiaocai1Source(site, context.cacheDir) }
-    val jiaocai1Shelf = remember(context) { AppJiaocai1ShelfStore(context) }
-    val jiaocai1Vm: Jiaocai1ViewModel = viewModel {
-        Jiaocai1ViewModel(jiaocai1Source, jiaocai1Shelf, AppJiaocai1Cache(context))
+    val authExpiry = LocalAuthExpiry.current
+    val jiaocaiVm: JiaocaiViewModel = viewModel { JiaocaiViewModel() }
+    jiaocaiVm.bind(source)
+    // jiaocai1（全文库）那一半也在共享内核：取数/页字节、书架、分类树缓存都是端口，由宿主决定填
+    // 什么（Android 是 Room DAO + DataCache，桌面是 JSON 落盘 + 没有缓存），页图解码在 `:core`。
+    val jiaocai1Vm: Jiaocai1ViewModel = viewModel(key = "jiaocai-library") {
+        Jiaocai1ViewModel(jiaocai1Source, jiaocai1Shelf, jiaocai1Cache)
     }
     jiaocai1Vm.bind()
     val jiaocai1Images = remember(jiaocai1Source) { Jiaocai1PageImages(jiaocai1Source) }
@@ -97,16 +90,18 @@ fun TextbookScreen(
         }
     }
 
+    // 会话过期交给导航层（`:core` 的 [LocalAuthExpiry]）：两个 ViewModel 各走各的，
+    // 和搬迁前一样（那时是 `LocalAppLoginState.handleAuthExpired`）。
     if (jiaocaiVm.authExpired) {
         LaunchedEffect(Unit) {
             jiaocaiVm.authExpired = false
-            appLoginState.handleAuthExpired(authExpiredRoute, onBack)
+            authExpiry.onAuthExpired(authExpiredRoute, onBack)
         }
     }
     if (jiaocai1Vm.authExpired) {
         LaunchedEffect(Unit) {
             jiaocai1Vm.authExpired = false
-            appLoginState.handleAuthExpired(authExpiredRoute, onBack)
+            authExpiry.onAuthExpired(authExpiredRoute, onBack)
         }
     }
 
@@ -154,7 +149,9 @@ fun TextbookScreen(
               Box(Modifier.fillMaxSize().padding(top = glassTop)) {
                 when (page) {
                     0 -> JiaocaiSearchContent(
-                        site = site,
+                        source = source,
+                        termTextbooks = termTextbooks,
+                        jiaocai1 = jiaocai1Source,
                         vm = jiaocaiVm,
                         onOpenFullText = onOpenBook,
                         snackbarHostState = snackbarHostState,
