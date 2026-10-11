@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.account.AccountManagerScreen
+import com.xjtu.toolbox.account.AppAccountPhotoSource
 import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
@@ -104,6 +105,7 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.dormpower.DormPowerApi
 import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import com.xjtu.toolbox.yellowpage.appYellowPageApi
 import kotlinx.coroutines.Dispatchers
@@ -650,10 +652,23 @@ fun AppNavHost(
             MatchScreen(onBack = back)
         }
         entry<AppRoute.Accounts>(transition = expand(AppRoute.Accounts::class)) {
-            AccountManagerScreen(accountManager = accountManager, loginState = loginState, onBack = back)
+            // 屏本轮搬进了 `:core`（`account/AccountManagerScreen.kt`）；动作本体（切换/新增/删除）
+            // 仍在 `:app` 的 `AccountManager`（要 `Context` 清 SharedPreferences/Room/WebView 存储），
+            // 它实现 `:core` 那条 `AccountsController` 缝。头像照片那一格也仍在这一端
+            //（学工系统的证件照缓存）。屏的画法与文案一行未改。
+            AccountManagerScreen(
+                accountManager = accountManager,
+                activeAccountId = loginState.accountId,
+                accountPhoto = AppAccountPhotoSource,
+                onBack = back,
+            )
         }
         entry<AppRoute.WebVpnConverter>(transition = expand(AppRoute.WebVpnConverter::class)) {
+            // 屏本轮搬进了 `:core`（`webvpn/WebVpnConverterScreen.kt`）；转换本体仍在 `:data` 的
+            // `WebVpnUtil`（要用 javax.crypto 做 AES-128-CFB，进不了 commonMain）——
+            // 这里按 `:core` 的 `WebVpnCodec` 缝把它注进去。画法与文案一行未改。
             WebVpnConverterScreen(
+                codec = WebVpnUtil,
                 onBack = back,
                 onOpenWithWebVpn = onOpenWithWebVpn,
             )

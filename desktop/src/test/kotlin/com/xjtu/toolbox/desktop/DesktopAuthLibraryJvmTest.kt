@@ -2,6 +2,7 @@ package com.xjtu.toolbox.desktop
 
 import com.xjtu.toolbox.FakeCampusProxy
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.SessionExpiredException
 import com.xjtu.toolbox.auth.SiteSession
@@ -141,6 +142,10 @@ class DesktopAuthLibraryJvmTest {
         }
         // 凭据文件也要清：它是进程级缓存的 KeyValueStore（`stores` 那张表）
         wipeSecureStore(JvmCredentialStore.FILE_NAME)
+        // 多账号之后**账号表**才是凭据的真相（`AccountStore`，存储名 `xjtu_accounts`）：它同样是
+        // 进程级缓存的 KeyValueStore ⇒ 不清的话上一条测试的账号会漏进下一条（`restore()` 会
+        // 直接把它恢复成已登录）。
+        wipeSecureStore(AccountStore.FILE_NAME)
         // 清 in-memory：`PersistentCookieJar` 按文件名全进程共享一份内存表，只删文件不够
         for (name in listOf(
             "cookies_normal_default", "cookies_webvpn_default",
@@ -199,21 +204,32 @@ class DesktopAuthLibraryJvmTest {
         assertNotNull(jar.findCookieByName("TGC"), "统一认证的 TGC 应落在本端 cookie 存储里")
         assertNotNull(jar.findCookieByName("JSESSIONID"), "座位系统自己的会话 cookie 也应落盘")
 
-        // 凭据自己记下来了（下次冷启动靠它免登），且两个输入框都清空了（红线：学号不上屏/不进日志）
-        assertEquals(LibraryFakeUpstream.USERNAME to LibraryFakeUpstream.PASSWORD, store.load())
+        // 凭据自己记下来了（下次冷启动靠它免登）：多账号之后它落在**账号表**里
+        //（`AccountStore`，存储名 `xjtu_accounts`），而 Stage A 那份单账号凭据文件已经不再写。
+        assertEquals(LibraryFakeUpstream.PASSWORD, AccountStore().get(LibraryFakeUpstream.USERNAME)?.password)
+        assertEquals(LibraryFakeUpstream.USERNAME, AccountStore().activeAccountId())
         assertEquals("", auth.password, "登录成功后界面上的密码字段应被清空")
         assertEquals("", auth.username, "登录成功后界面上的学号字段也应清空")
 
-        // 文件权限：0600（同目录的 `SecureStore.jvm.kt` 那条口径）
-        val file = File(requireNotNull(dataRootOverride), "${JvmCredentialStore.FILE_NAME}.properties")
-        assertTrue(file.exists(), "凭据应落成文件：$file")
+        // 文件权限：0600（同目录的 `SecureStore.jvm.kt` 那条口径）。
+        // 存着密码明文的那一份从 `xjtu_credentials` 换成了 `xjtu_accounts`（账号表）。
+        val root = requireNotNull(dataRootOverride)
+        val file = File(root, "${AccountStore.FILE_NAME}.properties")
+        assertTrue(file.exists(), "账号表应落成文件：$file")
         assertEquals(
             setOf(
                 java.nio.file.attribute.PosixFilePermission.OWNER_READ,
                 java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
             ),
             Files.getPosixFilePermissions(file.toPath()),
-            "凭据文件只该给本用户读写",
+            "账号表只该给本用户读写",
+        )
+        // 反过来：Stage A 那份单账号凭据文件里**不该**再有账号密码（它降级成「只读一次做导入」）
+        val legacy = File(root, "${JvmCredentialStore.FILE_NAME}.properties")
+        val legacyText = if (legacy.exists()) legacy.readText() else ""
+        assertTrue(
+            !legacyText.contains(LibraryFakeUpstream.PASSWORD),
+            "单账号凭据文件里不该再写账号密码（账号表是唯一真相）",
         )
     }
 
@@ -225,7 +241,7 @@ class DesktopAuthLibraryJvmTest {
         val ok = runBlocking { auth.login() }
 
         assertTrue(!ok, "错密码不该登得上")
-        assertNull(store.load(), "失败一次就不该记住任何凭据")
+        assertTrue(AccountStore().list().isEmpty(), "失败一次就不该记住任何账号")
         assertNull(AccountContext.activeAccountId, "失败后命名空间应退回匿名")
         assertTrue(!auth.loggedIn, "失败后仍是未登录态")
         val state = auth.loginState
@@ -1216,7 +1232,8 @@ class DesktopAuthLibraryJvmTest {
 
         assertTrue(restarted.loggedIn, "有落盘凭据 ⇒ 直接进已登录态，不该再让用户输一遍")
         assertEquals("", restarted.username, "恢复不该把学号填进登录页的输入框（红线）")
-        assertEquals(LibraryFakeUpstream.USERNAME to LibraryFakeUpstream.PASSWORD, store.load())
+        assertEquals(LibraryFakeUpstream.PASSWORD, AccountStore().get(LibraryFakeUpstream.USERNAME)?.password)
+        assertEquals(LibraryFakeUpstream.USERNAME, AccountStore().activeAccountId())
 
         val site: SiteSession = restarted.librarySite
         val seats = assertIs<SeatResult.Success>(runBlocking { restarted.librarySource.seats("north2east") })
@@ -1266,12 +1283,13 @@ class DesktopAuthLibraryJvmTest {
         val (auth, store) = newAuth()
         assertTrue(login(auth))
         val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
-        assertNotNull(store.load())
+        assertNotNull(AccountStore().get(LibraryFakeUpstream.USERNAME))
 
         auth.logout()
 
         assertTrue(!auth.loggedIn, "退出后应回到登录页")
-        assertNull(store.load(), "凭据文件里的账号密码应被删掉")
+        assertTrue(AccountStore().list().isEmpty(), "退出登录要把这条账号的记录一并删掉")
+        assertNull(AccountStore().activeAccountId(), "激活指针也要清掉，否则下次冷启动会把它恢复回来")
         assertEquals("", auth.username, "退出后界面字段也清空")
         // 这条账号的 cookie 与站点快照都被删（不是「留着下次免密」——桌面是可分发客户端）
         val jarName = "cookies_normal$suffix"
@@ -1282,8 +1300,12 @@ class DesktopAuthLibraryJvmTest {
             !File(root, "sites_normal$suffix.properties").exists(),
             "退出后站点快照文件应被删掉（否则下一个人点一下就能 SSO 直通）",
         )
+        // 账号表里连这条记录都没了（多账号之后「退出登录」就是删这一条，见 `DesktopAuth.logout`），
+        // 而那份单账号凭据文件里也不该残留密码明文。
+        val legacy = File(root, "${JvmCredentialStore.FILE_NAME}.properties")
+        val legacyText = if (legacy.exists()) legacy.readText() else ""
         assertTrue(
-            !File(root, "${JvmCredentialStore.FILE_NAME}.properties").readText().contains(LibraryFakeUpstream.PASSWORD),
+            !legacyText.contains(LibraryFakeUpstream.PASSWORD),
             "凭据文件里不应再残留密码明文",
         )
         // 再登一次：会重新走完整 CAS（没有旧 cookie 可以 SSO 直通）

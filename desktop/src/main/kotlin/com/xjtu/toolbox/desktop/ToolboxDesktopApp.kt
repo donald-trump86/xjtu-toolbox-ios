@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.desktop
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -111,6 +112,7 @@ import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.library.LibraryScreen
+import com.xjtu.toolbox.account.AccountManagerScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.notification.AppNoticeSource
@@ -121,6 +123,8 @@ import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -258,6 +262,10 @@ internal val DESKTOP_TABS = listOf(
  * **一个都不用登录** —— `AppRoute.Notification.loginType` 也是 null，由源自己爬）、空闲教室（三档数据源要登的站点
  * 不同 ⇒ 也是由源自己 ensure，见那一段的注释）、
  * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
+ *
+ * 两条**不需要校园会话、但也不需要取数**的：WebVPN 转换器（本机算的字符串互转，见 `:core` 的
+ * `WebVpnCodec` 缝）与账号管理（多账号：看/切/增/删，动作本体是 `:desktop` 的 `DesktopAccounts`）。
+ *
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
@@ -322,6 +330,16 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // = `CAMPUS_CARD`，与 `:app` 导航层那句 `WithSite("campus_card")` 同一条口径）——
     // 它借的就是校园卡那个 JWT（`synjones-auth: bearer <JWT>`），不另建会话。
     AppRoute.PaymentCode to "付款码",
+
+    // WebVPN 转换器（第 28 条真数据路由）：**不需要任何校园会话**、也不发请求 ——
+    // 本机算的字符串互转。名字照 `:app` 服务表里的叫法（「WebVPN」/「校外访问转换」），
+    // 索引页这一栏用屏自己的标题（WebVPN）。
+    AppRoute.WebVpnConverter to "WebVPN 转换器",
+
+    // 账号管理（多账号，第 29 条真数据路由）：**不需要校园会话就能进**（进去是为了看/换/增/删），
+    // 但它每一个动作都要会话内核：切账号 = 换绑 backends、新增 = 先探活登录再落库。
+    // 名字照 `:app` 服务表里的叫法（「账号管理」/「切换或添加统一认证账号」）。
+    AppRoute.Accounts to "账号管理",
 )
 
 /**
@@ -948,6 +966,20 @@ private fun DesktopPage(
             host = remember { DesktopSettingsHost(onAppearanceChanged) },
             onBack = back,
         )
+        // 账号管理（多账号，第 29 条真数据路由）：屏本轮搬进 `:core`
+        //（`account/AccountManagerScreen.kt`，与 `:app` 同一份），它只认 `AccountsController` 那条缝
+        // —— 桌面这侧是 [DesktopAccounts]（切/增/删真落盘：账号表在 `AccountStore`，凭据与
+        // 会话按账号后缀分文件）。
+        //
+        // 两处如实差异：
+        //  - 头像照片那一格不传（`accountPhoto = null`）⇒ 画首字母圆：学工系统的证件照缓存
+        //    （`HelloProfileStore`）是 `:app` 的东西，桌面没有它；
+        //  - 昵称一直是空 ⇒ 列表里显示学号（见 `DesktopAccounts` 的「如实降级」那段）。
+        AppRoute.Accounts -> AccountManagerScreen(
+            accountManager = rememberDesktopAccounts(auth),
+            activeAccountId = auth.activeAccountId,
+            onBack = back,
+        )
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
@@ -962,7 +994,84 @@ private fun DesktopPage(
         // 屏自己写着「空列表 = 本端没图，就不画远景（游戏照常可玩）」，所以这是如实降级、不是坏掉。
         AppRoute.GameHop -> HopScreen(onBack = back)
         AppRoute.GameGo -> GoScreen(onBack = back)
+        // WebVPN 转换器（第 28 条真数据路由）：这一屏**不需要任何校园会话**，也一条请求都不发
+        // —— 它是本机算的字符串互转（域名 AES-128-CFB 加密 / 反向解密）。屏本轮搬进 `:core`
+        //（`webvpn/WebVpnConverterScreen.kt`），转换本体仍是 `:data` 的 `WebVpnUtil`，按
+        // `:core` 的 `WebVpnCodec` 缝注进去 —— Android 与桌面共用同一份实现。
+        //
+        // 与 `:app` 唯一不同的地方（如实）：「用 WebVPN 打开」那个按钮的去向。`:app` 进它自带的
+        // 内置浏览器（自动复用 WebVPN 会话）；桌面端没有内置浏览器 ⇒ 交给系统浏览器。
+        AppRoute.WebVpnConverter -> WebVpnConverterScreen(
+            codec = WebVpnUtil,
+            onBack = back,
+            onOpenWithWebVpn = { url -> openInBrowser(url) },
+        )
         AppRoute.GameXiangqi -> XiangqiScreen(onBack = back)
+
+        // 合成西交大（`AppRoute.GameMerge`）：这一条卡的不是**取数**，而是**载体**。
+        //
+        // 游戏本体是 `:app` 的 `assets/games/merge/`：HTML + 776 行 JS + 本地 Matter.js 物理引擎
+        //（408KB，全程不联网），跑在 Android 的 WebView 里。桌面端没有 WebView —— Compose Desktop
+        // 的渲染栈是 skiko/Skia，没有浏览器内核；依赖里也没有任何 JVM 上的 JS 引擎
+        //（`gradle/libs.versions.toml` 里没有 nashorn / rhino / graaljs / jcef / JavaFX WebView，
+        // 而且 JDK 21 已经不再自带 nashorn）⇒ 这 408KB 页面在这一端没有能执行它的地方。
+        //
+        // 所以这里**如实说明**，而不是落进通用的「没搬过来」页（那一页写的是「取数还在 :app」——
+        // 对这条路由是错的），更不另写一屏「简化版合成西交大」冒充它（那是本仓库验收判过 fail 的
+        // 「自制探针」模式）。它**不进** `DESKTOP_SUPPORTED_ROUTES`（那里只放真能用的）。
+        //
+        // TODO（要真点亮它，两条路都要动依赖/资源，不在这一轮）：
+        //  ① 引入 JCEF 或 JavaFX WebView 当宿主的 WebView 面，并把 `assets/games/merge/` 搬进
+        //     `:core` 的资源（与跳一跳那 9 张地标图同一个搬法）；
+        //  ② 把游戏规则（`LEVELS` / 合成计分 / 投放权重）搬进 `:core` 用 Compose 重画 —— 但物理
+        //     是它的本体，重画出来是**另一个游戏**，不划算。
+        AppRoute.GameMerge -> HostUnavailableScreen(
+            route = route,
+            title = "合成西交大在桌面上跑不了",
+            lines = listOf(
+                "它是 WebView 里跑的游戏：HTML + 776 行 JS + 本地 Matter.js 物理引擎，" +
+                    "本体在 Android 的 assets/games/merge/（408KB，全程不联网）。",
+                "桌面端没有 WebView（Compose Desktop 的渲染栈是 skiko/Skia），依赖里也没有任何 " +
+                    "JVM 上的 JS 引擎 ⇒ 这份页面在这一端没有能执行它的地方。",
+                "不另写一屏「简化版」冒充它：物理是它的本体，重画出来是另一个游戏。",
+            ),
+            onNavigate = onNavigate,
+        )
+
+        // 匹配交友（`AppRoute.Match`）：这一条卡的是**本机数据**，不是网络。
+        //
+        // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一张
+        // 二维码、把对方的码解回来，交集全从**本机已有的缓存**里算。而桌面端现在没有那些缓存 ——
+        // 它们全部是 `:app` 的 Android 实现，一件都没搬：`ScheduleCache` + `DataCache`（课表 /
+        // 教材 / 考试 / 学期表）、`HelloProfileStore`（学工系统档案与头像）、`DiningHabit`（校园卡
+        // 消费）。桌面端只有自己那一份按站点的取数，没有「课表缓存」这一层
+        //（那条路由（`AppRoute.Schedule`）也还没搬过来）。
+        //
+        // 另外两件也卡着：分享码本体用 `java.util.zip` 的 deflate + `java.util.Base64`（`:core`
+        // 的 commonMain 要编到 wasmJs，两者都不存在），扫码用 Android 的相机（`QrScannerView`）。
+        //
+        // 所以这里如实说明。**已经能用的那一半**照旧能用：生成自己的二维码在本仓库已经有共享实现
+        //（付款码那一批的 `qrCodeModules` + `CodeMatrixView`），缺的是「拿什么当输入」。
+        //
+        // TODO（按五步法搬它，顺序有讲究）：
+        //  ① 先把 `MatchProfile`（分享码格式 + 契合度算法，835 行）搬进 `:core`，deflate/base64
+        //     按能力缝注入（与 WebVPN 的 `WebVpnCodec` 同一个做法）；
+        //  ② 再把 `MatchData` 收成 `MatchSource` 端口（`:app` 那份继续读它的四个缓存），屏搬进 `:core`；
+        //  ③ 桌面的 `MatchSource` 要等课表缓存那一层落地才有东西可算（它是同一个「宿主机能」缺口）。
+        AppRoute.Match -> HostUnavailableScreen(
+            route = route,
+            title = "匹配交友在桌面上还没有数据",
+            lines = listOf(
+                "它全程离线、一条请求都不发：把自己的档案压成一张码、把对方的码解回来，" +
+                    "交集全从本机已有的缓存里算。",
+                "桌面端还没有那些缓存 —— 课表 / 教材 / 考试（ScheduleCache + DataCache）、" +
+                    "学工系统档案（HelloProfileStore）、校园卡消费（DiningHabit）都还是 :app 的实现，" +
+                    "一件都没搬过来。没有它们，这一屏算出来的交集只能是空的。",
+                "分享码本体还要 java.util.zip 的 deflate 与 java.util.Base64（:core 的 commonMain 里" +
+                    "不存在），扫码要 Android 的相机 —— 两件都得先切成平台缝。",
+            ),
+            onNavigate = onNavigate,
+        )
         // 其余路由**如实说「没搬过来」**，不拿有数据的屏冒充（深链/误点看着像 bug，也分不清
         // 「没实现」与「坏了」）。
         else -> NotPortedScreen(route, onNavigate)
@@ -1029,12 +1138,13 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
         }
 
         TextButton(
-            text = "退出登录（清除本机凭据与这条账号的会话）",
+            text = "退出登录（清除这条账号的凭据、会话与记录）",
             onClick = { auth.logout() },
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "退出会删掉：凭据文件、这条账号的 cookie 与站点快照。" +
+            "退出会删掉：这条账号的记录、它的 cookie 与站点快照。" +
+                "其余账号一条不动（多账号在「账号管理」那一屏）。" +
                 "共享的机器上请不要留着登录态。",
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
@@ -1079,6 +1189,43 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit
     }
 }
 
+/**
+ * 「这一屏卡的不是取数，而是宿主的某一项能力」的如实说明。
+ *
+ * 与 [NotPortedScreen] 分开是因为**那句话不同**：那页写的是「屏/取数还在 `:app`」——对
+ * `game_merge`（卡 WebView）与 `schedule_match`（卡本机缓存）是错的。把两种缺口混在一页里，
+ * 下一个人就会照着「搬一个站点就有数据源」去修这两条，而它们根本不在那条路上。
+ *
+ * 画法与回退入口与 [NotPortedScreen] / [MissingIdentityPage] 同一套（这是本文件的第三条同类页；
+ * 差别只有标题与那几句，所以不再抄第四份布局）。
+ */
+@Composable
+private fun HostUnavailableScreen(
+    route: AppRoute,
+    title: String,
+    lines: List<String>,
+    onNavigate: (DesktopTarget) -> Unit,
+) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        // 自己画底：`NotPortedScreen` / `MissingIdentityPage` 那两页没画，靠窗口底色 —— 而离屏
+        // 证据图里没有窗口，于是深色模式下会变成「浅字透明底」（图上看着像坏了）。这里补上。
+        modifier = Modifier.fillMaxSize().background(cs.background).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("AppRoute.${route::class.simpleName ?: "?"}", color = cs.primary, fontSize = 13.sp)
+        Text("路由 id：${route.id}", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        lines.forEach { line ->
+            Text(line, color = cs.onBackgroundVariant, fontSize = 12.sp)
+        }
+        TextButton(
+            text = "回全部页面",
+            onClick = { onNavigate(DesktopTarget.Routes) },
+            minWidth = 120.dp,
+        )
+    }
+}
 /**
  * 「没有身份就取不了数」的如实说明 —— 现在成绩报表与本科评教两屏会走到这里。
  *

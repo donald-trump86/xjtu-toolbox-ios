@@ -3,7 +3,9 @@ package com.xjtu.toolbox.desktop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.CampusCardSession
 import com.xjtu.toolbox.auth.CouponSession
@@ -235,8 +237,15 @@ class DesktopAuth(
         if (loginState is LoginUiState.Failed) loginState = LoginUiState.Idle
     }
     /**
-     * 冷启动静默恢复：有落盘凭据就直接进主界面，**不经过登录页**。
+     * 冷启动静默恢复：有落盘账号就直接进主界面，**不经过登录页**。
      *
+     * 两步（多账号之后）：
+     *  1. **账号表里有激活账号** ⇒ 直接切进去（与 Android 的启动恢复同一条口径：`AccountStore
+     *     .activeAccount()` → `AccountManager.switchTo` 那一路）；
+     *  2. 没有激活账号、但那份**单账号凭据文件**（`xjtu_credentials`）还在 ⇒ 一次性导入成账号表
+     *     里的一条，然后走第 1 步。这是桌面端自己的 `AccountMigration`：Android 那份要搬
+     *     cookies / DataCache / Room，桌面端 Stage A 从来没写过那些（凭据文件是唯一的遗留），
+     *     所以这一支就只有「建一条账号 + 抹掉旧文件」两行 —— 与 `AccountMigration` 同一分工。
      * 幂等：已登录时直接返回。可以在组合里反复调（宿主用 `LaunchedEffect(Unit)` 调一次即可）。
      *
      * 恢复本身**不验证**会话是否还有效（与 Android 的启动恢复同一条口径）：站点会话是
@@ -247,19 +256,27 @@ class DesktopAuth(
      */
     fun restore() {
         if (loggedIn) return
+        // 1) 多账号：账号表里有激活账号就直接切进去
+        accountStore.activeAccount()?.let { account ->
+            adoptAccount(account)
+            return
+        }
+        // 2) 一次性导入 Stage A 那份单账号凭据（`xjtu_credentials`）
         val (savedUsername, savedPassword) = credentials.load() ?: return
-        val suffix = AccountContext.suffixFor(savedUsername)
-        val accountType = credentials.accountType
-        AccountContext.activeAccountId = savedUsername
-        AccountContext.activeAccountType = accountType.toCoreAccountType()
-        sessionManager.reconfigureForAccount(suffix)
-        sessionManager.setCredentials(savedUsername, savedPassword)
-        sessionManager.accountType = accountType
-        sessionManager.fpVisitorId = credentials.fpVisitorId
-        sessionManager.cachedRsaKey = credentials.rsaPublicKey
-        // 注意：**不**写 username/password 这两个界面字段（红线，见它们的 KDoc）。
-        loginState = LoginUiState.Idle
-        loggedIn = true
+        val imported = Account(
+            accountId = savedUsername,
+            password = savedPassword,
+            accountType = credentials.accountType.toCoreAccountType(),
+            fpVisitorId = credentials.fpVisitorId,
+            rsaPublicKey = credentials.rsaPublicKey,
+            rsaKeyTime = System.currentTimeMillis(),
+            lastUsedAt = System.currentTimeMillis(),
+        )
+        accountStore.upsert(imported, setActive = true)
+        // 导完就抹掉那份单账号凭据：从此账号表是唯一的真相（与 `AccountMigration` 同一分工）。
+        // 注意顺序：先读完（上面那几个字段）再抹。
+        credentials.clear()
+        adoptAccount(imported)
     }
 
     /**
@@ -279,7 +296,7 @@ class DesktopAuth(
         loginState = LoginUiState.Submitting
         val suffix = AccountContext.suffixFor(user)
         val accountType = credentials.accountType
-        AccountContext.activeAccountId = user
+        writeActiveAccountId(user)
         AccountContext.activeAccountType = accountType.toCoreAccountType()
         sessionManager.reconfigureForAccount(suffix)
         sessionManager.setCredentials(user, pass)
@@ -308,9 +325,32 @@ class DesktopAuth(
 
             // 成功才记住。设备指纹与 RSA 公钥一起存：前者换来换去会被学校当成新设备（多一次短信），
             // 后者省掉每次登录那一枪 `GET /cas/jwt/publicKey`。
-            credentials.save(user, pass)
-            sessionManager.fpVisitorId?.let { credentials.fpVisitorId = it }
-            sessionManager.cachedRsaKey?.let { credentials.rsaPublicKey = it }
+            // 成功才记住 —— 写进**账号表**（`AccountStore`），与 Android 的
+            // `AccountManager.persistCurrentLogin` 同一分工。设备指纹与 RSA 公钥一起存：
+            // 前者换来换去会被学校当成新设备（多一次短信），后者省掉每次登录那一枪
+            // `GET /cas/jwt/publicKey`。
+            //
+            // 本轮之前这里写的是 `:data` 那份**单账号**凭据文件（`JvmCredentialStore`）。多账号
+            // 之后账号表是唯一的真相，那份文件降级成「只在 `restore()` 里读一次做导入」
+            //（与 Android 的 `AccountMigration` 同一分工：迁完就 `clearLegacyCredentials`）。
+            val previous = accountStore.get(user)
+            accountStore.upsert(
+                Account(
+                    accountId = user,
+                    password = pass,
+                    accountType = accountType.toCoreAccountType(),
+                    nickname = previous?.nickname,
+                    fpVisitorId = sessionManager.fpVisitorId ?: previous?.fpVisitorId,
+                    rsaPublicKey = sessionManager.cachedRsaKey ?: previous?.rsaPublicKey,
+                    rsaKeyTime = if (sessionManager.cachedRsaKey != null) {
+                        System.currentTimeMillis()
+                    } else {
+                        previous?.rsaKeyTime ?: 0L
+                    },
+                    lastUsedAt = System.currentTimeMillis(),
+                ),
+                setActive = true,
+            )
             // 登录成功后**两个输入框都清空**：密码不该留在界面状态里，学号也不该 ——
             // 已登录时没人看这两个字段，少一份内存里的学号（红线：学号不上屏、不进日志、不进截图）。
             username = ""
@@ -322,7 +362,7 @@ class DesktopAuth(
             throw e
         } catch (e: Exception) {
             // 没登上去就别占着命名空间：否则所有按账号分目录的存储会开始写一个不存在的账号
-            AccountContext.activeAccountId = null
+            writeActiveAccountId(null)
             sessionManager.reconfigureForAnonymous()
             loginState = LoginUiState.Failed(
                 // 认证异常都实现了 UserFacingFailure，消息本身就是给用户看的中文（「账号或密码无效」）；
@@ -340,15 +380,90 @@ class DesktopAuth(
      * 桌面是**可分发**的客户端，可能装在共享机器上，留一个 TGC 在磁盘上等于下一个人能直接
      * 登进上一个人的账号。设计文档 §8 第 3 条把这条列为分发的代价之一：
      * 「每平台凭据存储 + 隐私说明 + 退出登录即清除」。
+     *
+     * ⚠️ 多账号之后（Stage C）**只退这一条账号**：它的会话、cookies、快照与账号表里的记录
+     * 一起删掉（界面上的文案就是「清除本机凭据与这条账号的会话」）。
+     * 为什么要删记录而不只是登出：留一条没有会话的记录，下次冷启动 `restore()` 会把它恢复回来，
+     * 用户看到的是「我退了，但一开又进去了」。其余账号一条不动 —— 那才是多账号的意义。
      */
     fun logout() {
-        val suffix = AccountContext.suffixFor(AccountContext.activeAccountId)
+        val id = AccountContext.activeAccountId
+        val suffix = AccountContext.suffixFor(id)
         sessionManager.clearCredentials()
         sessionManager.forgetAllSites()
         sessionManager.reconfigureForAnonymous()
-        AccountContext.activeAccountId = null
+        writeActiveAccountId(null)
         runCatching { SessionBackend.wipe(suffix) }
+        if (id != null) {
+            accountStore.remove(id)
+            accountStore.clearActive()
+        }
+        // Stage A 那份单账号凭据文件：多账号之后已经不该再有它（`restore()` 导入时就抹了），
+        // 这里再抹一次是兼容「从旧版本升级上来、还没重启过」的那一瞬。
         credentials.clear()
+        username = ""
+        password = ""
+        loginState = LoginUiState.Idle
+        loggedIn = false
+    }
+
+    // ── 多账号（Stage C）：`:core` 的 `AccountsController` 要的那几个内部钩子 ────────────────
+    //
+    // 为什么钩子在这儿而不是在 `DesktopAccounts` 里：切账号要同时改**四样**东西
+    //（会话内核的命名空间、`AccountContext` 的两个字段、这份对象的可观察状态、以及界面输入框），
+    // 它们全部是 `DesktopAuth` 的私有状态。`DesktopAccounts` 只管「谁、什么顺序、失败了怎么办」
+    //（即 `:app` 的 `AccountManager` 那一层），命名空间与界面状态归这里。
+
+    /**
+     * 账号表。多账号的**唯一真相**（Stage A 那份单账号凭据文件只用于一次性导入，见 [restore]）。
+     */
+    internal val accountStore = AccountStore()
+
+    /**
+     * 「当前账号」的**可观察镜像**。
+     *
+     * `AccountContext.activeAccountId` 是 `:core` 里的普通字段（它不认识 Compose 状态，也不该认识）
+     * —— 而多账号页要按它重排列表、高亮当前那一行。这个字段与它同刻写入（只能经
+     * [writeActiveAccountId] 写），数据流与 `:app` 那边读 `AppLoginState.accountId` 一致。
+     */
+    var activeAccountId by mutableStateOf<String?>(null)
+        private set
+
+    /** [AccountContext.activeAccountId] 与 [activeAccountId] 必须同刻写入 —— 只能走这里。 */
+    private fun writeActiveAccountId(id: String?) {
+        AccountContext.activeAccountId = id
+        activeAccountId = id
+    }
+
+    /**
+     * 把一条已保存账号认成「当前身份」：命名空间、凭据、指纹、RSA 公钥、界面状态一起换。
+     *
+     * 与 `:app` 的 `AccountManager.switchToLocked` 逐条对齐，只少了它那几件 Android 侧的清场
+     * （WebView 的 localStorage、Room 自定义课程、按账号的 SharedPreferences）—— 桌面端没有那几样。
+     *
+     * 注意：**不**写 [username] / [password] 两个界面字段（红线：学号不上屏）。
+     */
+    internal fun adoptAccount(account: Account) {
+        writeActiveAccountId(account.accountId)
+        AccountContext.activeAccountType = account.accountType
+        sessionManager.reconfigureForAccount(AccountContext.suffixFor(account.accountId))
+        sessionManager.setCredentials(account.accountId, account.password)
+        sessionManager.accountType = account.accountType.toXjtuLoginAccountType()
+        // 带进来的指纹与公钥省下两次往返（且指纹换了会被学校当成新设备、多一发短信）。
+        sessionManager.fpVisitorId = account.fpVisitorId
+        sessionManager.cachedRsaKey = account.rsaPublicKey
+        username = ""
+        password = ""
+        loginState = LoginUiState.Idle
+        loggedIn = true
+    }
+
+    /** 回到未登录（匿名命名空间）。删掉最后一条账号、或者新增失败要回滚时用。 */
+    internal fun dropToAnonymous() {
+        sessionManager.clearCredentials()
+        sessionManager.forgetAllSites()
+        sessionManager.reconfigureForAnonymous()
+        writeActiveAccountId(null)
         username = ""
         password = ""
         loginState = LoginUiState.Idle
@@ -457,6 +572,12 @@ class DesktopAuth(
             JIAOCAI_SITE_KEY,
         )
     }
+}
+
+/** `:core` 的账号身份 → `:data` 的 CAS 账号类型（[toCoreAccountType] 的反向，各端各一份）。 */
+internal fun AccountType.toXjtuLoginAccountType(): XJTULogin.AccountType = when (this) {
+    AccountType.UNDERGRADUATE -> XJTULogin.AccountType.UNDERGRADUATE
+    AccountType.POSTGRADUATE -> XJTULogin.AccountType.POSTGRADUATE
 }
 
 /** `:data` 的 CAS 账号类型 → `:core` 的账号身份（两个枚举同义，各端各有一份，见两侧的 KDoc）。 */

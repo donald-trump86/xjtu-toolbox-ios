@@ -8,6 +8,10 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.text.AnnotatedString
+import com.xjtu.toolbox.account.Account
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -95,6 +99,10 @@ import kotlinx.coroutines.runBlocking
  * | `jiaocai1-reader.png` | 教材阅读器（同一条路由的参数形态：`AppRoute.Jiaocai1Reader(ssno, title)`） | 同一条真数据路由的**页加载**那一半：页图是夹具现场画的 JPEG（700×1050，程序生成、不是截图），解码走 `:core` 的图片缝、磁盘缓存在 `:data`；底栏那个「1 / 34」就是夹具那本书的线性页表 |
  * | `jiaocai.png` | 教材查询屏（真路由：外壳 → `AppRoute.Jiaocai` → `DesktopSiteGate(教材中心)` → `AppJiaocaiSource`） | 第二十四条真数据路由：同一个站点（教材中心）的**另一条路由** —— `jiaocai` 域的合并页 `TextbookScreen` 现在也在 `:core`，桌面这一支默认落在「查教材」栅（与 `:app` 的 `initialTab = 0` 同一条口径）。这个栅进屏时关键词是空的，证据运行点了一下搜索建议（`高等数学`）才发起检索；图上那本教材与「本地全文」那个标志都是从假教材中心拉回来的。**「本学期我的教材」那一段在桌面上不显示**（桌面还没有教务课表缓存 ⇒ 端口回空表），这是如实的降级 |
  * | `settings.png` | 设置屏（真路由：外壳 → `AppRoute.Settings` → `:core` 的 `SettingsScreen`） | 第二十七条真数据路由：屏与偏好存储（`SettingsStore`，键值缝）本轮才搬进 `:core`，这一端把偏好落到 0600 的 `app_settings.properties`（与 `:app` 同一批键）。图上是**深色**的 —— 外壳按「深色模式」偏好套主题，所以那一项不只是存下来、这一端真照着办了；拍的过程中还点了一下「跟随系统取色」并断言它落盘。桌面没有的那三组（通知与提醒 / 数据与隐私 / 更新）与那几行（默认启动 Tab / 课表来源 / 触感 / 连接模式）**一个字都不画** —— 见 `DesktopSettingsHost` 的表与 TODO |
+ * | `webvpn_converter.png` | WebVPN 转换器屏（真路由：外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`） | 第二十八条真数据路由：屏本轮才搬进 `:core`，转换本体是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android **同一份实现**）。图上的输入与结果都是拍的时候现场做的：往输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）再点「转换」，结果里那串密文域名（`…fae05988692862446b468ca88d1b203b`）就是 AES-128-CFB 真算出来的 —— 与 `DesktopWebVpnCodecJvmTest` 里那一条同值 |
+ * | `accounts.png` | 账号管理屏（真路由：外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`） | 第二十九条真数据路由：多账号。屏本轮才搬进 `:core`，动作本体是 `:desktop` 的 `DesktopAccounts`（`:core` 的 `AccountsController` 缝）。拍之前**真切了一次**：上面那次真登录把夹具账号写进了账号表（`AccountStore`），再加一条夹具账号（值都是编的），然后 `switchTo` 第二条 ⇒ 图上的「当前账号」卡与列表高亮都是第二条（`2021000002`），列表里还有第一条（`2021000001`）。头像那一格不传（画首字母圆）、昵称一直为空 —— 两处如实降级见 `DesktopAccounts` 的 KDoc |
+ * | `game_merge.png` | 合成西交大的**如实说明页**（`AppRoute.GameMerge`） | 这条路由卡的是**载体**：游戏本体是 `:app` 的 `assets/games/merge/`（HTML + 776 行 JS + Matter.js 物理引擎），跑在 Android 的 WebView 里；桌面端没有 WebView、依赖里也没有 JVM 上的 JS 引擎 ⇒ 这一端没有能执行它的地方。这张图就是那张说明页本身（**不进** `DESKTOP_SUPPORTED_ROUTES`），不是「没搬过来」那个通用页 —— 卡的不是取数 |
+ * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算，而课表/教材/考试（`ScheduleCache` + `DataCache`）、学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）四件都还是 `:app` 的实现；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -211,6 +219,19 @@ fun main(args: Array<String>) {
             click != null && texts.any { it.text == label }
         } ?: return false
         return target.config.getOrNull(SemanticsActions.OnClick)?.action?.invoke() ?: false
+    }
+
+    /**
+     * 往**唯一那个带 `SetText` 能力的输入框**里塞一段文本（靠 semantics，不靠坐标）。
+     *
+     * 为什么不是「按 label 找」：`TextField` 的 label 是旁边另一个 `Text` 节点，不在输入框自己的
+     * 语义里（只有占位符/当前文本在）。调用方都在**只有一个输入框**的屏上用（WebVPN 转换器那张图），
+     * 所以按能力找是确定的；多输入框的屏要再写一份按序号的。
+     */
+    fun setTextOnFirstField(scene: ImageComposeScene, text: String): Boolean {
+        val root = scene.semanticsOwners.firstOrNull()?.rootSemanticsNode ?: return false
+        val target = findNode(root) { it.config.getOrNull(SemanticsActions.SetText) != null } ?: return false
+        return target.config.getOrNull(SemanticsActions.SetText)?.action?.invoke(AnnotatedString(text)) ?: false
     }
 
     /**
@@ -775,8 +796,89 @@ fun main(args: Array<String>) {
         val settingsFile = File(shotsRoot, "${SettingsStore.APP_SETTINGS_FILE}.properties")
         check(settingsFile.exists()) { "settings.png：落盘文件不存在：${settingsFile.absolutePath}" }
         println("设置落盘：${settingsFile.absolutePath}")
-    }
 
+        // ── WebVPN 转换器（第二十八条真数据路由）────────────────────────────────────
+        // 走**真路由**（外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`），
+        // 注入的是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android 同一份实现）。
+        //
+        // 这张图要证明的是「真能转」，所以拍之前做两件事（都在屏上看得见）：
+        //  ① 往唯一的那个输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）；
+        //  ② 用 semantics 点一下「转换」—— 断言结果里出现了**密文域名那一段的定值**
+        //     （`fae05988692862446b468ca88d1b203b`，与 `DesktopWebVpnCodecJvmTest` 里那一条同值）。
+        var vpnTyped = false
+        var vpnConverted = false
+        shot(
+            "webvpn_converter.png",
+            frames = 12,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!vpnTyped) vpnTyped = setTextOnFirstField(scene, "https://jwxt.xjtu.edu.cn/")
+                    if (vpnTyped && !vpnConverted) vpnConverted = clickByLabel(scene, "转换")
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.WebVpnConverter)) }
+        check(vpnTyped) { "webvpn_converter.png：没找到那个输入框（semantics 里没有 SetText）" }
+        check(vpnConverted) { "webvpn_converter.png：没点到「转换」" }
+
+        // ── 账号管理（多账号，第二十九条真数据路由）────────────────────────────────
+        // 走**真路由**（外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`），注入的是
+        // `DesktopAccounts`（切/增/删真落盘：账号表在 `AccountStore`，凭据与会话按账号后缀分文件）。
+        //
+        // 拍之前做两件事，让这张图同时是「多账号真能用」的证据：
+        //  ① 上面那次「真登录」已经把夹具账号写进了账号表；这里再**加一条夹具账号**（值都是编的）
+        //     —— 于是列表里是两条，「已保存的账号（2）」；
+        //  ② **真切一次**到第二条（走 `DesktopAccounts.switchTo`，与窗口里点「切换」是同一个动作本体）
+        //     ⇒ 顶部那张「当前账号」卡与列表里的高亮都会变成第二条 —— 图上看得见，代码里也断言。
+        val secondAccountId = "2021000002"
+        AccountStore().upsert(
+            Account(
+                accountId = secondAccountId,
+                password = "fixture-password-2",
+                accountType = com.xjtu.toolbox.auth.AccountType.POSTGRADUATE,
+                lastUsedAt = System.currentTimeMillis(),
+            ),
+        )
+        runBlocking { DesktopAccounts(auth).switchTo(secondAccountId) }
+        check(AccountContext.activeAccountId == secondAccountId) {
+            "accounts.png：切账号没真的换绑命名空间（当前账号还是 ${AccountContext.activeAccountId}）"
+        }
+        var accountsShown = false
+        shot(
+            "accounts.png",
+            frames = 12,
+            onFrame = { frame, scene ->
+                if (!accountsShown && frame >= 4) accountsShown = hasText(scene, "已保存的账号（2）")
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Accounts)) }
+        check(accountsShown) { "accounts.png：屏上没有「已保存的账号（2）」—— 多半没读到账号表" }
+        check(AccountStore().list().map { it.accountId }.contains(LibraryFakeUpstream.USERNAME)) {
+            "accounts.png：夹具账号不在账号表里（真登录那一步应当把它写进去）"
+        }
+
+        // ── 合成西交大（`game_merge`）：如实说明它为什么跑不了 ───────────────────
+        // 这条路由卡的是**载体**（WebView + Matter.js 物理引擎），不是取数。这张图是那张说明页
+        // 本身 —— 它**不进** `DESKTOP_SUPPORTED_ROUTES`（那里只放真能用的），见 `HostUnavailableScreen`。
+        var mergeShown = false
+        shot(
+            "game_merge.png",
+            frames = 4,
+            onFrame = { _, scene ->
+                if (!mergeShown) mergeShown = hasText(scene, "合成西交大在桌面上跑不了")
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.GameMerge)) }
+        check(mergeShown) { "game_merge.png：没画到那张说明页" }
+
+        // ── 匹配交友（`schedule_match`）：如实说明它卡的是本机数据 ────────────────
+        var matchShown = false
+        shot(
+            "schedule_match.png",
+            frames = 4,
+            onFrame = { _, scene ->
+                if (!matchShown) matchShown = hasText(scene, "匹配交友在桌面上还没有数据")
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Match)) }
+        check(matchShown) { "schedule_match.png：没画到那张说明页" }
+    }
     exitProcess(0)
 }
 
@@ -802,6 +904,10 @@ private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
     // 下载队列（`:desktop` 那份 0600 的 JSON）也清一下：`DesktopDownloads.manager` 是进程级单例，
     // 它那份存储的根在**第一次碰它时**才定下来（见下面 `download_manager.png` 那一段）。
     wipeSecureStore("download_tasks")
+    // 账号表（`AccountStore`，存储名 `xjtu_accounts`）同样清一下：多账号之后它会在「真登录」那一步
+    // 长出一条夹具账号，而 `restore()` 会直接拿它恢复成已登录 —— 跑两次就该是同一种起点。
+    wipeSecureStore(AccountStore.FILE_NAME)
+    AccountContext.activeAccountId = null
     fake = FakeCampusProxy(casEnabled = true)
 
     // 保险：临时目录里本来不该有东西，但这两行让「跑了两次」也不会互相污染。

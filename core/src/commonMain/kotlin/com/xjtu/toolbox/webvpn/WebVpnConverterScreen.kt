@@ -11,7 +11,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.*
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -35,11 +35,17 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * - 校内 URL ↔ WebVPN URL 双向转换
  * - 转换后可通过内置浏览器（自动复用 WebVPN session）打开
  *
+ * @param codec 两个方向的转换本体（[WebVpnCodec]）。为什么是**参数**而不是直接调
+ *              `:data` 的 `WebVpnUtil`：那个对象要用 `javax.crypto` 的 AES-128-CFB 加密域名，
+ *              而这一屏在 `:core` 的 commonMain（三个目标，含 wasmJs）⇒ 加密实现按平台的
+ *              能力缝由宿主注入（Android/桌面都传同一份 `WebVpnUtil`）。
  * @param onOpenWithWebVpn 用户点击访问按钮时调用，参数为最终要访问的（已转为 WebVPN 域的）URL。
- *                        外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen。
+ *                        `:app` 那侧外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen；
+ *                        桌面端没有内置浏览器，直接把地址交给系统浏览器。
  */
 @Composable
 fun WebVpnConverterScreen(
+    codec: WebVpnCodec,
     onOpenWithWebVpn: (vpnUrl: String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -165,9 +171,9 @@ fun WebVpnConverterScreen(
                                 "https://$raw"
                             } else raw
                             convertedUrl = if (!isReversed) {
-                                WebVpnUtil.getVpnUrl(normalized)
+                                codec.toVpnUrl(normalized)
                             } else {
-                                WebVpnUtil.getOriginalUrl(normalized).orEmpty().also {
+                                codec.fromVpnUrl(normalized).orEmpty().also {
                                     if (it.isBlank()) error = "无法解析此 WebVPN 网址，请确认格式正确"
                                 }
                             }

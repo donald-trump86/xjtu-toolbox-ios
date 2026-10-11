@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -45,7 +45,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.xjtu.toolbox.error.FriendlyError
-import com.xjtu.toolbox.auth.AppLoginState
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Clock
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.CancellationException
@@ -87,14 +90,24 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  */
 @Composable
 fun AccountManagerScreen(
-    accountManager: AccountManager,
-    loginState: AppLoginState,
+    accountManager: AccountsController,
+    /**
+     * 当前激活账号（`AccountContext.activeAccountId` 的那个值）。**从入参来**而不是屏自己去读：
+     * 用户在「我的」页改信息、或者别处切了账号时，宿主重新组合就会把新值递进来（与搬迁前
+     * 读 `loginState.accountId` 是同一条数据流，只是不再依赖 `:app` 的 `AppLoginState`）。
+     */
+    activeAccountId: String?,
+    /**
+     * 头像照片那一格。不传就画首字母圆（桌面端就传 null —— 学工系统的证件照缓存是 Android 侧的
+     * `HelloProfileStore`，见 [AccountPhotoSource]）。
+     */
+    accountPhoto: AccountPhotoSource? = null,
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     // PR T（计划 §11）：登录失败的错误触感，见下面 onSubmit 的 onFailure/catch。
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
-    val activeId = loginState.accountId
+    val activeId = activeAccountId
     fun orderedAccounts(): List<Account> = accountManager.accountList()
         .sortedWith(
             compareByDescending<Account> { it.accountId == activeId }
@@ -170,12 +183,14 @@ fun AccountManagerScreen(
                 account = activeAccount,
                 accountCount = accounts.size,
                 busy = pageBusy,
+                accountPhoto = accountPhoto,
                 onAdd = { if (!pageBusy) showAddSheet = true }
             )
 
             if (accounts.isEmpty()) {
                 EmptyAccountsPanel(
                     enabled = !pageBusy,
+                    accountPhoto = accountPhoto,
                     onAdd = { showAddSheet = true }
                 )
             } else {
@@ -185,6 +200,7 @@ fun AccountManagerScreen(
                     activeId = activeId,
                     busyAccountId = busyAccountId,
                     enabled = !pageBusy,
+                    accountPhoto = accountPhoto,
                     onSwitch = { account ->
                         if (account.accountId != activeId && !pageBusy) pendingSwitch = account
                     },
@@ -333,6 +349,7 @@ private fun ActiveAccountPanel(
     account: Account?,
     accountCount: Int,
     busy: Boolean,
+    accountPhoto: AccountPhotoSource?,
     onAdd: () -> Unit,
 ) {
     Card(
@@ -348,7 +365,8 @@ private fun ActiveAccountPanel(
                     account = account,
                     isActive = true,
                     size = 64,
-                    textSize = MiuixTheme.textStyles.title1
+                    textSize = MiuixTheme.textStyles.title1,
+                    accountPhoto = accountPhoto
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
@@ -407,6 +425,7 @@ private fun ActiveAccountPanel(
 @Composable
 private fun EmptyAccountsPanel(
     enabled: Boolean,
+    accountPhoto: AccountPhotoSource?,
     onAdd: () -> Unit,
 ) {
     Card(
@@ -420,7 +439,13 @@ private fun EmptyAccountsPanel(
             Modifier.fillMaxWidth().padding(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AccountAvatar(account = null, isActive = false, size = 56, textSize = MiuixTheme.textStyles.title2)
+            AccountAvatar(
+                account = null,
+                isActive = false,
+                size = 56,
+                textSize = MiuixTheme.textStyles.title2,
+                accountPhoto = accountPhoto,
+            )
             Spacer(Modifier.height(12.dp))
             Text(
                 "还没有保存账号",
@@ -443,11 +468,12 @@ private fun EmptyAccountsPanel(
 @Composable
 private fun AccountListPanel(
     accounts: List<Account>,
-    activeId: String,
+    activeId: String?,
     busyAccountId: String?,
     enabled: Boolean,
     onSwitch: (Account) -> Unit,
     onEditPassword: (Account) -> Unit,
+    accountPhoto: AccountPhotoSource?,
     onDelete: (Account) -> Unit,
 ) {
     Card(
@@ -466,6 +492,7 @@ private fun AccountListPanel(
                     enabled = enabled,
                     onSwitch = { onSwitch(account) },
                     onEditPassword = { onEditPassword(account) },
+                    accountPhoto = accountPhoto,
                     onDelete = { onDelete(account) }
                 )
                 if (index != accounts.lastIndex) {
@@ -487,6 +514,7 @@ private fun AccountRow(
     enabled: Boolean,
     onSwitch: () -> Unit,
     onEditPassword: () -> Unit,
+    accountPhoto: AccountPhotoSource?,
     onDelete: () -> Unit,
 ) {
     val rowEnabled = enabled && !busy
@@ -502,7 +530,8 @@ private fun AccountRow(
             account = account,
             isActive = isActive,
             size = 50,
-            textSize = MiuixTheme.textStyles.title3
+            textSize = MiuixTheme.textStyles.title3,
+            accountPhoto = accountPhoto
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -582,6 +611,7 @@ private fun AccountAvatar(
     isActive: Boolean,
     size: Int,
     textSize: androidx.compose.ui.text.TextStyle,
+    accountPhoto: AccountPhotoSource?,
 ) {
     val accent = account?.let { accountAccent(it, isActive) } ?: MiuixTheme.colorScheme.primary
     val gradient = Brush.verticalGradient(
@@ -593,13 +623,10 @@ private fun AccountAvatar(
     )
     val label = account?.let { accountTitle(it).take(1).uppercase() }
 
-    // 学工系统证件照，按账号各自缓存。没登录过 hello 的账号自然没有，退回首字母。
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val photo = remember(account?.accountId) {
-        account?.accountId?.let {
-            com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatarFor(context, it)
-        }
-    }
+    // 学工系统证件照：照片那一格是**宿主缝**（见 [AccountPhotoSource]）。`:app` 传它原来的
+    // `HelloProfileStore` 缓存（要 `Context` 与 android Bitmap）；其余端不传 ⇒ 走下面的首字母/图标
+    // 那一档 —— 没登录过 hello 的账号本来就取不到照片，这是画法里本来就有的一条分支。
+    val photo = if (accountPhoto != null && account != null) accountPhoto.photo(account.accountId) else null
 
     Box(
         modifier = Modifier
@@ -610,7 +637,7 @@ private fun AccountAvatar(
     ) {
         when {
             photo != null -> androidx.compose.foundation.Image(
-                bitmap = photo.asImageBitmap(),
+                bitmap = photo,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
@@ -931,13 +958,31 @@ private fun accountAccent(account: Account, isActive: Boolean): Color {
 
 private fun lastUsedText(ts: Long): String {
     if (ts <= 0L) return "未使用"
-    val delta = System.currentTimeMillis() - ts
+    // `System.currentTimeMillis()` → `kotlin.time.Clock`（这一屏现在在 `:core` 的 commonMain，
+    // 三个目标都要编：JVM 的墙上时钟写法在 wasm 上不存在；与 `calendar`/`inbox` 那几屏同一条口径）。
+    val delta = Clock.System.now().toEpochMilliseconds() - ts
     val min = delta / 60_000L
     return when {
         min < 1 -> "刚刚"
         min < 60 -> "${min} 分钟前"
         min < 60 * 24 -> "${min / 60} 小时前"
         min < 60 * 24 * 30 -> "${min / (60 * 24)} 天前"
-        else -> java.text.SimpleDateFormat("MM-dd", java.util.Locale.CHINA).format(java.util.Date(ts))
+        // 超过一个月只显示月-日。手写而不是 `SimpleDateFormat`：那是 java.text（JVM/Android 专属），
+        // 与 `score/formatTwoDecimals` / `CourseColors.toHex` 同一条「不引 java.* 到 commonMain」的口径。
+        else -> monthDayText(ts)
     }
+}
+
+/**
+ * 时间戳 → `MM-dd`。**只为这一行文案服务**：超过一个月的「上次使用」不再精确到分钟。
+ *
+ * 为什么手写而不是 `java.text.SimpleDateFormat`：这一屏在 `:core` 的 commonMain（含 wasmJs），
+ * `java.text` 在那里不存在。写法照优先例（`inbox/InboxScreen` 的 `localDateOf`、
+ * `feedback/FeedbackScreen` 的日期文案）：`Instant.fromEpochMilliseconds + 系统默认时区`，
+ * 输出格式与搬迁前那行 `SimpleDateFormat("MM-dd")` 一致。
+ */
+private fun monthDayText(ts: Long): String {
+    val date = Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault()).date
+    fun pad(v: Int) = v.toString().padStart(2, '0')
+    return "${pad(date.monthNumber)}-${pad(date.dayOfMonth)}"
 }
