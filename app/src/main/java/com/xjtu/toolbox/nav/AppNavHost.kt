@@ -79,6 +79,7 @@ import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.dormpower.DormPowerApi
 import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
@@ -326,8 +327,18 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.DormPower>(transition = expand(AppRoute.DormPower::class)) {
+            // 屏已搬进 `:core`（桌面端第 17 条真数据路由，与考勤同一批）：屏只认 `:core` 的
+            // `DormPowerSource` 端口，这里填 `:data` 的 `DormPowerApi` —— 与桌面端**同一份实现**
+            //（`rooms` / `kwh` 两枪一个字没改，第三个方法 `freshPayUrl` 从屏上搬进来）。
+            // 两处宿主能力仍然在这里注入：browser = 内置浏览器外壳；onLeave = 离开这一屏就让
+            // 首页把这一路的缓存作废（原来写在屏的 DisposableEffect 里，时机未变）。
+            val dormContext = LocalContext.current
             WithSite("ssn") { site ->
-                DormPowerScreen(site = site, onBack = back) { url ->
+                DormPowerScreen(
+                    source = remember(site) { DormPowerApi(site) },
+                    onBack = back,
+                    onLeave = { HomeStats.invalidate(dormContext, AppRoute.DormPower) },
+                    browser = { url ->
                     BrowserScreen(
                         initialUrl = url.orEmpty(),
                         waiting = url == null,
@@ -337,6 +348,7 @@ fun AppNavHost(
                         onBack = back,
                     )
                 }
+            )
             }
         }
         entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {

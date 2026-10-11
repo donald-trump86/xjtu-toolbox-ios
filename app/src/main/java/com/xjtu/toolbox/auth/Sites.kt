@@ -8,9 +8,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.IOException
 
 // ─────────────────────────────────────────────────────────────────────
 //  13 个业务子系统的 SiteSession 实现。
@@ -298,70 +295,13 @@ class JiaocaiSession : CasSiteSession("jiaocai", "教材中心", mustUseWebVpn =
 // `AppLoginState` 里那处 `register(VenueSession())` 一行不用改。
 
 // ── SSN 宿舍电费 ──────────────────────────────────────────────────────
-
-// mustUseWebVpn=true：ssn 只对校内网络开放，校外直连回 403「请先拨通学校 VPN」，得走 WebVPN 网关。
-class SsnSession : CasSiteSession("ssn", "宿舍电费", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        SsnLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? SsnLogin)?.cid?.let { localToken["cid"] = it }
-    }
-
-    /** 接口返回 401001 表示凭证过期。 */
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean =
-        super.isAuthFailureResponse(response, bodyPreview) || bodyPreview?.contains("\"code\":401001") == true
-
-    /**
-     * 给浏览器用的缴费页入口：缴费站没有可搬运的会话 cookie，每次进页面都要凭 OAuth 回调里一次性的 code 换会话。
-     * 这里用 App 存的账号再走一遍 OAuth，拦下最后那一跳（带 code 的缴费页地址）不去请求，
-     * 交给 WebView 自己打开，会话就建在 WebView 里。校外时拿到的是 WebVPN 网关形式的地址。
-     */
-    suspend fun freshPayUrl(): String {
-        val (username, password) = manager?.credentials ?: throw IOException("还没有登录账号，请先在「我的」页登录")
-        if (currentAccessMode == AccessMode.WEBVPN) manager?.ensureWebVpnLogin()
-        val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
-        return backend.loginGate.withLock(foreground = true) {
-            withContext(Dispatchers.IO) { capturePayCallback(backend.client, username, password) }
-        }
-    }
-
-    private fun capturePayCallback(client: OkHttpClient, username: String, password: String): String {
-        var callback: String? = null
-        // 得用网络拦截器：重定向的每一跳只有它看得到（应用拦截器只见第一个请求）。
-        // 它必须放行一次，所以带 code 的那一跳改成不带参数的同一页，code 原样留给 WebView 去用。
-        val capturing = client.newBuilder().addNetworkInterceptor { chain ->
-            val request = chain.request()
-            val isCallback = request.url.encodedPath.endsWith("/cems/index/mobile/pay") && request.url.queryParameter("code") != null
-            if (!isCallback) return@addNetworkInterceptor chain.proceed(request)
-            callback = request.url.toString().replaceFirst("http://", "https://")
-            chain.proceed(request.newBuilder().url(request.url.newBuilder().query(null).build()).build())
-        }.build()
-        val login = object : SsnLogin(capturing, manager?.fpVisitorId, manager?.cachedRsaKey) {
-            override fun postLogin(response: Response) {}
-        }
-        val result = login.login(username, password)
-        return callback ?: throw IOException(result.message.ifBlank { "没能取得缴费页入口，请稍后重试" })
-    }
-
-    /**
-     * 拿存下的 cid 查一次宿舍列表：有效回 code 0，过期回 401001。不能重开缴费页来判断——
-     * 缴费页要凭 OAuth 回调里一次性的 code 进（见 [freshPayUrl]），不带 code 打开一律当成没登录。
-     */
-    override suspend fun validateLogin(): Boolean = withIo {
-        val cid = localToken["cid"] ?: return@withIo false
-        val request = Request.Builder().url("${SsnLogin.BASE_URL}/mobile/addr/list?cid=$cid")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Referer", SsnLogin.PAY_PAGE_URL)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .get().build()
-        client.newCall(request).execute().use { resp ->
-            resp.isSuccessful && runCatching {
-                com.xjtu.toolbox.dormpower.DormPowerParsers.data(com.xjtu.toolbox.dormpower.DormPowerParsers.decode(resp.body.bytes()))
-            }.isSuccess
-        }
-    }
-}
+//
+// `SsnSession` 与它的 `SsnLogin` 已搬进 `:data`（同一个包、同一个类名）：宿舍电费是「桌面端第 17 条
+// 真数据路由」，而且**它有自己的独立登录链** —— `org.xjtu.edu.cn` 开放平台的 OAuth2（appId=1759）→
+// CAS → 带 `code` 回 `/cems/index/mobile/pay`，站点点下会话、页面 HTML 里内嵌 `cid`，不借校园卡 /
+// 教务的会话。取数也是 `:data` 的 `DormPowerApi`（实现 `:core` 的 `DormPowerSource` 端口）。
+// 类名与包路径都没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处 `register(SsnSession())`
+// 一行不用改。
 
 // ── CAMPUS CARD 校园卡 ───────────────────────────────────────────────
 // `CampusCardSession` 与它的 `CampusCardLogin` 已搬进 `:data`（同一个包、同一个类名）：校园卡是

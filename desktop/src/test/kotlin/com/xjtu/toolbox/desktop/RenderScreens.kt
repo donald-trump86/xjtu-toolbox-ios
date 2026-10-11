@@ -63,6 +63,7 @@ import kotlinx.coroutines.runBlocking
  * | `notification.png` | 通知公告屏（真路由：外壳 → `AppRoute.Notification` → `AppNoticeSource`） | 第十三条真数据路由：29 个公开的公告页里夹具扮了 3 个（教务处 / 化工学院 / OA），这是最后一条 pending 路 —— 图上那三条教务处通知（默认来源）的标题/日期/标签都是夹具样本，不是错误页或转圈 |
  * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
  * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
+ * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -384,6 +385,23 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Transcript)) }
         check(transcriptFormShown) {
             "transcript.png：屏上没有夹具那个成绩单类型（${DzpzFakeUpstream.TYPE_NAME}）—— 多半没取到表单"
+        }
+
+
+        // 宿舍电费（第十七条真数据路由）：走**真路由**（外壳 → `AppRoute.DormPower` →
+        // `DesktopSiteGate` → `DormPowerApi`）。登录链里有 `org.xjtu.edu.cn` 开放平台那一跳
+        //（与场馆共用一台 host，按 appId 分派）。图上应当是「缴费页已交给系统浏览器打开」那句
+        // 去向说明 —— 不是转圈卡住，也不是错误页（`freshPayUrl` 真拿到带 code 的回调地址）。
+        var payShown = false
+        shot(
+            "dormpower.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!payShown && frame >= 4) payShown = hasText(scene, "缴费页已交给系统浏览器打开")
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.DormPower)) }
+        check(payShown) {
+            "dormpower.png：屏上没有「缴费页已交给系统浏览器打开」—— 多半没取到缴费页入口"
         }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，

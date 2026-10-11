@@ -69,6 +69,8 @@ import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
+import com.xjtu.toolbox.dormpower.DormPowerApi
+import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.desktop.dzpz.DesktopTranscriptSaver
@@ -119,7 +121,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * ## 底栏那几格，只放这一端**真能画**的东西（诚实的一条）
  *
  * 底栏那五格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
- * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；13 条真数据路由
+ * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；16 条真数据路由
  * 搬完之后 [DESKTOP_PENDING_ROUTES] **空了** —— 「屏在 `:core` 而取数还在 `:app`」那条路由
  * 一条不剩。索引页上「还没有数据源」那一栏照旧画出来（数字是进度，不是装饰），
  * 所以那一行现在是 0。
@@ -214,6 +216,8 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Faculty to "教师检索",
     AppRoute.Transcript to "电子成绩单",
     AppRoute.Coupon to "加餐券",
+
+    AppRoute.DormPower to "宿舍电费",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -226,9 +230,9 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 /**
  * **屏已经搬进 `:core`、但这一端还没有数据源**的路由 —— 也就是 Stage A 的口径进度表。
  *
- * **现在是空的**：第 13 条（通知公告）搬完之后，`AppRoute` 里「屏在 `:core` 而取数还没搬」的
+ * **现在是空的**：第 16 条（宿舍电费）搬完之后，`AppRoute` 里「屏在 `:core` 而取数还没搬」的
  * 那种路由一条不剩。这个列表与 [DESKTOP_SUPPORTED_ROUTES] 一样留在代码里而不是删掉：
- * 屏先落地、取数后到是 Stage A 里的**常规**中间态（这一份历史就是 13 次），下一屏要搬时
+ * 屏先落地、取数后到是 Stage A 里的**常规**中间态（这一份历史就是 16 次），下一屏要搬时
  * 它还会重新长出条目；索引页上那一栏也照旧画出来（数字是进度，不是装饰）。
  *
  * 进来一条就说明它卡的是同一件事：取数还在 `:app`（`Campus*Api` 的只读端，或某个站点的
@@ -606,6 +610,23 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 saveSink = DesktopTranscriptSaver,
             )
         }
+
+        // 宿舍电费（第十七条真数据路由）：站点是 `ssn.xjtu.edu.cn/cems`，而且**它有自己的独立登录链**
+        // —— `org.xjtu.edu.cn` 开放平台 OAuth2（appId=1759）→ 统一认证 → 带 `code` 回缴费页
+        //（站点点下会话、页面里内嵌 `cid`，见 `:data` 的 `SsnLogin` / `SsnSession`）—— 不借校园卡 /
+        // 教务的会话。会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它。
+        //
+        // 屏与取数端口在 `:core`（`DormPowerScreen` + `DormPowerSource`），取数是 `:data` 的
+        // `DormPowerApi`（`freshPayUrl` 每次重走 OAuth、拦下带 code 的那一跳）。桌面端没有内置
+        // 浏览器 ⇒ `browser` 槽位用系统浏览器打开、本窗只给一句去向；首页摘要那档（`:app` 的
+        // `onLeave`）桌面没有，不传（默认空实现）—— 如实不写。
+        AppRoute.DormPower -> DesktopSiteGate(auth, DesktopAuth.SSN_SITE_KEY, "宿舍电费") { site ->
+            DormPowerScreen(
+                source = remember(site) { DormPowerApi(site) },
+                onBack = back,
+                browser = { url -> DesktopPayPage(url) },
+            )
+        }
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
@@ -669,7 +690,7 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
         )
         Text(
             if (DESKTOP_PENDING_ROUTES.isEmpty())
-                "现在是 0：13 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
+                "现在是 0：16 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
                     "这一栏留着是因为它是 Stage A 的进度表：屏先落地、取数后到是常规的中间态，" +
                     "下一屏要搬时它会重新长出条目。"
             else
@@ -816,4 +837,31 @@ private fun DesktopMfaDialog(auth: DesktopAuth) {
         onSubmit = { code -> if (!request.submit(code)) error = "提交失败" },
         onCancel = { request.cancel() },
     )
+}
+
+
+/**
+ * 宿舍电费的「浏览器」槽位（桌面端）—— 见 `DesktopPage` 里那条 `AppRoute.DormPower` 分支的 KDoc。
+ *
+ * 桌面端没有内置浏览器：拿到地址（非 null）就用系统浏览器打开，本窗只给一句去向；
+ * 地址还在路上（null）时显示等待（与 `:app` 里「先出浏览器外壳」同一句语义，只是外壳换成说明）。
+ */
+@Composable
+private fun DesktopPayPage(url: String?) {
+    LaunchedEffect(url) { if (url != null) openInBrowser(url) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (url == null) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator()
+                Text("正在准备缴费页入口…", color = MiuixTheme.colorScheme.onBackgroundVariant, fontSize = 13.sp)
+            }
+        } else {
+            Text(
+                "缴费页已交给系统浏览器打开\n（绑定、查询、充值都在那一页里）",
+                color = MiuixTheme.colorScheme.onBackgroundVariant,
+                fontSize = 13.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
 }
