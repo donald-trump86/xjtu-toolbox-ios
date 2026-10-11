@@ -3,21 +3,19 @@ package com.xjtu.toolbox.pay
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Checkbox
 
-import android.app.Activity
-import android.content.Context
-import android.graphics.Bitmap
-import android.view.WindowManager
 import com.xjtu.toolbox.platform.BackHandler
-import androidx.compose.foundation.Image
+import com.xjtu.toolbox.platform.CodeMatrix
+import com.xjtu.toolbox.platform.KeepScreenOn
+import com.xjtu.toolbox.platform.classifyNetworkFailure
+import com.xjtu.toolbox.platform.code128Modules
+import com.xjtu.toolbox.platform.qrCodeModules
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
@@ -28,80 +26,74 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.common.BitMatrix
-import com.google.zxing.oned.Code128Writer
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.QrBitmap
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val REFRESH_SECONDS = 12
 private const val AUTH_TIMEOUT_MS = 20_000L
 private const val FETCH_TIMEOUT_MS = 10_000L
-private const val PAYMENT_PREFS = "payment_code"
-private const val PREF_SELECTED_VOUCHERS = "selected_voucher_ids"
-private const val PREF_SELECTION_CONFIGURED = "voucher_selection_configured"
 
-private fun BitMatrix.toBitmap(foreground: Int, background: Int): Bitmap {
-    val pixels = IntArray(width * height)
-    for (y in 0 until height) {
-        val offset = y * width
-        for (x in 0 until width) {
-            pixels[offset + x] = if (get(x, y)) foreground else background
-        }
-    }
-    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
-        setPixels(pixels, 0, width, 0, 0, width, height)
-    }
-}
-
-/** 付款码很短，装不下的情况只可能是接口返回了异常内容，交给 [QrBitmap] 返回 null 即可。 */
-private fun generateQrCode(text: String, size: Int = 600): Bitmap? = QrBitmap.generate(text, size)
-
-private fun generateBarcode(text: String, width: Int = 800, height: Int = 200): Bitmap {
-    return Code128Writer().encode(text, BarcodeFormat.CODE_128, width, height)
-        .toBitmap(android.graphics.Color.BLACK, android.graphics.Color.WHITE)
-}
-
+/**
+ * 付款码屏（`AppRoute.PaymentCode` / `:app/pay`）—— 从 `:app` 同包同名搬进 `:core`，
+ * Android 与桌面画**同一份**。
+ *
+ * ## 搬进来的改动只有五处（都是「宿主能力」那一类，不是业务）
+ *
+ * | 搬迁前（`:app`） | 这里 |
+ * |---|---|
+ * | `PaymentCodeApi(site)`（okhttp + `SiteSession`） | [PaymentCodeSource] 端口（实现仍在 `:data` 的 `PaymentCodeApi`，两端共用同一份） |
+ * | `WindowManager`：窗口满亮 + `FLAG_KEEP_SCREEN_ON` | [KeepScreenOn]（`:core` 既有缝，Android actual 就是同一个「屏幕常亮」）+ **窗口亮度那一半留在 `:app` 的适配里**（见 `:app` 的 `pay/AppPaymentCode.kt`：Android 专属的 `WindowManager` 不该进 commonMain） |
+ * | `Bitmap` + `QrBitmap`/`Code128Writer` | `:core` 的码阵缝（[qrCodeModules] / [code128Modules]），渲染是这里那 20 行 `Canvas` |
+ * | `context.getSharedPreferences("payment_code")` | [PaymentSelectionStore]（同一个存储名、同一批键） |
+ * | `withContext(Dispatchers.IO)`（3 处） | 删（实现方自己负责 IO，见 [PaymentCodeSource] 的 KDoc） |
+ *
+ * 其余逐字未动：12 秒一轮的刷新与倒计时、三档加载文案、错误分档（网络/认证/超时）、
+ * 点击重试、加餐券勾选与「同步失败，请重试」、以及每一处排版与文案。
+ *
+ * ## 两端各自的入口
+ *
+ * - Android：`AppRoot` 里那个 `Dialog` + `AwaitSite` 包着 [com.xjtu.toolbox.pay.PaymentCodeDialog]
+ *   （`:app` 的适配，含窗口亮度）；
+ * - 桌面：`AppRoute.PaymentCode` → `DesktopSiteGate(校园卡)` → 本屏（`onDismiss` = 回图书馆首页）。
+ *
+ * @param source 取数（`:data` 的 `PaymentCodeApi`）
+ * @param selections 加餐券勾选的落盘
+ * @param onDismiss 关闭这一屏（Android = 关弹窗；桌面 = 回图书馆首页）
+ */
 @Composable
-fun PaymentCodeDialog(
-    site: SiteSession,
-    onDismiss: () -> Unit
+fun PaymentCodeScreen(
+    source: PaymentCodeSource,
+    selections: PaymentSelectionStore,
+    onDismiss: () -> Unit,
 ) {
-    val api = remember(site) { PaymentCodeApi(site) }
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }
     var loadingStage by remember { mutableStateOf("连接中…") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var barCodeNumber by remember { mutableStateOf("") }
-    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var barBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var qrMatrix by remember { mutableStateOf<CodeMatrix?>(null) }
+    var barMatrix by remember { mutableStateOf<CodeMatrix?>(null) }
     var countdown by remember { mutableIntStateOf(REFRESH_SECONDS) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
     var vouchers by remember { mutableStateOf<List<PaymentVoucher>>(emptyList()) }
     var voucherLoadAttempted by remember { mutableStateOf(false) }
     var isVoucherLoading by remember { mutableStateOf(false) }
     var voucherError by remember { mutableStateOf<String?>(null) }
-    var selectedVoucherIds by remember(context) { mutableStateOf(loadSelectedVoucherIds(context)) }
-    var selectionConfigured by remember(context) { mutableStateOf(hasVoucherSelectionConfigured(context)) }
+    var selectedVoucherIds by remember(selections) { mutableStateOf(selections.selectedIds()) }
+    var selectionConfigured by remember(selections) { mutableStateOf(selections.isConfigured()) }
     var isVoucherSyncing by remember { mutableStateOf(false) }
     var voucherStatusMessage by remember { mutableStateOf<String?>(null) }
     val latestSelectedVoucherIds by rememberUpdatedState(selectedVoucherIds)
@@ -111,19 +103,9 @@ fun PaymentCodeDialog(
         onDismiss()
     }
 
-    val activity = context as? Activity
-    DisposableEffect(Unit) {
-        val window = activity?.window ?: return@DisposableEffect onDispose {}
-        val orig = window.attributes.screenBrightness
-        window.attributes = window.attributes.apply {
-            screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
-        }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose {
-            window.attributes = window.attributes.apply { screenBrightness = orig }
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
+    // 「向商家出示」时屏幕不该自己黑掉。搬迁前是在 `WindowManager` 上打
+    // FLAG_KEEP_SCREEN_ON，现在走 `:core` 的既有缝（Android 的 actual 就是同一个标记）。
+    KeepScreenOn(true)
 
     LaunchedEffect(refreshTrigger) {
         isLoading = true
@@ -132,15 +114,16 @@ fun PaymentCodeDialog(
 
         val authOk = try {
             withTimeoutOrNull(AUTH_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) { api.authenticate() }
+                source.authenticate()
                 true
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            errorMessage = when (e) {
-                is java.io.IOException -> "网络连接失败，请检查网络"
-                else -> "认证失败，请稍后重试"
+            errorMessage = if (classifyNetworkFailure(e) != null) {
+                "网络连接失败，请检查网络"
+            } else {
+                "认证失败，请稍后重试"
             }
             isLoading = false
             return@LaunchedEffect
@@ -156,9 +139,8 @@ fun PaymentCodeDialog(
             isVoucherLoading = true
             voucherError = null
             runCatching {
-                withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-                    withContext(Dispatchers.IO) { api.getVouchers() }
-                } ?: throw RuntimeException("获取超时")
+                withTimeoutOrNull(FETCH_TIMEOUT_MS) { source.getVouchers() }
+                    ?: throw RuntimeException("获取超时")
             }.onSuccess {
                 vouchers = it
             }.onFailure {
@@ -171,18 +153,15 @@ fun PaymentCodeDialog(
 
         while (isActive) {
             try {
-                val code = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-                    withContext(Dispatchers.IO) { api.getBarCode() }
-                } ?: throw RuntimeException("获取超时")
+                val code = withTimeoutOrNull(FETCH_TIMEOUT_MS) { source.getBarCode() }
+                    ?: throw RuntimeException("获取超时")
                 if (latestSelectionConfigured) {
-                    withContext(Dispatchers.IO) { api.updateVoucherStatus(latestSelectedVoucherIds) }
+                    source.updateVoucherStatus(latestSelectedVoucherIds)
                     voucherStatusMessage = null
                 }
                 barCodeNumber = code
-                qrBitmap?.recycle()
-                qrBitmap = generateQrCode(code)
-                barBitmap?.recycle()
-                barBitmap = generateBarcode(code)
+                qrMatrix = qrCodeModules(code)
+                barMatrix = code128Modules(code)
                 isLoading = false
                 errorMessage = null
             } catch (e: Exception) {
@@ -270,27 +249,25 @@ fun PaymentCodeDialog(
 
                         Spacer(Modifier.height(16.dp))
 
-                        qrBitmap?.let { bmp ->
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = "付款二维码",
-                                modifier = Modifier.size(200.dp),
-                                contentScale = ContentScale.Fit
-                            )
-                        }
+                        CodeMatrixView(
+                            matrix = qrMatrix,
+                            // 与搬迁前那张 600×600 的位图同一个口径：外边留 1 个模块的白边
+                            //（`QrBitmap.generate` 的 `MARGIN=1`），码本身居于正中。
+                            quietZoneModules = 1,
+                            modifier = Modifier.size(200.dp),
+                        )
 
                         Spacer(Modifier.height(16.dp))
 
-                        barBitmap?.let { bmp ->
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = "付款条形码",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(70.dp),
-                                contentScale = ContentScale.FillBounds
-                            )
-                        }
+                        CodeMatrixView(
+                            matrix = barMatrix,
+                            // 静默区已经含在 Code128 的条纹阵列里（writer 默认留 10 个模块，
+                            // 与搬迁前那 800 像素宽的位图同一个比例）⇒ 这里不再另留。
+                            quietZoneModules = 0,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(70.dp),
+                        )
 
                         Spacer(Modifier.height(6.dp))
 
@@ -327,12 +304,12 @@ fun PaymentCodeDialog(
                                 }
                                 selectedVoucherIds = next
                                 selectionConfigured = true
-                                saveSelectedVoucherIds(context, next)
+                                selections.save(next)
                                 voucherStatusMessage = null
                                 isVoucherSyncing = true
                                 scope.launch {
                                     try {
-                                        withContext(Dispatchers.IO) { api.updateVoucherStatus(next) }
+                                        source.updateVoucherStatus(next)
                                     } catch (e: Exception) {
                                         voucherStatusMessage = "同步失败，请重试"
                                     } finally {
@@ -345,7 +322,7 @@ fun PaymentCodeDialog(
                                 voucherError = null
                                 scope.launch {
                                     try {
-                                        vouchers = withContext(Dispatchers.IO) { api.getVouchers() }
+                                        vouchers = source.getVouchers()
                                     } catch (e: Exception) {
                                         voucherError = com.xjtu.toolbox.error.FriendlyError.of(e, "加载加餐券")
                                     } finally {
@@ -356,6 +333,49 @@ fun PaymentCodeDialog(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 把一个 [CodeMatrix] 画成码 —— **三端同一份**，不需要任何平台的像素缓冲 API
+ * （搬迁前是 `Bitmap` + `Image(asImageBitmap)` 那一套：Android 有，桌面要另写一份 skiko 的）。
+ *
+ * 两处刻意的对齐（见 [CodeMatrix] 的 KDoc）：
+ *  - **整块白底**：码必须是深色模块落在白底上才扫得动，而卡片的底色是主题色（不是白）；
+ *  - **静默区**：`quietZoneModules` 个模块的白边（二维码 1 个模块，与搬迁前 `QrBitmap` 的
+ *    `MARGIN=1` 同宽；条形码 0 —— 它的静默区已经编在条纹阵列里）。
+ *
+ * 格子按**整像素**取（`floor`）并居中：避免半个像素的格子把边缘糊成灰的（那种图扫得动，
+ * 但没必要），末尾多出来的那一两个像素就是更大的白边。
+ */
+@Composable
+private fun CodeMatrixView(
+    matrix: CodeMatrix?,
+    quietZoneModules: Int,
+    modifier: Modifier,
+) {
+    if (matrix == null) return
+    Canvas(modifier) {
+        drawRect(color = Color.White, topLeft = Offset.Zero, size = size)
+        val cols = matrix.width + 2 * quietZoneModules
+        val rows = matrix.height + 2 * quietZoneModules
+        val cellW = (size.width / cols).coerceAtLeast(1f)
+        val cellH = (size.height / rows).coerceAtLeast(1f)
+        val originX = (size.width - cellW * cols) / 2f
+        val originY = (size.height - cellH * rows) / 2f
+        for (y in 0 until matrix.height) {
+            for (x in 0 until matrix.width) {
+                if (!matrix[x, y]) continue
+                drawRect(
+                    color = Color.Black,
+                    topLeft = Offset(
+                        originX + (x + quietZoneModules) * cellW,
+                        originY + (y + quietZoneModules) * cellH,
+                    ),
+                    size = Size(cellW, cellH),
+                )
             }
         }
     }
@@ -440,10 +460,7 @@ private fun VoucherSelectorCard(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        "¥%.2f · 至 %s".format(
-                                            voucher.amountYuan,
-                                            voucher.endDate.ifBlank { "—" }
-                                        ),
+                                        "${formatYuan(voucher.amountFen)} · 至 ${voucher.endDate.ifBlank { "—" }}",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         maxLines = 1,
@@ -477,20 +494,13 @@ private fun VoucherSelectorCard(
     }
 }
 
-private fun loadSelectedVoucherIds(context: Context): Set<String> {
-    val raw = context.getSharedPreferences(PAYMENT_PREFS, Context.MODE_PRIVATE)
-        .getString(PREF_SELECTED_VOUCHERS, "")
-        .orEmpty()
-    return raw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
-}
-
-private fun hasVoucherSelectionConfigured(context: Context): Boolean =
-    context.getSharedPreferences(PAYMENT_PREFS, Context.MODE_PRIVATE)
-        .getBoolean(PREF_SELECTION_CONFIGURED, false)
-
-private fun saveSelectedVoucherIds(context: Context, ids: Set<String>) {
-    context.getSharedPreferences(PAYMENT_PREFS, Context.MODE_PRIVATE).edit()
-        .putString(PREF_SELECTED_VOUCHERS, ids.joinToString(","))
-        .putBoolean(PREF_SELECTION_CONFIGURED, true)
-        .apply()
+/**
+ * 分转元（`"¥%.2f".format(fen / 100.0)` 那一句是 JVM 专属写法，`:core` 还要编到 wasm）。
+ * 与 `:core` 既有先例（`coupon/CouponScreen.kt` 的 `formatYuan`）同一口径：整数分算，
+ * 不经过 double —— `500` 分 → `¥5.00`，`505` 分 → `¥5.05`。
+ */
+private fun formatYuan(fen: Long): String {
+    val sign = if (fen < 0) "-" else ""
+    val abs = if (fen < 0) -fen else fen
+    return "$sign¥${abs / 100}.${(abs % 100).toString().padStart(2, '0')}"
 }

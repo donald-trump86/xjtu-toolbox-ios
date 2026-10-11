@@ -104,6 +104,10 @@ import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.desktop.dzpz.DesktopTranscriptSaver
+import com.xjtu.toolbox.pay.PaymentCodeApi
+import com.xjtu.toolbox.pay.PaymentCodeScreen
+import com.xjtu.toolbox.pay.PaymentSelectionStore
+import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.appRouteOf
@@ -300,6 +304,11 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.GameHop to "跳一跳",
     AppRoute.GameGo to "围棋",
     AppRoute.GameXiangqi to "象棋",
+
+    // 付款码（第 26 条真数据路由）：站点就是**校园卡**（`AppRoute.PaymentCode.loginType`
+    // = `CAMPUS_CARD`，与 `:app` 导航层那句 `WithSite("campus_card")` 同一条口径）——
+    // 它借的就是校园卡那个 JWT（`synjones-auth: bearer <JWT>`），不另建会话。
+    AppRoute.PaymentCode to "付款码",
 )
 
 /**
@@ -548,6 +557,27 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             CampusCardScreen(
                 source = remember(site) { AppCampusCardSource(site) },
                 onBack = back,
+            )
+        }
+
+        // 付款码（第 26 条真数据路由）：屏在 `:core`（`PaymentCodeScreen`）、取数在 `:data`
+        // （`PaymentCodeApi`，两端共用同一份），借的会话就是**校园卡**那个站点
+        // （`AppRoute.PaymentCode.loginType` = `CAMPUS_CARD`）⇒ 套 `DesktopSiteGate`。
+        //
+        // 这一端多传/少传两件东西：
+        //  - **加餐券勾选的落盘**：`:app` 那边接的是 `SharedPreferences("payment_code")`，
+        //    桌面接 `secureKeyValueStore("payment_code")` —— 同一份 0600 的 Properties 文件，
+        //    所以「勾了哪几张券」在桌面是**真落盘**（与 `:data` 的凭据 / cookie 同一套落盘口径）；
+        //  - **窗口满亮那一半不传**（它本来就不在共享屏里）：`:app` 的 `pay/AppPaymentCode.kt`
+        //    会把窗口调到 `BRIGHTNESS_OVERRIDE_FULL` 好让扫码枪扫得动，而桌面窗口的亮度归
+        //    系统电源策略管 —— 这里不假装能改它。屏幕常亮那一半在共享屏里（`KeepScreenOn`），
+        //    桌面是空实现（不需要）。
+        // 「关闭」= 回图书馆首页：桌面没有返回栈，底栏就是导航（与其余屏同一条口径）。
+        AppRoute.PaymentCode -> DesktopSiteGate(auth, DesktopAuth.CAMPUS_CARD_SITE_KEY, "校园卡") { site ->
+            PaymentCodeScreen(
+                source = remember(site) { PaymentCodeApi(site) },
+                selections = remember { PaymentSelectionStore(secureKeyValueStore("payment_code")) },
+                onDismiss = back,
             )
         }
 

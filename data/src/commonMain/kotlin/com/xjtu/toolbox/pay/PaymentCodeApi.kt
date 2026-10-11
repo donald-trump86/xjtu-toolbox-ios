@@ -11,7 +11,7 @@ import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactBody
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -19,18 +19,6 @@ import com.xjtu.toolbox.util.safeString
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-
-data class PaymentVoucher(
-    val showCardId: String,
-    val voucherName: String,
-    val typeName: String,
-    val amountFen: Long,
-    val endDate: String,
-    val serverFlag: String
-) {
-    val amountYuan: Double get() = amountFen / 100.0
-}
-
 /**
  * 付款码 API — ncard.xjtu.edu.cn
  *
@@ -42,8 +30,17 @@ data class PaymentVoucher(
  *   - synjones-auth: bearer <JWT>  （由 CampusCardLogin 登录后持有）
  *   - synAccessSource: h5
  *   - Referer: https://ncard.xjtu.edu.cn/plat/pay?lite=1&payacc=000&payid=0
+ * 从 `:app` 的 `pay/PaymentCodeApi.kt` **同包同名搬进 `:data`**（付款码这条真数据路由）。
+ * 三处改动：
+ *  1. `android.util.Log` → `:core` 的 `platform.Log`（三端同一份日志缝）；
+ *  2. 模型 `PaymentVoucher` 切出去住 `:core`（屏要用它，而 `:core` 看不见 `:data`）；
+ *  3. 实现 `:core` 的取数端口 [com.xjtu.toolbox.pay.PaymentCodeSource] —— Android 与桌面
+ *     两端都直接拿这个类当端口，取数只有这一份。
+ *
+ * 取数形状一行未改：三段 URL、三段 header、`success`/`data`/`barCodeVo`/`barcode` 的取值口径、
+ * 加餐券那份字段映射，以及 `executeWithReAuth`（okhttp 那一半本来就在 `:data` 的会话内核里）。
  */
-class PaymentCodeApi(private val site: SiteSession) {
+class PaymentCodeApi(private val site: SiteSession) : PaymentCodeSource {
 
     companion object {
         private const val TAG = "PaymentCodeApi"
@@ -59,7 +56,7 @@ class PaymentCodeApi(private val site: SiteSession) {
     }
 
     /** 兼容旧接口：JWT 由校园卡站点登录时存进 localToken，这里只检查有没有。 */
-    fun authenticate() {
+    override fun authenticate() {
         if (!site.localToken["access_token"].isNullOrEmpty()) return
         throw RuntimeException("校园卡未登录，无法获取付款码")
     }
@@ -68,7 +65,7 @@ class PaymentCodeApi(private val site: SiteSession) {
      * 获取付款码数字。
      * @return 付款码数字字符串（如 "40806400076085649835"）
      */
-    suspend fun getBarCode(): String {
+    override suspend fun getBarCode(): String {
         val token = site.localToken["access_token"]
             ?: throw RuntimeException("校园卡未登录，无法获取付款码")
 
@@ -101,7 +98,7 @@ class PaymentCodeApi(private val site: SiteSession) {
         return arr[0].stringValue
     }
 
-    suspend fun getVouchers(): List<PaymentVoucher> {
+    override suspend fun getVouchers(): List<PaymentVoucher> {
         val request = authRequest(VOUCHERS_URL)
             .header("Referer", REFERER)
             .get()
@@ -129,7 +126,7 @@ class PaymentCodeApi(private val site: SiteSession) {
         }
     }
 
-    suspend fun updateVoucherStatus(selectedIds: Collection<String>) {
+    override suspend fun updateVoucherStatus(selectedIds: Collection<String>) {
         val arr = buildJsonArray {
             selectedIds.filter { it.isNotBlank() }.distinct().forEach { add(it) }
         }

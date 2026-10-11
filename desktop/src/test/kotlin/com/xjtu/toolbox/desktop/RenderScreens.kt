@@ -13,6 +13,8 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.xjtu.toolbox.FakeCampusProxy
+import com.xjtu.toolbox.card.CampusCardFakeUpstream
+import com.xjtu.toolbox.platform.qrCodeModules
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
@@ -73,6 +75,7 @@ import kotlinx.coroutines.runBlocking
  * | `scorereport.png` | 成绩报表屏（真路由：外壳 → `AppRoute.ScoreReport` → `scoreReportSource`） | 第七条真数据路由：学号取自登录时的 `AccountContext.activeAccountId`，图上按学期分组的成绩是夹具样本 |
  * | `judge.png` | 学生评教屏（真路由：外壳 → `AppRoute.Judge` → `UndergraduateJudgeSource`） | 第八条真数据路由：与课表/成绩同一个教务站点（同一份会话），上游是 `wspjyyapp`；图上未评那三张卡片的课名/教师/标签都是夹具样本 |
  * | `campuscard.png` | 校园卡屏（真路由：外壳 → `AppRoute.CampusCard` → `AppCampusCardSource`） | 第九条真数据路由：**https** 站点（ncard）、CAS 回跳那一跳上换 JWT，缓存传 `null`；图上余额 / 待入账 / 今日三餐与流水都是夹具样本 |
+ * | `payment_code.png` | 付款码屏（真路由：外壳 → `AppRoute.PaymentCode` → `DesktopSiteGate(校园卡)` → `PaymentCodeApi`） | 第二十六条真数据路由：站点就是**校园卡**（付款码借它的 JWT，不另建会话），屏与取数本轮才搬进 `:core`/`:data`；图上那串码（`60041234000000000001`）与两张加餐券都是夹具样本，二维码/条形码是拿那串码**现场编出来的**（判据见 `DesktopAuthPaymentCodeJvmTest` 里那个「解回同一串数字」） |
  * | `emptyroom.png` | 空闲教室屏（真路由：外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`） | 第十条真数据路由：三档数据源里那一档「实时状态」要智慧教室站点（https，CAS 回跳后把票换成 `TOKEN-AUTH`）—— 会话由**源自己 ensure**（所以不套 `DesktopSiteGate`）；图上楼分组、四间教室、空闲/上课中/「其它使用」与「实时 · HH:MM」都是夹具样本 |
  * | `venue.png` | 体育场馆屏（真路由：外壳 → `AppRoute.Venue` → `DesktopSiteGate` → `AppVenueSource`） | 第十一条真数据路由：登录要先过 `org.xjtu.edu.cn` 的 OAuth2 → CAS → 回跳（场馆站本身是明文 http）；图上九个场馆名（两页拼起来）都是夹具样本。这一端 `canBook = false`（滑块控件搬不到桌面）⇒ 只有读的那一半 |
  * | `inbox.png` | 消息收纳屏（真路由：外壳 → `AppRoute.Inbox` → `AppInboxSource`） | 第十二条真数据路由：一网通办那四路（消息 / 事务中心 / 预约 / 校车），会话由**源自己 ensure**（不套 Gate）；图上待办那两栏的条目与「预约中心 有 3 个…」都是夹具样本 |
@@ -325,6 +328,29 @@ fun main(args: Array<String>) {
         // `AppCampusCardSource`，缓存传 `null`）。图上应是夹具那张家底：余额/待入账/今日三餐 +
         // 七条流水的商户与金额，而不是错误页或转圈。
         shot("campuscard.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.CampusCard)) }
+
+        // 付款码（第二十六条）：走**真路由**（外壳 → `AppRoute.PaymentCode` → `DesktopSiteGate`
+        // → `:data` 的 `PaymentCodeApi`）。它借的就是上面那条校园卡会话（`loginType = CAMPUS_CARD`），
+        // 所以这一屏进门不需要再走一趟 CAS。图上应当是夹具那串**编出来的**付款码号 + 两张加餐券
+        // —— 不是错误页、也不是转圈。`hasText` 钉的就是那串号（屏上它是纯文本那一行）。
+        var paymentShown = false
+        shot(
+            "payment_code.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!paymentShown && frame >= 4) paymentShown = hasText(scene, CampusCardFakeUpstream.BAR_CODE)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.PaymentCode)) }
+        check(paymentShown) {
+            "payment_code.png：屏上没有夹具那串付款码（${CampusCardFakeUpstream.BAR_CODE}）—— 多半没取到数"
+        }
+        // 顺带把「真出码」这一半也在这里响亮地钉一下：屏幕那一发刷新会把取回的码编成模块阵列，
+        // 这里拿同一份夹具码再编一次，编不出来就当场失败（「解回同一串数字」那条判据在
+        // `DesktopAuthPaymentCodeJvmTest` 里）。
+        val codeMatrix = requireNotNull(qrCodeModules(CampusCardFakeUpstream.BAR_CODE)) {
+            "付款码在桌面这一端应当真编得出二维码"
+        }
+        println("付款码模块阵列：${codeMatrix.width}x${codeMatrix.height}（解回来见 DesktopAuthPaymentCodeJvmTest）")
 
         // 空闲教室（第十条）：走**真路由**（外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`）——
         // 这一屏的会话由源自己 ensure，所以这张图里智慧教室 `js` 那一发 CAS + 换令牌是**屏**自己登的
@@ -659,7 +685,6 @@ fun main(args: Array<String>) {
         check(jiaocaiSearchBookShown) {
             "jiaocai.png：屏上没有夹具那本教材（${Jiaocai1FakeUpstream.SEARCH_BOOK_TITLE}）—— 多半没取到数"
         }
-
         // 下载管理（本批的 `download_manager` 路由）：走**真路由**（外壳 → `AppRoute.DownloadManager`，
         // 不要任何站点会话）；但这一张图不是「屏画得出来」的证明，而是**那条队列真下得动**的证明 ——
         // 先让证据运行自己排一条（夹具那条直链，走假上游），**等它真落到磁盘**，再截图。

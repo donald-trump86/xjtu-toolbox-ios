@@ -141,6 +141,10 @@ dependencies {
     // `MockEngine` 把假响应喂进去，比再起一个 HTTP 服务器干净（图书馆/校历那两条要服务器，
     // 是因为它们面对的是会话内核的 cookie/302）。
     testImplementation(libs.ktor.client.mock)
+    // 付款码那条路由的「真出码」判据：把 `:core` 编出来的模块阵列拿 zxing 的**低层解码器**
+    // 解回同一串数字（掩码 / RS 纠错 / 格式信息 / 数据排布全得对）。`:core` 的 jvmMain 自己
+    // 已经有 zxing（implementation，不进编译类路径）⇒ 测试这一侧显式要一份。
+    testImplementation(libs.zxing.core)
 }
 
 /**
