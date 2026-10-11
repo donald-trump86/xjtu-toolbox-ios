@@ -27,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.time.Clock
 
 private const val MIN_SCALE = 1f
 private const val MAX_SCALE = 4f
@@ -169,7 +170,7 @@ fun Jiaocai1ZoomablePage(
                     if (zoomed || dragged) {
                         pendingTap?.cancel()
                     } else if (!pastSlop) {
-                        val now = System.currentTimeMillis()
+                        val now = Clock.System.now().toEpochMilliseconds()
                         if (now - lastTapAt <= DOUBLE_TAP_MS && (down.position - lastTapPos).getDistance() < TAP_SLOP * 2) {
                             pendingTap?.cancel()
                             lastTapAt = 0

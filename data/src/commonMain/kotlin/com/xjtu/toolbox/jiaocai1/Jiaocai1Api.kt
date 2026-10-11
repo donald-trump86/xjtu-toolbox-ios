@@ -4,7 +4,7 @@ import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.util.intValue
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.PortalRedirect
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -17,65 +17,10 @@ import java.nio.charset.Charset
 
 private const val TAG = "Jiaocai1Api"
 
-// ── 数据模型 ─────────────────────────────────────────────────────────
-
-/** 中图法分类节点。[id] 即检索参数 `cls`，如 `0O109101`。 */
-@kotlinx.serialization.Serializable
-data class Jiaocai1Category(
-    val id: String = "",
-    val name: String = "",
-    val level: Int = 0,
-    val parentId: Int = 0,
-    val nodeId: Int = 0,
-    val children: List<Jiaocai1Category> = emptyList(),
-)
-
-/** [ssno] 是全文库主键，jiaocai.lib 的「本地全文」链接里带的就是它。 */
-data class Jiaocai1Book(
-    val ssno: String,
-    val title: String,
-    val author: String = "",
-    val publishDate: String = "",
-    val themeWord: String = "",
-    val callNo: String = "",
-    val classifyPath: String = "",
-    val coverUrl: String = "",
-)
-
-data class Jiaocai1SearchResult(
-    val books: List<Jiaocai1Book> = emptyList(),
-    val totalRows: Int = 0,
-    val currentPage: Int = 1,
-    val totalPages: Int = 1,
-) {
-    val hasMore: Boolean get() = currentPage < totalPages
-}
-
-/** 检索字段，只能单选。组合检索需走 stype=4 的高级检索表单。 */
-enum class Jiaocai1SearchField(val key: String, val label: String) {
-    BOOK_NAME("bookName", "书名"),
-    AUTHOR("bookAuthor", "作者"),
-    THEME("themeWord", "主题词"),
-    CALL_NO("bookCallno", "索书号"),
-    ISBN("bookISBN", "ISBN"),
-}
-
-/**
- * [jpgPath] 是服务端按会话下发的令牌路径，不要持久化：换会话即失效，
- * 表现为取图失败，需重新 [Jiaocai1Api.openBook]。
- */
-data class Jiaocai1BookHandle(
-    val ssno: String,
-    val title: String,
-    val jpgPath: String,
-    /** 8 种页型各自的 [起, 止]；`起 > 止` 表示该书没有这类页 */
-    val pageRanges: List<IntRange>,
-    /** 正文页数 */
-    val bookPages: Int,
-) {
-    /** 线性页表，下标即阅读器页序 */
-    val pages: List<Jiaocai1Page> by lazy { Jiaocai1Paging.flatten(pageRanges) }
-}
+// 模型（`Jiaocai1Category` / `Jiaocai1Book` / `Jiaocai1SearchResult` / `Jiaocai1SearchField` /
+// `Jiaocai1BookHandle`）已在搬进共享内核时拆到 `:core` 的 `jiaocai1/Jiaocai1Models.kt` ——
+// 屏要用它们，而 `:core` 看不见 `:data`。同包同名 ⇒ 本文件里一行 `import` 都不用加。
+// （`Jiaocai1Page` / `Jiaocai1Paging` 早就在 `:core`。）
 
 // ── API ──────────────────────────────────────────────────────────────
 
@@ -87,6 +32,12 @@ data class Jiaocai1BookHandle(
  * 拦截器改写域名）、cookie jar 和 executeWithReAuth 的重认证。
  *
  * 编码随访问路径变化（经 WebVPN 是 UTF-8，直连是 GBK），见 [decodeSmart]。
+ *
+ * ## 从 `:app` 搬进 `:data` 时改了什么（一处）
+ *
+ * `android.util.Log` → `:core` 的 [Log]（同一套级别、同样的 tag）。取数/解析的每一句
+ * （包括 `decodeSmart` 那个「先按 UTF-8 宽松解、出现 U+FFFD 再按 GB18030 解」的判据）
+ * 逐字未动 —— 它本来就没碰 `Context` 与 `BuildConfig`，所以搬动本身是零口径变化的。
  */
 class Jiaocai1Api(private val site: SiteSession) {
 

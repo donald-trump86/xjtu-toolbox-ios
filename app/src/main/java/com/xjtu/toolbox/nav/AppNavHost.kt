@@ -68,7 +68,8 @@ import com.xjtu.toolbox.iclassface.IclassfaceScreen
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.jiaocai.JiaocaiScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
-import com.xjtu.toolbox.jiaocai1.Jiaocai1Screen
+import com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore
+import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
 import com.xjtu.toolbox.judge.GraduateJudgeScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.jwapp.AppJwappScoreSource
@@ -433,10 +434,16 @@ fun AppNavHost(
         }
         entry<AppRoute.Jiaocai1>(transition = expand(AppRoute.Jiaocai1::class)) {
             WithSite("jiaocai") {
-                Jiaocai1Screen(
+                // `:app` 里那个薄包装 `Jiaocai1Screen` 就是在调这一屏的第三栏
+                //（`TextbookScreen(initialTab = 2)`）—— 本轮它整份搬进了 `:core`（成了
+                // `jiaocai1/Jiaocai1LibraryScreen`，供桌面端那条路由用），所以这里直接把
+                // 原来的参数摆到 `TextbookScreen` 上，行为与搬迁前逐字相同。
+                com.xjtu.toolbox.jiaocai.TextbookScreen(
                     site = it,
                     onBack = back,
                     onOpenBook = { ssno, title -> router.open(AppRoute.Jiaocai1Reader(ssno, title)) },
+                    initialTab = 2,
+                    authExpiredRoute = AppRoute.Jiaocai1,
                 )
             }
         }
@@ -446,7 +453,19 @@ fun AppNavHost(
             swipeDismiss = NavSwipeDirection.None,
         ) { reader ->
             WithSite("jiaocai") {
-                Jiaocai1ReaderScreen(site = it, ssno = reader.ssno, fallbackTitle = reader.title, onBack = back)
+                // 屏、书架存储与取数都已在共享内核（取数/页字节 `:data` 的 `AppJiaocai1Source`，
+                // 书架 `:app` 的 `AppJiaocai1ShelfStore`（包住原来的 Room DAO），页图解码 `:core`）；
+                // 宿主只负责把这两样递进去。缓存目录仍是 `context.cacheDir`（同名 `jiaocai1/` 子目录）
+                // ⇒ 已有页缓存继续被认。
+                val jiaocai1Context = LocalContext.current
+                val jiaocai1Source = remember(it) { AppJiaocai1Source(it, jiaocai1Context.cacheDir) }
+                Jiaocai1ReaderScreen(
+                    source = jiaocai1Source,
+                    shelfStore = remember(jiaocai1Context) { AppJiaocai1ShelfStore(jiaocai1Context) },
+                    ssno = reader.ssno,
+                    fallbackTitle = reader.title,
+                    onBack = back,
+                )
             }
         }
         entry<AppRoute.SchoolCourse>(transition = expand(AppRoute.SchoolCourse::class)) {

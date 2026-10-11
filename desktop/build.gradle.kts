@@ -125,6 +125,10 @@ dependencies {
     // 而 viewModelScope 跑在 Main.immediate 上 —— 少了这个，离屏渲染与真窗口都会以
     // 「Dispatchers.Main[missing]」失败。Compose Desktop 自己不转递它。
     implementation(libs.kotlinx.coroutines.swing)
+    // 教材全文库的书架在本端是**一份 JSON 落盘**（`:core` 的 `Jiaocai1ShelfStore` 的桌面实现，
+    // 见 `jiaocai1/DesktopJiaocai1Storage.kt`）：解析用 `:core` 的 `AppJson`，那个类型来自
+    // kotlinx.serialization，而 `:core` / `:data` 都只把它声明成 implementation ⇒ 这一端自己显式要一份。
+    implementation(libs.kotlinx.serialization.json)
 
     // ── test：只给离屏渲染证据与桌面端装配的验收测试用 ────────────────────────
     // 假校园上游（图书馆座位系统 + 统一认证）。它**不进**任何交付物：见文件头与

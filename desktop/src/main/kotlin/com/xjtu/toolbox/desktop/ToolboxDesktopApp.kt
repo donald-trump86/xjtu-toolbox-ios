@@ -69,6 +69,13 @@ import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
+import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
+import com.xjtu.toolbox.jiaocai1.Jiaocai1LibraryScreen
+import com.xjtu.toolbox.jiaocai1.Jiaocai1PageImages
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ViewModel
+import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
+import com.xjtu.toolbox.desktop.jiaocai1.jiaocai1CacheRoot
 import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.dormpower.DormPowerApi
@@ -250,6 +257,12 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // 它**不是**校园站点：后端是飞书开放平台，凭据由宿主在启动时注入（见 `:core` 的
     // `FeedbackSource` KDoc）⇒ 不套 `DesktopSiteGate`。
     AppRoute.Feedback to "反馈与建议",
+
+    // 教材全文库（第 22 批里的 `jiaocai1`）：名字照 `:app` 服务表里的叫法（「教材全文」）。
+    // 站点是**教材中心**（`jiaocai.lib`）—— 全文库借它的会话，所以套的是 `JIAOCAI1_SITE_KEY`
+    // （值就是 `jiaocai`）。阅读器那条参数路由（`Jiaocai1Reader`）不单独列在索引页里：
+    // 它是从书架/检索结果进去的二级屏，与 `AppRoute.Lms` 那种「带 courseId 的入口」不同。
+    AppRoute.Jiaocai1 to "教材全文",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -775,6 +788,43 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             onOpenUrl = { url -> if (url.isNotBlank()) openInBrowser(url) },
             onBack = back,
         )
+
+        // 教材全文（第 22 批里的 `jiaocai1`）：站点是**教材中心**（`jiaocai.lib.xjtu.edu.cn`）——
+        // 全文库没有自己的登录器，借的就是它的会话（`AppRoute.Jiaocai1.loginType` = `LoginType.JIAOCAI`），
+        // 所以这里套 `DesktopSiteGate(DesktopAuth.JIAOCAI1_SITE_KEY)`（那个常量的值就是 `jiaocai`）。
+        // 与 `:app` 那条路由的差异只有一处（如实）：`:app` 落在合并页 `TextbookScreen` 的**第三栅**
+        //（含 `jiaocai` 域的「查教材」），桌面画的是 `jiaocai1` 域自己那两栅 —— 书架 + 全文库
+        //（`Jiaocai1LibraryScreen`）。「查教材」那一栅的取数属 `jiaocai` 域，不在本轮搬迁里。
+        // 默认落在全文库那一栅，与 `:app` 的 `initialTab = 2` 同一条口径。
+        AppRoute.Jiaocai1 -> DesktopSiteGate(auth, DesktopAuth.JIAOCAI1_SITE_KEY, "教材中心") { site ->
+            val source = remember(site) { AppJiaocai1Source(site, jiaocai1CacheRoot()) }
+            // 书架：桌面没有 Room ⇒ 一份 0600 的 JSON 落盘（见 `DesktopJiaocai1ShelfStore` 的 KDoc）；
+            // 分类树的 DataCache 在桌面也没有等价物 ⇒ `cache` 传 null（每次进程拉一遍，屏上行为不变）。
+            val shelf = remember { DesktopJiaocai1ShelfStore() }
+            val vm: Jiaocai1ViewModel = viewModel(key = "jiaocai1-library") {
+                Jiaocai1ViewModel(source, shelf)
+            }
+            vm.bind()
+            Jiaocai1LibraryScreen(
+                vm = vm,
+                images = remember(source) { Jiaocai1PageImages(source) },
+                onBack = back,
+                onOpenBook = { ssno, title ->
+                    onNavigate(DesktopTarget.App(AppRoute.Jiaocai1Reader(ssno, title)))
+                },
+            )
+        }
+        // 阅读器：同一个站点、同一个取数（页面字节与磁盘缓存都在 `AppJiaocai1Source` 里），
+        // 解码与内存 LRU 在 `:core` 的 `Jiaocai1PageImages`。书架那份存储与上面共用一个文件。
+        is AppRoute.Jiaocai1Reader -> DesktopSiteGate(auth, DesktopAuth.JIAOCAI1_SITE_KEY, "教材中心") { site ->
+            Jiaocai1ReaderScreen(
+                source = remember(site) { AppJiaocai1Source(site, jiaocai1CacheRoot()) },
+                shelfStore = remember { DesktopJiaocai1ShelfStore() },
+                ssno = route.ssno,
+                fallbackTitle = route.title,
+                onBack = back,
+            )
+        }
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },

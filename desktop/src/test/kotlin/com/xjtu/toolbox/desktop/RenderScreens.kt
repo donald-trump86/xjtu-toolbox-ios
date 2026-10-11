@@ -27,6 +27,7 @@ import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.FeedbackApi
 import com.xjtu.toolbox.feedback.FeedbackFakeUpstream
 import com.xjtu.toolbox.feedback.FeedbackStore
+import com.xjtu.toolbox.jiaocai1.Jiaocai1FakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
@@ -81,6 +82,8 @@ import kotlinx.coroutines.runBlocking
  * | `iclassface.png` | 快速考勤流水屏（真路由：外壳 → `AppRoute.Iclassface` → `DesktopSiteGate` → `AppIclassfaceSource`） | 第二十条真数据路由：`iclassface.xjtu.edu.cn` 走 CAS OAuth2 `client_id=1543` → 开放平台 `authorizesw` 中转 → 回落 `/oauth/callback/xjtu_new`（凭据就是 `PHPSESSID`）；图上那行签到记录（姓名 / 时间 / 地点 / 类型）是夹具样本 |
  * | `community.png` | 社区屏（真路由：外壳 → `AppRoute.Community`；登录态与取数都是 `:data` 的实现） | 第二十一条真数据路由：上游是 GitHub（`github.com/login` 的设备码 + `api.github.com` 的 GraphQL），不套 `DesktopSiteGate`（没有学校会话可建）；这张图先把一份夹具令牌写进 `SecureGithubSession`（同一个存储名与键），于是图上那条帖子（示例讨论…）与分类都是从假 GitHub 拉回来的 |
  * | `feedback.png` | 反馈屏（真路由：外壳 → `AppRoute.Feedback` → `AppFeedbackSource`） | 第二十二条真数据路由，也是唯一一条**没有校园站点会话**的：上游是飞书开放平台（`open.feishu.cn`），凭据是宿主注入的 `app_id` + `app_secret` 换一张租户令牌；屏与本地账本在 `:core`（键值缝，与 Android 同一份 `feedback` 存储），取数在 `:data`。图上那张工单与那句开发者回复、两条公开问答都是从假飞书拉回来的（证据运行先往本地账本补一张工单） |
+ * | `jiaocai1.png` | 教材全文库屏（真路由：外壳 → `AppRoute.Jiaocai1` → `DesktopSiteGate(教材中心)` → `AppJiaocai1Source`） | 第二十三条真数据路由：站点是**教材中心**（`jiaocai.lib`）—— 全文库借它的会话（`/entry/login` → CAS → 超星 SSO），业务侧那张 `var logoutUrl=…` 的跳转页由 `PortalRedirect` 自己跟；屏（书架 + 全文库）在 `:core`，取数与页字节在 `:data`，书架落盘在 `:desktop`。图上那本书是证据运行点两下分类树检索出来的夹具书目 |
+ * | `jiaocai1-reader.png` | 教材阅读器（同一条路由的参数形态：`AppRoute.Jiaocai1Reader(ssno, title)`） | 同一条真数据路由的**页加载**那一半：页图是夹具现场画的 JPEG（700×1050，程序生成、不是截图），解码走 `:core` 的图片缝、磁盘缓存在 `:data`；底栏那个「1 / 34」就是夹具那本书的线性页表 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -571,6 +574,61 @@ fun main(args: Array<String>) {
         check(feedbackShown) {
             "feedback.png：屏上没有夹具那条回复（${FeedbackFakeUpstream.REPLY_TEXT}）—— 多半没取到数"
         }
+
+        // ⚠️ 先把「使用声明读过了没」置成已读：那个弹窗用的是 miuix 的 `WindowDialog`，在离屏场景里
+        // 是独立 AWT 窗口（建不出来 —— 与 lms 的说明弹窗同一条坑）。置已读就不会弹，图上才是屏本身。
+        // 桌面那份键值缝是进程内内存实现 ⇒ 这次置值只活在这一次证据运行里（真机上是它自己记的）。
+        keyValueStore("feature_hints").putBoolean("jiaocai1_hint_shown", true)
+
+        // 教材全文库（第 22 批里的 `jiaocai1`）：走**真路由**（外壳 → `AppRoute.Jiaocai1` →
+        // `DesktopSiteGate(教材中心)` → `AppJiaocai1Source`）。全文库借教材中心的会话（`/entry/login`
+        // → CAS），而**业务侧还有一段**：会话没建立时上游返回一张 `var logoutUrl=…` 的跳转页，
+        // 由 `PortalRedirect` 自己跟（夹具把那一跳也扮了，所以这张图里那条链真跑过）。
+        //
+        // 图上要有夹具那本书：一进屏默认是**分类树**（关键词为空且没选分类），所以这里用 semantics
+        // 点两下 —— 先展开一级分类，再点子类（叶子）⇒ 那一发触发检索（与 `:app` 同一段编排）。
+        // 点不到就是「这张图里没有书目」，响亮地失败。
+        var jiaocaiCategoryOpened = false
+        var jiaocaiSearched = false
+        var jiaocaiBookShown = false
+        shot(
+            "jiaocai1.png",
+            frames = 30,
+            onFrame = { frame, scene ->
+                if (frame >= 4) {
+                    if (!jiaocaiCategoryOpened) {
+                        jiaocaiCategoryOpened = clickByLabel(scene, Jiaocai1FakeUpstream.ROOT_CATEGORY_NAME)
+                    } else if (!jiaocaiSearched) {
+                        jiaocaiSearched = clickByLabel(scene, Jiaocai1FakeUpstream.CHILD_CATEGORY_NAME)
+                    } else if (!jiaocaiBookShown) {
+                        jiaocaiBookShown = hasText(scene, Jiaocai1FakeUpstream.BOOK_TITLE)
+                    }
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Jiaocai1)) }
+        check(jiaocaiCategoryOpened) { "jiaocai1.png：没点到一级分类（${Jiaocai1FakeUpstream.ROOT_CATEGORY_NAME}）" }
+        check(jiaocaiSearched) { "jiaocai1.png：没点到子类（${Jiaocai1FakeUpstream.CHILD_CATEGORY_NAME}）" }
+        check(jiaocaiBookShown) {
+            "jiaocai1.png：屏上没有夹具那本书（${Jiaocai1FakeUpstream.BOOK_TITLE}）—— 多半没取到数"
+        }
+
+        // 阅读器：直接进那条参数路由（`AppRoute.Jiaocai1Reader(ssno, title)`）。这一张证明的是
+        // **页真的加载、解码、画上去了**：页图是夹具现场画的 JPEG（不是截图），底栅报的是夹具
+        // 那本书的线性页表（34 页）。屏上没拿到「1 / 34」就是没打开成功。
+        var readerShown = false
+        shot(
+            "jiaocai1-reader.png",
+            frames = 24,
+            onFrame = { frame, scene ->
+                if (!readerShown && frame >= 6) readerShown = hasText(scene, "1 / 34")
+            },
+        ) {
+            ToolboxDesktopApp(
+                auth,
+                DesktopTarget.App(AppRoute.Jiaocai1Reader(Jiaocai1FakeUpstream.SSNO, Jiaocai1FakeUpstream.BOOK_TITLE)),
+            )
+        }
+        check(readerShown) { "jiaocai1-reader.png：屏上没有「1 / 34」—— 多半没打开那本书" }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。

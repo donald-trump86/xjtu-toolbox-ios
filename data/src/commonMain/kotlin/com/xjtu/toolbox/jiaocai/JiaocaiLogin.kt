@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.jiaocai
 
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.XJTULogin
 import okhttp3.OkHttpClient
 import okhttp3.Response

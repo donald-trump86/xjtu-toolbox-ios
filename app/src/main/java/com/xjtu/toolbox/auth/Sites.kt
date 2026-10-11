@@ -148,12 +148,13 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
     }
 }
 
-// ── JIAOCAI 教材中心 ──────────────────────────────────────────────────
-
-class JiaocaiSession : CasSiteSession("jiaocai", "教材中心", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.jiaocai.JiaocaiLogin(existingClient = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
+// ── JIAOCAI 教材中心 ──────────────────────────────────────────────
+//
+// `JiaocaiSession` 与它的 `JiaocaiLogin` 已搬进 `:data`（同一个包、同一个类名）：教材全文库
+//（`jiaocai1`）是「桌面端第 22 批真数据路由」里的那一条，而它**借的就是教材中心的会话**
+// （`AppRoute.Jiaocai1` / `Jiaocai1Reader` 的 `loginType` 都是 `LoginType.JIAOCAI`，导航层那句
+// `WithSite("jiaocai")` 建的正是这个站点）—— 桌面端不把它搬过去就登不上去。类名与包路径都没变 ⇒
+// 下面 `AppLoginState` 里那处 `register(JiaocaiSession())` 一行不用改。
 
 // ── COUPON 餐券 ──────────────────────────────────────────────────────
 //

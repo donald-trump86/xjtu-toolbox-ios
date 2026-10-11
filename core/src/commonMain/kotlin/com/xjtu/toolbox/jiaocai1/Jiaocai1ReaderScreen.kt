@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import com.xjtu.toolbox.ui.components.BackButton
-import android.graphics.Bitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -38,17 +38,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
@@ -78,41 +74,52 @@ private const val DEFAULT_ASPECT = 700f / 1050f
  *
  * 不用 WebView：原站水印是 reader.js 在图片加载后用 canvas 叠的，走 WebView 会把这段
  * 脚本一起跑了。这里按页取 JPEG 自己渲染，也便于做缓存和预取。
+ *
+ * ## 搬进 `:core` 时改了什么（四处，画法与文案一行未改）
+ *
+ * 1. `site: SiteSession` → [Jiaocai1Source]（取数，含页字节与预取）；书架落盘 → [Jiaocai1ShelfStore]；
+ * 2. `Jiaocai1PageLoader.load`（`Bitmap`）→ [Jiaocai1PageImages.load]（`ImageBitmap`）——
+ *    解码走 `:core` 的图片缝，所以屏上画的是公共类型的位图（`Image(bitmap = …)` 不再需要
+ *    `asImageBitmap()`）；
+ * 3. `Jiaocai1Prefs` 与使用声明改成不用 `Context` 的版本（键值缝，同名文件同名键）；
+ * 4. `LocalAppLoginState.handleAuthExpired` → `:core` 的 [LocalAuthExpiry]（与其余屏同一条缝）。
  */
 @Composable
 fun Jiaocai1ReaderScreen(
-    site: SiteSession,
+    source: Jiaocai1Source,
+    shelfStore: Jiaocai1ShelfStore,
     ssno: String,
     fallbackTitle: String = "",
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val appLoginState = LocalAppLoginState.current
-    val vm: Jiaocai1ReaderViewModel = viewModel()
-    vm.bind(context, site, ssno, fallbackTitle)
+    val authExpiry = LocalAuthExpiry.current
+    val vm: Jiaocai1ReaderViewModel = viewModel(key = "jiaocai1-reader-$ssno") {
+        Jiaocai1ReaderViewModel(source, shelfStore)
+    }
+    vm.bind(ssno, fallbackTitle)
     Jiaocai1UsageNotice(onDecline = onBack)
 
     if (vm.authExpired) {
         LaunchedEffect(ssno) {
             vm.authExpired = false
-            appLoginState.handleAuthExpired(AppRoute.Jiaocai1Reader(ssno, fallbackTitle),
+            authExpiry.onAuthExpired(AppRoute.Jiaocai1Reader(ssno, fallbackTitle),
                 onBack,
             )
         }
     }
 
     val title = vm.handle?.title?.takeIf { it.isNotBlank() } ?: fallbackTitle.ifBlank { "教材全文" }
-    val loader = vm.loader
+    val images = vm.images
 
     when {
-        vm.loading || loader == null -> ReaderShell(title, onBack) { LoadingState("正在准备阅读…") }
+        vm.loading -> ReaderShell(title, onBack) { LoadingState("正在准备阅读…") }
         vm.error != null || vm.handle == null -> ReaderShell(title, onBack) {
             ErrorState(vm.error ?: "打开失败", onRetry = { vm.retry() })
         }
         else -> ReaderContent(
             vm = vm,
             handle = vm.handle!!,
-            loader = loader,
+            images = images,
             title = title,
             onBack = onBack,
         )
@@ -140,15 +147,14 @@ private fun ReaderShell(title: String, onBack: () -> Unit, body: @Composable () 
 private fun ReaderContent(
     vm: Jiaocai1ReaderViewModel,
     handle: Jiaocai1BookHandle,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     title: String,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pages = handle.pages
 
-    var vertical by remember { mutableStateOf(Jiaocai1Prefs.verticalScroll(context)) }
+    var vertical by remember { mutableStateOf(Jiaocai1Prefs.verticalScroll()) }
     var chromeVisible by remember { mutableStateOf(true) }
     var showToc by remember { mutableStateOf(false) }
     var aspect by remember(handle.ssno) { mutableFloatStateOf(DEFAULT_ASPECT) }
@@ -232,7 +238,7 @@ private fun ReaderContent(
                         IconButton(
                             onClick = {
                                 vertical = !vertical
-                                Jiaocai1Prefs.setVerticalScroll(context, vertical)
+                                Jiaocai1Prefs.setVerticalScroll(vertical)
                             }
                         ) {
                             Icon(
@@ -271,7 +277,7 @@ private fun ReaderContent(
                                 PageSlot(
                                     handle = handle,
                                     page = page,
-                                    loader = loader,
+                                    images = images,
                                     targetWidthPx = targetPx,
                                     aspect = aspect,
                                     vm = vm,
@@ -297,7 +303,7 @@ private fun ReaderContent(
                         PageSlot(
                             handle = handle,
                             page = page,
-                            loader = loader,
+                            images = images,
                             targetWidthPx = targetPx,
                             aspect = aspect,
                             vm = vm,
@@ -337,7 +343,7 @@ private fun ReaderContent(
 private fun PageSlot(
     handle: Jiaocai1BookHandle,
     page: Jiaocai1Page,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     targetWidthPx: Int,
     aspect: Float,
     vm: Jiaocai1ReaderViewModel,
@@ -359,7 +365,7 @@ private fun PageSlot(
         PageImage(
             handle = handle,
             page = page,
-            loader = loader,
+            images = images,
             targetWidthPx = targetWidthPx,
             tier = if (isCurrent && currentScale > 1.5f) Jiaocai1DecodeTier.DETAIL else Jiaocai1DecodeTier.SCREEN,
             onAspectResolved = onAspectResolved,
@@ -372,18 +378,18 @@ private fun PageSlot(
 private fun PageImage(
     handle: Jiaocai1BookHandle,
     page: Jiaocai1Page,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     targetWidthPx: Int,
     tier: Jiaocai1DecodeTier,
     onAspectResolved: (Float) -> Unit,
     onFailed: () -> Unit,
 ) {
-    var bitmap by remember(page.fileName) { mutableStateOf<Bitmap?>(null) }
+    var bitmap by remember(page.fileName) { mutableStateOf<ImageBitmap?>(null) }
     var failed by remember(page.fileName) { mutableStateOf(false) }
 
     LaunchedEffect(page.fileName, targetWidthPx, tier) {
         if (targetWidthPx <= 0) return@LaunchedEffect
-        val raw = loader.load(handle, page, targetWidthPx, tier)
+        val raw = images.load(handle, page, targetWidthPx, tier)
         if (raw == null) {
             if (bitmap == null) failed = true
             return@LaunchedEffect
@@ -402,7 +408,7 @@ private fun PageImage(
         val bmp = bitmap
         when {
             bmp != null -> Image(
-                bitmap = bmp.asImageBitmap(),
+                bitmap = bmp,
                 contentDescription = page.label,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,

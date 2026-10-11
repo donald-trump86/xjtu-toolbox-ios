@@ -1,11 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.util.Log
-import android.util.LruCache
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.platform.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,71 +17,59 @@ import java.util.concurrent.atomic.AtomicInteger
 
 private const val TAG = "Jiaocai1Page"
 
-enum class Jiaocai1DecodeTier { SCREEN, DETAIL }
-
 /**
- * 教材页面图像加载。
+ * 教材页面的**字节加载**：取图、磁盘缓存、预取窗口、并发闸门（[Jiaocai1PageBytes] 的实现）。
  *
  * 服务端给的是干净的标准 JPEG：阅读器网页上那层水印是 reader.js 用 canvas 叠的，
- * 不在图像数据里。两层缓存：解码后的 Bitmap 进内存 LRU，原始字节落磁盘。
+ * 不在图像数据里。
+ *
+ * ## 从 `:app` 搬进 `:data` 时改了什么（两处，都是「谁来做那一半」的搬家）
+ *
+ * 1. **`Context` → `cacheRoot: File`**：原来它只为 `cacheDir` 收一个 `Context`。现在由宿主把
+ *    缓存根目录传进来（Android = `context.cacheDir`，桌面 = 用户缓存目录）—— 类里仍然按原样
+ *    再建一个 `jiaocai1/` 子目录、按 ssno 分目录、同名 `.img` 文件、同一套 trim 策略
+ *    ⇒ **Android 上已有页缓存继续被认**，也照旧会被「清除缓存」清掉。
+ * 2. **解码搬去 `:core`**：原来的 `load()` 解出 `Bitmap` 并进 `android.util.LruCache`；
+ *    现在这里**只到字节为止**（`pageBytes` / `coverBytes`），解码与内存 LRU 在
+ *    `:core` 的 [Jiaocai1PageImages]（走 `:core` 的图片缝）。所以这个类里不再有
+ *    `Bitmap` / `BitmapFactory` / `LruCache` —— `:data` 是 JVM/Android 共用的模块，
+ *    位图那种平台类型进不了它的公共代码；而 `java.io.File`、`Semaphore`、`Dispatchers.IO`
+ *    在这里都能用（与搬迁前同一层、同一个调度器）。
+ *
+ * `looksLikeImage`（令牌失效时上游给 200 + 空体，只能靠图片魔数判成败）、`prime`（先给首页
+ * 发一枪带 `pi=2` 的请求把令牌用起来）、`trim`（超过 160MB 按最久未动整本删）逐字沿用。
  */
 class Jiaocai1PageLoader(
-    context: Context,
-    private val site: SiteSession,
-) {
-    private val appContext = context.applicationContext
+    site: SiteSession,
+    /** 缓存根目录（Android = `context.cacheDir`）；下面固定再建 `jiaocai1/` 子目录。 */
+    private val cacheRoot: File,
+) : Jiaocai1PageBytes {
+
+    private val site: SiteSession = site
     private val prefetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefetchJobs = mutableMapOf<String, Job>()
 
-    private val memory = object : LruCache<String, Bitmap>(
-        (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(64L * 1024 * 1024).toInt()
-    ) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
-    }
-
     private val gate = Semaphore(3)
     private val writesSinceTrim = AtomicInteger(0)
-    private val coverMisses = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val primed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     private val diskRoot: File
-        get() = File(appContext.cacheDir, "jiaocai1").apply { mkdirs() }
+        get() = File(cacheRoot, "jiaocai1").apply { mkdirs() }
 
-    suspend fun load(
-        handle: Jiaocai1BookHandle,
-        page: Jiaocai1Page,
-        targetWidthPx: Int,
-        tier: Jiaocai1DecodeTier = Jiaocai1DecodeTier.SCREEN,
-    ): Bitmap? {
-        val memKey = "${handle.ssno}/${page.fileName}@$targetWidthPx/$tier"
-        memory.get(memKey)?.let { return it }
-
-        return withContext(Dispatchers.IO) {
-            val bytes = readDisk(handle.ssno, page.fileName)
+    override suspend fun pageBytes(handle: Jiaocai1BookHandle, page: Jiaocai1Page): ByteArray? =
+        withContext(Dispatchers.IO) {
+            readDisk(handle.ssno, page.fileName)
                 ?: gate.withPermit { download(handle, page) }
-                ?: return@withContext null
-            val decoded = decode(bytes, targetWidthPx, tier) ?: return@withContext null
-            memory.put(memKey, decoded)
-            decoded
         }
-    }
 
-    suspend fun loadCover(url: String, targetWidthPx: Int): Bitmap? {
+    override suspend fun coverBytes(url: String): ByteArray? {
         if (url.isBlank()) return null
-        val memKey = "cover:$url@$targetWidthPx"
-        memory.get(memKey)?.let { return it }
-        if (url in coverMisses) return null
         return withContext(Dispatchers.IO) {
-            val bytes = gate.withPermit { fetchBytes(url, "${Jiaocai1Api.BASE}/front/") }
-            if (bytes == null) {
-                coverMisses.add(url)
-                return@withContext null
-            }
-            decode(bytes, targetWidthPx, Jiaocai1DecodeTier.SCREEN)?.also { memory.put(memKey, it) }
+            gate.withPermit { fetchBytes(url, "${Jiaocai1Api.BASE}/front/") }
         }
     }
 
-    fun setPrefetchWindow(handle: Jiaocai1BookHandle, center: Int) {
+    override fun prefetchWindow(handle: Jiaocai1BookHandle, center: Int) {
         val pages = handle.pages
         val keep = (center - 2..center + 2)
             .mapNotNull { pages.getOrNull(it)?.fileName }
@@ -106,15 +90,16 @@ class Jiaocai1PageLoader(
         }
     }
 
-    fun close() {
+    override suspend fun evictBook(ssno: String) {
+        withContext(Dispatchers.IO) {
+            runCatching { File(diskRoot, ssno).deleteRecursively() }
+        }
+    }
+
+    override fun closePages() {
         prefetchJobs.values.forEach { it.cancel() }
         prefetchJobs.clear()
         prefetchScope.cancel()
-    }
-
-    fun evictBook(ssno: String) {
-        evictBookStatic(appContext, ssno)
-        memory.evictAll()
     }
 
     private suspend fun download(handle: Jiaocai1BookHandle, page: Jiaocai1Page): ByteArray? {
@@ -159,28 +144,6 @@ class Jiaocai1PageLoader(
         }
     } catch (e: Exception) {
         Log.w(TAG, "fetch failed: ${e.message}")
-        null
-    }
-
-    private fun decode(bytes: ByteArray, targetWidthPx: Int, tier: Jiaocai1DecodeTier): Bitmap? = try {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        val want = when (tier) {
-            Jiaocai1DecodeTier.SCREEN -> targetWidthPx
-            Jiaocai1DecodeTier.DETAIL -> (targetWidthPx * 2).coerceAtLeast(targetWidthPx)
-        }
-        var sample = 1
-        if (want > 0) {
-            while (bounds.outWidth / (sample * 2) >= want) sample *= 2
-        }
-        if (tier == Jiaocai1DecodeTier.DETAIL) sample = (sample / 2).coerceAtLeast(1)
-        val opts = BitmapFactory.Options().apply {
-            inSampleSize = sample
-            inPreferredConfig = Bitmap.Config.RGB_565
-        }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-    } catch (e: Exception) {
-        Log.e(TAG, "decode failed: ${e.message}")
         null
     }
 
@@ -230,13 +193,6 @@ class Jiaocai1PageLoader(
     companion object {
         private const val DISK_CAP_BYTES = 160L * 1024 * 1024
         private const val TRIM_EVERY = 40
-
-        fun evictBookStatic(context: Context, ssno: String) {
-            try {
-                File(File(context.applicationContext.cacheDir, "jiaocai1"), ssno).deleteRecursively()
-            } catch (_: Exception) {
-            }
-        }
 
         private fun ByteArray.looksLikeImage(): Boolean {
             if (size < 8) return false

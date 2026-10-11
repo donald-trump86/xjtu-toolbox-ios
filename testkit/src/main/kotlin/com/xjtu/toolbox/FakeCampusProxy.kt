@@ -19,6 +19,7 @@ import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import com.xjtu.toolbox.feedback.FeedbackFakeUpstream
+import com.xjtu.toolbox.jiaocai1.Jiaocai1FakeUpstream
 
 /**
  * 把假的校园上游起成**一个本地端口**，按请求行里的 **host** 分派给各个夹具（裸 TCP 前置 + 明文/TLS
@@ -191,6 +192,17 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      */
     val feedback: FeedbackFakeUpstream = FeedbackFakeUpstream()
 
+    /**
+     * 教材全文库（第 22 批真数据路由里的 `jiaocai1`）：两个域名一个夹具 ——
+     * 教材中心 `jiaocai.lib.xjtu.edu.cn`（登录入口 `/entry/login`，CAS 那半台在 [library]）
+     * 与全文库 `jiaocai1.lib.xjtu.edu.cn`（业务 + 页图）。
+     *
+     * 会话形态值得记一笔：全文库**借教材中心的会话**（`:app` 的 `AppRoute.Jiaocai1`
+     * 的 `loginType` 就是 `LoginType.JIAOCAI`）；业务接口在会话没建立时不返数据、而是返回
+     * 一张 `var logoutUrl=…` 的跳转页，由 `PortalRedirect` 自己跟（本夹具也扮那两跳）。
+     */
+    val jiaocai1: Jiaocai1FakeUpstream = Jiaocai1FakeUpstream()
+
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -258,6 +270,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             CommunityFakeUpstream.API_HOST -> community.handleApi(exchange)
             // 反馈（第 22 条真数据路由）：飞书开放平台那一台 host（令牌 / 提交 / 查询三个端点）。
             FeedbackFakeUpstream.HOST -> feedback.handle(exchange)
+            // 教材全文库（第 22 批真数据路由）：教材中心（登录入口）与全文库（业务 + 页图）两个域名。
+            Jiaocai1FakeUpstream.JIAOCAI_HOST -> jiaocai1.handleJiaocai(exchange)
+            Jiaocai1FakeUpstream.JIAOCAI1_HOST -> jiaocai1.handleJiaocai1(exchange)
             // 人脸识别签到（第 20 条真数据路由）。
             IclassfaceFakeUpstream.HOST -> iclassface.handle(exchange)
             YwtbFakeUpstream.TRANSACTION_HOST -> ywtb.handleTodos(exchange)
@@ -350,6 +365,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 通知公告那三个源：全是 https（教务处 / 化工学院 / OA）。
             // 反馈（第 22 条真数据路由）：`open.feishu.cn` 是 https（令牌 / 提交 / 查询三个端点都是）。
             FeedbackFakeUpstream.HOST,
+            // 教材全文库（第 22 批真数据路由）：两个域名都是 https（登录入口与业务接口都是）。
+            Jiaocai1FakeUpstream.JIAOCAI_HOST,
+            Jiaocai1FakeUpstream.JIAOCAI1_HOST,
         ) + NotificationFakeUpstream.HOSTS
     }
 }

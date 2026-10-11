@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.auth
 
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 
 /**
  * 教材中心（jiaocai.lib）与教材全文库（jiaocai1.lib）共用的 JS 跳转登录链。

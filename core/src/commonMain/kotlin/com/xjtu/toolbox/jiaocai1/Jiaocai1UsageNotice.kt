@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
-import android.content.Context
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.keyValueStore
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -29,19 +28,22 @@ private const val KEY = "jiaocai1_hint_shown"
  * 点弹窗外部不关闭（[WindowDialog] 的 onDismissRequest 传 null 即为空操作），
  * 返回键等同于「不同意」——退出功能，且不写入已读标记，下次进来照旧弹。
  *
+ * 搬进 `:core` 时换了一件事：`Context` + `SharedPreferences` → 平台键值缝 [keyValueStore]
+ * （**同一个文件 `feature_hints`、同一个键 `jiaocai1_hint_shown`** ⇒ Android 上「已同意过」
+ * 这个标记照旧管用；两处平台的键值实现的差异见 `KeyValueStore` 的 KDoc）。
+ *
  * @param onDecline 用户拒绝或按返回时调用，应当把用户带离本功能。
  */
 @Composable
 fun Jiaocai1UsageNotice(onDecline: () -> Unit) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    val prefs = remember { keyValueStore(PREFS) }
     val show = remember { mutableStateOf(!prefs.getBoolean(KEY, false)) }
     if (!show.value) return
 
     /** 同意：记下标记，以后不再弹。 */
     fun accept() {
         show.value = false
-        prefs.edit().putBoolean(KEY, true).apply()
+        prefs.putBoolean(KEY, true)
     }
 
     /** 拒绝：不留标记，直接退出功能。 */

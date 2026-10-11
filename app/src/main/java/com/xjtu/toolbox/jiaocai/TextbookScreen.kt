@@ -20,7 +20,10 @@ import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.jiaocai1.Jiaocai1BrowseContent
-import com.xjtu.toolbox.jiaocai1.Jiaocai1PageLoader
+import com.xjtu.toolbox.jiaocai1.AppJiaocai1Cache
+import com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore
+import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
+import com.xjtu.toolbox.jiaocai1.Jiaocai1PageImages
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfContent
 import com.xjtu.toolbox.jiaocai1.Jiaocai1UsageNotice
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ViewModel
@@ -69,9 +72,16 @@ fun TextbookScreen(
     val context = LocalContext.current
     val jiaocaiVm: JiaocaiViewModel = viewModel()
     jiaocaiVm.bind(site)
-    val jiaocai1Vm: Jiaocai1ViewModel = viewModel()
-    jiaocai1Vm.bind(context, site)
-    val loader = remember(site) { Jiaocai1PageLoader(context, site) }
+    // jiaocai1（全文库）那一半本轮搬进了共享内核：取数/页字节在 `:data`（`AppJiaocai1Source`），
+    // 书架与分类树缓存切成了两个端口（Android 这两份实现都在 `jiaocai1/AppJiaocai1.kt` 里，
+    // 包住原来的 Room DAO 与 DataCache，表名/键名/TTL 一字未改），页图解码在 `:core`。
+    val jiaocai1Source = remember(site) { AppJiaocai1Source(site, context.cacheDir) }
+    val jiaocai1Shelf = remember(context) { AppJiaocai1ShelfStore(context) }
+    val jiaocai1Vm: Jiaocai1ViewModel = viewModel {
+        Jiaocai1ViewModel(jiaocai1Source, jiaocai1Shelf, AppJiaocai1Cache(context))
+    }
+    jiaocai1Vm.bind()
+    val jiaocai1Images = remember(jiaocai1Source) { Jiaocai1PageImages(jiaocai1Source) }
 
     // 全文库使用声明：三栏共用一个页面，进哪一栏都可能碰到全文内容，统一在最外层弹一次，
     // 不必等用户切到「全文库」栏才提醒——沿用原 Jiaocai1Screen 的做法（进页面就弹）。
@@ -152,12 +162,12 @@ fun TextbookScreen(
                     )
                     1 -> Jiaocai1ShelfContent(
                         vm = jiaocai1Vm,
-                        loader = loader,
+                        images = jiaocai1Images,
                         onOpenBook = onOpenBook,
                     )
                     else -> Jiaocai1BrowseContent(
                         vm = jiaocai1Vm,
-                        loader = loader,
+                        images = jiaocai1Images,
                         onOpenBook = onOpenBook,
                     )
                 }

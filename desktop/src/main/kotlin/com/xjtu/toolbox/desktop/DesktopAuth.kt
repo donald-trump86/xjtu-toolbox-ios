@@ -25,6 +25,7 @@ import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.JwappSession
 import com.xjtu.toolbox.auth.IclassfaceSession
+import com.xjtu.toolbox.auth.JiaocaiSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.error.FriendlyError
@@ -151,6 +152,13 @@ class DesktopAuth(
         // （`AppRoute.Iclassface`）进门时要用它。它也有自己的独立登录链（CAS OAuth2 `client_id=1543`
         // → `org.xjtu.edu.cn` 开放平台中转 → 回落 `/oauth/callback/xjtu_new`，凭据就是 `PHPSESSID`）。
         register(IclassfaceSession())
+
+        // 教材中心（`:data` 的 `JiaocaiSession` + `JiaocaiLogin`）：`jiaocai1`（教材全文库）那两条
+        // 路由进门时要用它 —— 全文库**没有自己的登录器，借的就是这个站点**（`AppRoute.Jiaocai1`
+        // 的 `loginType` 是 `LoginType.JIAOCAI`；入口 `/entry/login` → CAS → 超星 SSO）。
+        // `mustUseWebVpn = true`：校外要过 WebVPN，而桌面目前永远按直连走（见本类的「已知缺口」）。
+        // 与校园卡/场馆一样，「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那两屏。
+        register(JiaocaiSession())
 
         // 思源学堂（`:data` 的 `LmsSession` + `LmsLogin`）：`lms` 这条路由进门时要用它
         //（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**不借别的已搬站点的会话** ——
@@ -409,6 +417,14 @@ class DesktopAuth(
 
         /** 人脸识别签到（`iclassface`）。那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
         const val ICLASSFACE_SITE_KEY = IclassfaceSession.SITE_KEY
+        /**
+         * 教材全文库（`jiaocai1`）那两条路由进门时用的站点。
+         *
+         * ⚠️ 站点 key 是 **`jiaocai`（教材中心）**，不是 `jiaocai1` —— 全文库借的就是教材中心的
+         * 会话（`AppRoute.Jiaocai1` 的 `loginType` = `LoginType.JIAOCAI`，`:app` 导航层那句是
+         * `WithSite("jiaocai")`），所以常量直接取 [JiaocaiSession.SITE_KEY]，不另造一个字符串。
+         */
+        const val JIAOCAI1_SITE_KEY = JiaocaiSession.SITE_KEY
 
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
@@ -434,9 +450,11 @@ class DesktopAuth(
             ATTENDANCE_SITE_KEY,
 
             LMS_SITE_KEY,
-
             JWAPP_SITE_KEY,
+
             ICLASSFACE_SITE_KEY,
+            // 教材全文库那两条路由借的就是教材中心的会话（站点 key = `jiaocai`）
+            JIAOCAI1_SITE_KEY,
         )
     }
 }

@@ -41,13 +41,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppInsetColor
@@ -78,47 +79,116 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import kotlin.time.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
 
 /**
- * 教材全文库入口：书架 + 五种字段检索 + 中图法分类树。
+ * 教材全文库那一屏（书架 + 五种字段检索 + 中图法分类树）。
  * 进阅读器走独立路由，浏览态活在本页 ViewModel 上，返回不丢。
  *
- * PR L 之后这只是薄包装：真正的页面是合并了「查教材/书架/全文库」三栏的
- * [com.xjtu.toolbox.jiaocai.TextbookScreen]，本函数只是把老路由（快捷方式、
- * 全局搜索、屁岱工具可能还在用）接到它的「全文库」栏。
+ * ## 它与 `:app` 那个 `Jiaocai1Screen` 是什么关系
+ *
+ * `:app` 的 `AppRoute.Jiaocai1` 落在 `jiaocai.TextbookScreen`（合并了「查教材 / 书架 /
+ * 全文库」三栏的页面）的**第三栏**，那个页面属于 `jiaocai` 域（它的取数与那两栏的搬迁是另一条
+ * 竖切）。`jiaocai1` 域自己要交付的是**这一屏**：
+ *
+ * - 书架（含阅读进度与「移出」）；
+ * - 全文库（关键词检索 / 中图法分类浏览交替）。
+ *
+ * 两栏的内容区就是下面那两个 `internal` 组合函数（`:app` 的 `TextbookScreen` 也调它们，
+ * 一份代码两处用）—— 桌面端这条路由只画这两栏，不假装有「查教材」那一栏（它的取数还在
+ * `jiaocai` 域里）。默认落在**全文库**那一栏，与 `:app` 的 `initialTab = 2` 同一条口径。
  */
 @Composable
-fun Jiaocai1Screen(
-    site: SiteSession,
+fun Jiaocai1LibraryScreen(
+    vm: Jiaocai1ViewModel,
+    images: Jiaocai1PageImages,
     onBack: () -> Unit,
     onOpenBook: (ssno: String, title: String) -> Unit,
-    initialKeyword: String = "",
 ) {
-    com.xjtu.toolbox.jiaocai.TextbookScreen(
-        site = site,
-        onBack = onBack,
-        onOpenBook = onOpenBook,
-        initialTab = 2,
-        initialKeyword = initialKeyword,
-        authExpiredRoute = AppRoute.Jiaocai1,
-    )
+    val authExpiry = LocalAuthExpiry.current
+    // 与 `:app` 的 TextbookScreen 同一条口径：两个 ViewModel 的会话过期都交给导航层
+    // （`:core` 的 [LocalAuthExpiry]，见那个端口的 KDoc）。
+    if (vm.authExpired) {
+        LaunchedEffect(vm) {
+            vm.authExpired = false
+            authExpiry.onAuthExpired(AppRoute.Jiaocai1, onBack)
+        }
+    }
+    Jiaocai1UsageNotice(onDecline = onBack)
+
+    var selectedTab by rememberSaveable { mutableIntStateOf(1) }
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val glass = rememberPageGlass()
+    Scaffold(
+        topBar = {
+            GlassTopAppBar(
+                title = "教材全文",
+                glass = glass,
+                scrollBehavior = scrollBehavior,
+                onBack = onBack,
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = listOf("书架", "全文库"),
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.readableWidth(),
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        Column(
+            Modifier
+                .padding(padding.withoutTop(glass))
+                .fillMaxSize()
+                .glassSource(glass)
+        ) {
+            AppTabPager(
+                pageCount = 2,
+                selectedTabIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                Box(Modifier.fillMaxSize().padding(top = glassTop)) {
+                    when (page) {
+                        0 -> Jiaocai1ShelfContent(vm, images, onOpenBook)
+                        else -> Jiaocai1BrowseContent(vm, images, onOpenBook)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
  * 「书架 + 全文库（检索/分类合一）」内容区，不带 Scaffold / TopAppBar，
- * 供 [com.xjtu.toolbox.jiaocai.TextbookScreen] 的对应栏调用。
+ * 供 `:app` 的 `com.xjtu.toolbox.jiaocai.TextbookScreen` 的对应栏调用（**公开**：那个合并页
+ * 在 `:app`，`internal` 它看不见；而那一页的搬迁是另一条竖切）。
  */
 @Composable
-internal fun Jiaocai1ShelfContent(
+fun Jiaocai1ShelfContent(
     vm: Jiaocai1ViewModel,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     onOpenBook: (ssno: String, title: String) -> Unit,
 ) {
     val shelf by vm.shelf.collectAsStateWithLifecycle()
     ShelfTab(
         items = shelf,
-        loader = loader,
+        images = images,
         onOpen = { onOpenBook(it.ssno, it.title) },
         onRemove = { ssno -> vm.removeFromShelf(ssno) },
     )
@@ -129,9 +199,9 @@ internal fun Jiaocai1ShelfContent(
  * 一旦有关键词或选了分类，就切到检索结果列表。不再是两个平行标签，是同一栏内的两种状态。
  */
 @Composable
-internal fun Jiaocai1BrowseContent(
+fun Jiaocai1BrowseContent(
     vm: Jiaocai1ViewModel,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     onOpenBook: (ssno: String, title: String) -> Unit,
 ) {
     // 检索框一直在顶上，下面才在「分类树」和「检索结果」之间切换。
@@ -161,7 +231,7 @@ internal fun Jiaocai1BrowseContent(
             loadingMore = vm.loadingMore,
             moreFailed = vm.moreFailed,
             error = vm.error,
-            loader = loader,
+            images = images,
             onSearch = { vm.search(1) },
             onLoadMore = { vm.result?.let { if (it.hasMore) vm.search(it.currentPage + 1) } },
             onOpenBook = { onOpenBook(it.ssno, it.title) },
@@ -173,15 +243,15 @@ internal fun Jiaocai1BrowseContent(
 
 @Composable
 private fun ShelfTab(
-    items: List<Jiaocai1ShelfEntity>,
-    loader: Jiaocai1PageLoader,
-    onOpen: (Jiaocai1ShelfEntity) -> Unit,
+    items: List<Jiaocai1ShelfRecord>,
+    images: Jiaocai1PageImages,
+    onOpen: (Jiaocai1ShelfRecord) -> Unit,
     onRemove: suspend (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberRetainedLazyStaggeredGridState("jiaocai1_shelf")
     // 移出书架会连阅读进度一起丢，先确认再删
-    var pendingRemove by remember { mutableStateOf<Jiaocai1ShelfEntity?>(null) }
+    var pendingRemove by remember { mutableStateOf<Jiaocai1ShelfRecord?>(null) }
 
     pendingRemove?.let { target ->
         WindowDialog(
@@ -239,7 +309,7 @@ private fun ShelfTab(
         items(items, key = { it.ssno }) { row ->
             ShelfCard(
                 row = row,
-                loader = loader,
+                images = images,
                 onOpen = { onOpen(row) },
                 onRemove = { pendingRemove = row },
             )
@@ -250,8 +320,8 @@ private fun ShelfTab(
 
 @Composable
 private fun ShelfCard(
-    row: Jiaocai1ShelfEntity,
-    loader: Jiaocai1PageLoader,
+    row: Jiaocai1ShelfRecord,
+    images: Jiaocai1PageImages,
     onOpen: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -278,7 +348,7 @@ private fun ShelfCard(
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             CoverThumb(
                 url = row.coverUrl,
-                loader = loader,
+                images = images,
                 title = row.title,
                 width = 64.dp,
                 height = 88.dp,
@@ -346,13 +416,13 @@ private fun ShelfCard(
 
 private fun relativeReadAt(at: Long): String {
     if (at <= 0L) return ""
-    val min = (System.currentTimeMillis() - at) / 60_000L
+    val min = (Clock.System.now().toEpochMilliseconds() - at) / 60_000L
     return when {
         min < 1 -> "刚刚"
         min < 60 -> "${min} 分钟前"
         min < 60 * 24 -> "${min / 60} 小时前"
         min < 60 * 24 * 7 -> "${min / (60 * 24)} 天前"
-        else -> java.text.SimpleDateFormat("M月d日", java.util.Locale.CHINA).format(java.util.Date(at))
+        else -> monthDayCn(at)
     }
 }
 
@@ -376,7 +446,7 @@ private fun SearchTab(
     @Suppress("UNUSED_PARAMETER") loadingMore: Boolean,
     moreFailed: Boolean,
     error: String?,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     onSearch: () -> Unit,
     onLoadMore: () -> Unit,
     onOpenBook: (Jiaocai1Book) -> Unit,
@@ -487,7 +557,7 @@ private fun SearchTab(
                     )
                 }
                 items(books, key = { it.ssno }) { book ->
-                    Jiaocai1BookCard(book = book, loader = loader, onClick = { onOpenBook(book) })
+                    Jiaocai1BookCard(book = book, images = images, onClick = { onOpenBook(book) })
                 }
                 if (result.hasMore) {
                     fullLineItem {
@@ -514,7 +584,7 @@ private fun SearchTab(
 @Composable
 private fun Jiaocai1BookCard(
     book: Jiaocai1Book,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     onClick: () -> Unit,
 ) {
     Card(
@@ -531,7 +601,7 @@ private fun Jiaocai1BookCard(
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
             CoverThumb(
                 url = book.coverUrl,
-                loader = loader,
+                images = images,
                 title = book.title,
                 width = 56.dp,
                 height = 76.dp,
@@ -568,13 +638,13 @@ private fun Jiaocai1BookCard(
 @Composable
 private fun CoverThumb(
     url: String,
-    loader: Jiaocai1PageLoader,
+    images: Jiaocai1PageImages,
     title: String = "",
     width: Dp = 56.dp,
     height: Dp = 76.dp,
 ) {
-    var bitmap by remember(url) { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(url) { bitmap = loader.loadCover(url, 200) }
+    var bitmap by remember(url) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(url) { bitmap = images.loadCover(url, 200) }
     val (top, bottom) = remember(title) { coverPalette(title) }
     val initial = remember(title) { coverInitial(title) }
     val corner = 8.dp
@@ -596,7 +666,7 @@ private fun CoverThumb(
         val bmp = bitmap
         if (bmp != null) {
             Image(
-                bitmap = bmp.asImageBitmap(),
+                bitmap = bmp,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -868,4 +938,12 @@ private fun CategoryMark(label: String, tinted: Boolean = false) {
             color = fg,
         )
     }
+}
+
+// `SimpleDateFormat("M月d日", Locale.CHINA)` 是 JVM 专属 ⇒ 手写（`:core` 的既有做法，见
+// `feedback/FeedbackScreen.monthDayCn`）。用系统默认时区，与搬迁前那个 `SimpleDateFormat` 同一条口径。
+private fun monthDayCn(epochMs: Long): String {
+    val date = Instant.fromEpochMilliseconds(epochMs)
+        .toLocalDateTime(TimeZone.currentSystemDefault()).date
+    return "${date.monthNumber}月${date.dayOfMonth}日"
 }
