@@ -18,6 +18,7 @@ import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.coupon.CouponFakeUpstream
+import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApi
@@ -64,6 +65,7 @@ import kotlinx.coroutines.runBlocking
  * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
  * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
  * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
+ * | `attendance.png` | 考勤屏（真路由：外壳 → `AppRoute.Attendance` → `DesktopSiteGate` → `AppAttendanceSource`） | 第十六条真数据路由：`bk-kq.xjtu.edu.cn` **有自己的独立登录入口**（`AttendanceLogin` 直连业务站的 CAS `student-pc` 入口 → 回调带 loginRequestId+ticket 换业务令牌），屏/VM 与取数端口都在 `:core`，桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认；图上「流水」那一栏的夹具课名（光电子学（假））与姓名行都是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -402,6 +404,22 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.DormPower)) }
         check(payShown) {
             "dormpower.png：屏上没有「缴费页已交给系统浏览器打开」—— 多半没取到缴费页入口"
+        }
+
+        // 考勤（第十六条真数据路由）：走**真路由**（外壳 → `AppRoute.Attendance` →
+        // `DesktopSiteGate` → `AppAttendanceSource`）。登录链直连本科生业务站（bk-kq 的
+        // student-pc 入口，不经过门户）。图上应当是「流水」那一栏的夹具课名（`光电子学（假）`）
+        // —— 不是转圈，也不是错误页。
+        var attendanceShown = false
+        shot(
+            "attendance.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!attendanceShown && frame >= 5) attendanceShown = hasText(scene, AttendanceFakeUpstream.COURSE_NAME)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Attendance)) }
+        check(attendanceShown) {
+            "attendance.png：屏上没有夹具那条课名（${AttendanceFakeUpstream.COURSE_NAME}）—— 多半没取到数"
         }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，

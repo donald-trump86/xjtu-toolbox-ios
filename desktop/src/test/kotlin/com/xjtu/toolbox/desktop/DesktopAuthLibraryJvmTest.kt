@@ -46,6 +46,10 @@ import com.xjtu.toolbox.dormpower.DormPowerApi
 import com.xjtu.toolbox.dormpower.DormPowerFakeUpstream
 import com.xjtu.toolbox.dormpower.DormPowerStore
 import com.xjtu.toolbox.dormpower.DormRoom
+import com.xjtu.toolbox.attendance.AppAttendanceSource
+import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
+import com.xjtu.toolbox.attendance.WaterType
+import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
@@ -1500,6 +1504,63 @@ class DesktopAuthLibraryJvmTest {
         val readings = runBlocking { DormPowerStore.refresh(api) }
         assertEquals(1, readings.size, "夹具里只有一间宿舍")
         assertEquals(readings, DormPowerStore.readings(), "写回本机后原样读得出来")
+    }
+
+
+    // ══════ 考勤（bk-kq.xjtu.edu.cn）：自己走直连业务站那条链 ══════
+
+    /**
+     * 第 16 条真数据路由。登录入口**也有自己的独立登录页**：`AttendanceLogin` 直连本科生业务站
+     *（`bk-kq.xjtu.edu.cn/sa/auth/cas/login/student-pc`）→ CAS → 回调带 loginRequestId+ticket
+     * 换业务令牌。这条用例真跑一遍那趟链，再取一次学期与请假（`:data` 的 `AppAttendanceSource`）。
+     */
+    @Test
+    fun `真登录之后：考勤自己走完直连业务站链，学期与请假读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，这里显式确保一次（这正是 `DesktopSiteGate` 干的事）
+        runBlocking { auth.ensureSession(DesktopAuth.ATTENDANCE_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.ATTENDANCE_SITE_KEY)
+        assertTrue(site.hasLogin, "考勤应当在假上游上登得上")
+        assertEquals(AttendanceFakeUpstream.TOKEN, site.localToken["business_token"], "业务令牌来自换票那一枪")
+        assertEquals(
+            "https://bk-kq.xjtu.edu.cn/sa",
+            site.localToken[AttendanceSession.BASE_URL_KEY],
+            "根地址来自 resolvedBaseUrl（本科那套部署）",
+        )
+
+        val source = AppAttendanceSource(site)
+        val (terms, leaves) = runBlocking { source.getTermList() to source.getLeavePage() }
+        assertEquals(AttendanceFakeUpstream.TERM_CURRENT_CODE, terms.first().code)
+        assertEquals(AttendanceFakeUpstream.LEAVE_REASON, leaves.records.single().reason)
+        assertEquals(AttendanceFakeUpstream.TOKEN, fake.attendance.lastBusinessToken, "业务请求要带会话装饰器的令牌头")
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Attendance },
+            "考勤该在「真能用」那一栏里",
+        )
+    }
+
+    @Test
+    fun `真登录之后：考勤流水与打卡流水按夹具字段读出`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        runBlocking { auth.ensureSession(DesktopAuth.ATTENDANCE_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.ATTENDANCE_SITE_KEY)
+        val source = AppAttendanceSource(site)
+
+        val records = runBlocking { source.getWaterRecords(AttendanceFakeUpstream.TERM_CURRENT_BH, "2026-09-01", "2026-09-30") }
+        assertEquals(2, records.size)
+        assertEquals(AttendanceFakeUpstream.COURSE_NAME, records.first().courseName)
+        assertEquals(WaterType.LATE, records.first().status, "按日期降序，最近那条（09-18 迟到）在前")
+        assertEquals(AttendanceFakeUpstream.ROOM, records.first().location)
+
+        val streams = runBlocking { source.getStreams("2026-09-01", "2026-09-30") }
+        assertEquals(1, streams.size)
+        assertTrue(streams.single().effective)
+        assertEquals("WEB", fake.attendance.lastSystemHeader, "业务请求要带 X-System（网页端同款）")
     }
 
 }

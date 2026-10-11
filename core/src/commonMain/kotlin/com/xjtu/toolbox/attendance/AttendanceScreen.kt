@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.attendance
 
-import com.xjtu.toolbox.util.toJavaTime
-import com.xjtu.toolbox.util.toKx
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
@@ -13,10 +11,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.*
-import android.net.Uri
 import com.xjtu.toolbox.platform.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -48,22 +43,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -85,27 +75,46 @@ import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
+import kotlin.time.Clock
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.plus
+import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.util.todayInSystemZone
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun AttendanceScreen(
-    site: SiteSession,
+    /** 本端的取数（Android / 桌面 = `:data` 的 `AppAttendanceSource`；Web 还没有这条链）。 */
+    source: AttendanceSource,
     onBack: () -> Unit,
     onOpenIclassface: () -> Unit,
+    /**
+     * 宿主的 saved state（「上次选的学期」在进程被回收后要还在）。
+     *
+     * Android 走 `createSavedStateHandle()`（与搬迁前同一个，范围照旧能恢复）；桌面没有
+     * SavedStateRegistryOwner ⇒ 内存版 `SavedStateHandle()`（与校园卡 / 社区同一条前例）。
+     */
+    savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
+    /**
+     * 请假表单「添加附件」的取文件槽位：Android = 系统多选文件（SAF，与搬迁前同一套，
+     * 读不到的 URI 照旧丢掉）；桌面还没有文件选择宿主 ⇒ 默认返回空（不发附件，表单其余功能照旧）。
+     */
+    pickEvidenceFiles: suspend () -> List<Pair<String, ByteArray>> = { emptyList() },
 ) {
-    val vm: AttendanceViewModel = viewModel(key = "attendance-${System.identityHashCode(site)}") {
-        AttendanceViewModel(site, createSavedStateHandle())
+    val authExpiry = LocalAuthExpiry.current
+    val vm: AttendanceViewModel = viewModel(key = "attendance") {
+        AttendanceViewModel(source, savedState())
     }
     val state by vm.state.collectAsStateWithLifecycle()
-    val appLoginState = LocalAppLoginState.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -113,7 +122,7 @@ fun AttendanceScreen(
     var detail by remember { mutableStateOf<LeaveRecord?>(null) }
     var pendingAction by remember { mutableStateOf<Pair<LeaveAction, LeaveRecord>?>(null) }
 
-    fun expired() = appLoginState.handleAuthExpired(AppRoute.Attendance, onBack)
+    fun expired() = authExpiry.onAuthExpired(AppRoute.Attendance, onBack)
     LaunchedEffect(vm) {
         vm.events.collect { event ->
             when (event) {
@@ -278,8 +287,9 @@ fun AttendanceScreen(
 
         if (showForm) {
             LeaveFormDialog(
-                leaveApi = vm.leaveApi,
+                source = source,
                 window = state.window,
+                pickEvidenceFiles = pickEvidenceFiles,
                 onDismiss = { showForm = false },
                 onExpired = { expired() },
                 onSubmitted = {
@@ -580,21 +590,28 @@ private fun leaveStatusColor(code: String) = when (code.uppercase()) {
 
 @Composable
 private fun LeaveFormDialog(
-    leaveApi: LeaveApi,
+    /** 考勤取数端口（流程预览 / 附件上传 / 提交那三个方法在这里用；屏传入同一个 [AttendanceSource]）。 */
+    source: AttendanceSource,
     window: LeaveSemesterWindow?,
+    /** 取文件槽位（见 `AttendanceScreen.pickEvidenceFiles` 的 KDoc）。 */
+    pickEvidenceFiles: suspend () -> List<Pair<String, ByteArray>>,
     onDismiss: () -> Unit,
     onExpired: () -> Unit,
     onSubmitted: () -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var type by remember { mutableStateOf(LeaveType.PERSONAL) }
     val nextHour = remember {
-        LocalDateTime.now().plusHours(1).withMinute(0).withSecond(0).withNano(0)
+        // `LocalDateTime.now()`（java.time）是 JVM 专属 ⇒ kotlinx-datetime：本机时区此刻
+        // 加一小时再截到整点 —— 与 `plusHours(1).withMinute(0).withSecond(0).withNano(0)` 等价。
+        // `LocalDateTime.plus` 只认日期型单位，所以先在 `Instant` 上加小时再转回本地时间。
+        val shifted = Clock.System.now().plus(1, DateTimeUnit.HOUR).toLocalDateTime(TimeZone.currentSystemDefault())
+        LocalDateTime(shifted.date, LocalTime(shifted.hour, 0))
     }
-    var startDate by remember { mutableStateOf(nextHour.toLocalDate()) }
+    var startDate by remember { mutableStateOf(nextHour.date) }
     var startHour by remember { mutableIntStateOf(nextHour.hour) }
-    var endDate by remember { mutableStateOf(nextHour.toLocalDate()) }
+
+    var endDate by remember { mutableStateOf(nextHour.date) }
     var endHour by remember { mutableIntStateOf((nextHour.hour + 2).coerceAtMost(23)) }
     var reason by remember { mutableStateOf("") }
     var approvers by remember { mutableStateOf<List<LeaveApprover>>(emptyList()) }
@@ -605,33 +622,25 @@ private fun LeaveFormDialog(
     var pickingStartDate by remember { mutableStateOf(false) }
     var pickingEndDate by remember { mutableStateOf(false) }
 
-    val today = LocalDate.now()
+    val today = todayInSystemZone()
     val maxDate = remember(window) {
         window?.endDate?.takeIf { it.isNotBlank() }?.let {
             runCatching { LocalDate.parse(it.take(10)) }.getOrNull()
-        } ?: today.plusDays(90)
+        } ?: today.plus(90, DateTimeUnit.DAY)
     }
 
     LaunchedEffect(type) {
         try {
-            val preview = withContext(Dispatchers.IO) { leaveApi.getFlowPreview(type) }
+            val preview = source.getFlowPreview(type)
             approvers = preview.nextApprovers
             approverIndex = 0
-        } catch (e: AuthExpiredException) {
-            onExpired()
         } catch (e: Exception) {
-            formError = com.xjtu.toolbox.error.FriendlyError.of(e, "加载审批流程")
+            // `catch` 抓不了标记接口 ⇒ 先抓 Exception 再判（与 VM 同一条缝）。
+            if (e is SessionExpiredFailure) onExpired()
+            else formError = com.xjtu.toolbox.error.FriendlyError.of(e, "加载审批流程")
         }
     }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
-        val loaded = uris.mapNotNull { uri ->
-            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "attachment"
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@mapNotNull null
-            name to bytes
-        }
-        evidence = evidence + loaded
-    }
 
     BackHandler { onDismiss() }
     OverlayDialog(
@@ -695,7 +704,9 @@ private fun LeaveFormDialog(
                 } else {
                     evidence.joinToString { it.first }
                 },
-                onClick = { picker.launch(arrayOf("*/*")) },
+                onClick = {
+                    scope.launch { evidence = evidence + pickEvidenceFiles() }
+                },
             )
             formError?.let {
                 Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.error)
@@ -709,14 +720,17 @@ private fun LeaveFormDialog(
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        val start = LocalDateTime.of(startDate, LocalTime.of(startHour, 0))
-                        val end = LocalDateTime.of(endDate, LocalTime.of(endHour, 0))
-                        val now = LocalDateTime.now()
-                        val minutes = ChronoUnit.MINUTES.between(start, end)
+                        // java.time → kotlinx-datetime（commonMain 没有 java.time）：同一时刻、同一语义
+                        //（system zone 的 epoch 毫秒差 ÷ 60000 ＝ `ChronoUnit.MINUTES.between`）。
+                        val start = LocalDateTime(startDate, LocalTime(startHour, 0))
+                        val end = LocalDateTime(endDate, LocalTime(endHour, 0))
+                        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+                        val minutes = ((end.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds() -
+                            start.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds()) / 60_000)
                         formError = when {
-                            !start.isAfter(now) -> "请假时间必须晚于当前时间"
+                            start <= now -> "请假时间必须晚于当前时间"
                             start.minute != 0 || end.minute != 0 -> "请假开始和结束时间必须选择整点"
-                            !end.isAfter(start) -> "结束时间必须晚于开始时间"
+                            end <= start -> "结束时间必须晚于开始时间"
                             reason.isBlank() -> "请填写请假事由"
                             approvers.isEmpty() -> "没有可用审批人"
                             window != null && window.maxStudentLeaveMinutes > 0 && minutes > window.maxStudentLeaveMinutes ->
@@ -729,25 +743,22 @@ private fun LeaveFormDialog(
                         submitting = true
                         scope.launch {
                             try {
-                                withContext(Dispatchers.IO) {
                                     val files = evidence.map { (name, bytes) ->
-                                        leaveApi.uploadEvidence(name, guessMime(name), bytes)
+                                        source.uploadEvidence(name, guessMime(name), bytes)
                                     }
-                                    val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                                    leaveApi.createLeave(
+                                    source.createLeave(
                                         type = type,
-                                        startTime = start.format(fmt),
-                                        endTime = end.format(fmt),
+                                        startTime = formatLeaveTime(start),
+                                        endTime = formatLeaveTime(end),
                                         reason = reason.trim(),
                                         nextApproverUserId = approvers[approverIndex].userId,
                                         evidenceFiles = files,
                                     )
-                                }
                                 onSubmitted()
-                            } catch (e: AuthExpiredException) {
-                                onExpired()
                             } catch (e: Exception) {
-                                formError = com.xjtu.toolbox.error.FriendlyError.of(e, "提交请假申请")
+                                // `catch` 抓不了标记接口 ⇒ 先抓 Exception 再判（与 VM 同一条缝）。
+                                if (e is SessionExpiredFailure) onExpired()
+                                else formError = com.xjtu.toolbox.error.FriendlyError.of(e, "提交请假申请")
                             } finally {
                                 submitting = false
                             }
@@ -759,29 +770,36 @@ private fun LeaveFormDialog(
         AppDatePickerDialog(
             show = pickingStartDate,
             title = "开始日期",
-            date = startDate.toKx(),
-            minDate = today.toKx(),
-            maxDate = maxOf(maxDate, today).toKx(),
+            date = startDate,
+            minDate = today,
+            maxDate = maxOf(maxDate, today),
             onDismiss = { pickingStartDate = false },
             onConfirm = {
-                startDate = it.toJavaTime()
+                startDate = it
                 pickingStartDate = false
             }
         )
         AppDatePickerDialog(
             show = pickingEndDate,
             title = "结束日期",
-            date = endDate.toKx(),
-            minDate = today.toKx(),
-            maxDate = maxOf(maxDate, today).toKx(),
+            date = endDate,
+            minDate = today,
+            maxDate = maxOf(maxDate, today),
             onDismiss = { pickingEndDate = false },
             onConfirm = {
-                endDate = it.toJavaTime()
+                endDate = it
                 pickingEndDate = false
             }
         )
     }
 }
+
+/** `DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")` 在 commonMain 没有 ⇒ 手写补零（:core 的既有做法）。 */
+private fun formatLeaveTime(t: LocalDateTime): String {
+    fun p2(v: Int) = v.toString().padStart(2, '0')
+    return "${t.year}-${p2(t.monthNumber)}-${p2(t.dayOfMonth)} ${p2(t.hour)}:${p2(t.minute)}:${p2(t.second)}"
+}
+
 
 private fun guessMime(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
     "pdf" -> "application/pdf"

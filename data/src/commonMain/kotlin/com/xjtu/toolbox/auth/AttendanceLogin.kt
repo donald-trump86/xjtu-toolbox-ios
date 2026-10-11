@@ -8,7 +8,7 @@ import com.xjtu.toolbox.util.booleanValue
 import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.util.safeParseJsonObject

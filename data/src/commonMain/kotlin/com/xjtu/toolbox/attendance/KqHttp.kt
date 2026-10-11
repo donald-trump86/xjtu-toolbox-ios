@@ -12,7 +12,7 @@ import com.xjtu.toolbox.util.isArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.coroutines.delay
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -21,6 +21,14 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.Request
 import java.net.URLEncoder
 
+/**
+ * 考勤请求的共同底子（发送、重试、常见字段读取）。
+ *
+ * 从 `:app` 的 `attendance/KqHttp.kt` 整份搬进 `:data`（同包、同类名），唯一被替换的写法：
+ * `android.util.Log.w` → `:core` 的 [Log].w（日志内容与级别未改）。这里保持 `internal`：
+ * 它只被考勤同一个包里的 [AttendanceApi] / [LeaveApi] / [KqPortal] 与 `:data` 的
+ * `AttendanceSession` 用（`KqPortal` 因为 `:app` 的课表源要看它才放开为 public，它不需要）。
+ */
 internal object KqHttp {
     private const val TAG = "KqHttp"
 

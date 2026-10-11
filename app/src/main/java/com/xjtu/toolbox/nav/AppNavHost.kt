@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -15,9 +17,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.createSavedStateHandle
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CompletableDeferred
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.account.AccountManagerScreen
 import com.xjtu.toolbox.attendance.AttendanceScreen
+import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.browser.BrowserScreen
@@ -148,11 +153,19 @@ fun AppNavHost(
             NotificationScreen(source = remember { AppNoticeSource() }, onBack = back, onNavigate = router::open)
         }
         entry<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
+            // 屏/VM 已搬进 `:core`（桌面端第 16 条真数据路由，与宿舍电费同一批）：屏只认
+            // `:core` 的 `AttendanceSource` 端口，这里填 `:data` 的 `AppAttendanceSource` —— 与
+            // 桌面端**同一份实现**（考勤流水 / 请假十条取数一个字没改）。三处宿主能力仍然在
+            // 这里注入：savedState（`createSavedStateHandle`，与搬迁前同一句，选过的学期照旧恢复）、
+            // pickEvidenceFiles（系统多选文件 SAF，请假的附件上传用）、onOpenIclassface。
+            val attendanceContext = LocalContext.current
             WithSite("new_attendance") { site ->
                 AttendanceScreen(
-                    site = site,
+                    source = remember(site) { AppAttendanceSource(site) },
                     onBack = back,
                     onOpenIclassface = { router.open(AppRoute.Iclassface) },
+                    savedState = { createSavedStateHandle() },
+                    pickEvidenceFiles = rememberPickEvidenceFiles(attendanceContext),
                 )
             }
         }
@@ -582,4 +595,31 @@ private fun siteKeyForHost(host: String): String = when {
     "202.117.17.144" in host -> "venue"
     "ssn.xjtu.edu.cn" in host -> "ssn"
     else -> "jwxt"
+}
+
+/**
+ * 请假表单「添加附件」的取文件槽位（Android 侧）：系统多选文件（SAF）。
+ *
+ * 与搬迁前屏里那一段逐条同一口径（`OpenMultipleDocuments` + `contentResolver.openInputStream`，
+ * 读不到的 URI 丢掉）；只是把「选完 → 追加」的异步形态包成挂起槽位，好让 `:core` 的屏不碰
+ * ActivityResult API。取消选择 = 空表，往表单里不加任何附件。
+ */
+@Composable
+private fun rememberPickEvidenceFiles(context: Context): suspend () -> List<Pair<String, ByteArray>> {
+    val pending = remember { AtomicReference<CompletableDeferred<List<Pair<String, ByteArray>>>?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val loaded = uris.mapNotNull { uri ->
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "attachment"
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@mapNotNull null
+            name to bytes
+        }
+        pending.get()?.complete(loaded)
+        pending.set(null)
+    }
+    return suspend {
+        val deferred = CompletableDeferred<List<Pair<String, ByteArray>>>()
+        pending.set(deferred)
+        launcher.launch(arrayOf("*/*"))
+        deferred.await()
+    }
 }

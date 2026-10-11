@@ -71,6 +71,8 @@ import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.dormpower.DormPowerApi
 import com.xjtu.toolbox.dormpower.DormPowerScreen
+import com.xjtu.toolbox.attendance.AppAttendanceSource
+import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.desktop.dzpz.DesktopTranscriptSaver
@@ -121,7 +123,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * ## 底栏那几格，只放这一端**真能画**的东西（诚实的一条）
  *
  * 底栏那五格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
- * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；16 条真数据路由
+ * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；17 条真数据路由
  * 搬完之后 [DESKTOP_PENDING_ROUTES] **空了** —— 「屏在 `:core` 而取数还在 `:app`」那条路由
  * 一条不剩。索引页上「还没有数据源」那一栏照旧画出来（数字是进度，不是装饰），
  * 所以那一行现在是 0。
@@ -218,6 +220,8 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Coupon to "加餐券",
 
     AppRoute.DormPower to "宿舍电费",
+
+    AppRoute.Attendance to "考勤",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -230,9 +234,9 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 /**
  * **屏已经搬进 `:core`、但这一端还没有数据源**的路由 —— 也就是 Stage A 的口径进度表。
  *
- * **现在是空的**：第 16 条（宿舍电费）搬完之后，`AppRoute` 里「屏在 `:core` 而取数还没搬」的
+ * **现在是空的**：第 17 条（考勤）搬完之后，`AppRoute` 里「屏在 `:core` 而取数还没搬」的
  * 那种路由一条不剩。这个列表与 [DESKTOP_SUPPORTED_ROUTES] 一样留在代码里而不是删掉：
- * 屏先落地、取数后到是 Stage A 里的**常规**中间态（这一份历史就是 16 次），下一屏要搬时
+ * 屏先落地、取数后到是 Stage A 里的**常规**中间态（这一份历史就是 17 次），下一屏要搬时
  * 它还会重新长出条目；索引页上那一栏也照旧画出来（数字是进度，不是装饰）。
  *
  * 进来一条就说明它卡的是同一件事：取数还在 `:app`（`Campus*Api` 的只读端，或某个站点的
@@ -627,6 +631,24 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 browser = { url -> DesktopPayPage(url) },
             )
         }
+
+        // 考勤（第十六条真数据路由）：站点是 `bk-kq.xjtu.edu.cn`（本科生）/ `yjs-kq.xjtu.edu.cn`，
+        // 而且**它有自己的独立登录入口** —— `AttendanceLogin` 直连业务站的 CAS `student-pc` 入口
+        //（账号类型已知；失败自动退回门户流程），回调带 loginRequestId+ticket 换业务令牌 ——
+        // 不借别的已搬站点的会话（见 `:data` 的 `AttendanceSession` / `AttendanceLogin`）。会话
+        // **进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它。
+        //
+        // 屏/VM 与取数端口在 `:core`（`AttendanceScreen` + `AttendanceSource`），取数是 `:data` 的
+        // `AppAttendanceSource`（包住搬过来的 `AttendanceApi` + `LeaveApi`，字段口径一行未改）。
+        // 桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认（空表，不发附件）；「快速考勤
+        // 流水」那条二级入口桌面还没有（导航过去是未搬说明页）—— 如实降级。
+        AppRoute.Attendance -> DesktopSiteGate(auth, DesktopAuth.ATTENDANCE_SITE_KEY, "考勤") { site ->
+            AttendanceScreen(
+                source = remember(site) { AppAttendanceSource(site) },
+                onBack = back,
+                onOpenIclassface = { onNavigate(DesktopTarget.App(AppRoute.Iclassface)) },
+            )
+        }
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
@@ -690,7 +712,7 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
         )
         Text(
             if (DESKTOP_PENDING_ROUTES.isEmpty())
-                "现在是 0：16 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
+                "现在是 0：17 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
                     "这一栏留着是因为它是 Stage A 的进度表：屏先落地、取数后到是常规的中间态，" +
                     "下一屏要搬时它会重新长出条目。"
             else

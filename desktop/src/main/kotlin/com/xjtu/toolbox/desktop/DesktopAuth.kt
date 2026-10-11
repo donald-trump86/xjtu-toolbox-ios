@@ -21,6 +21,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.VenueSession
 import com.xjtu.toolbox.auth.YwtbSession
 import com.xjtu.toolbox.auth.SsnSession
+import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.error.FriendlyError
@@ -128,6 +129,13 @@ class DesktopAuth(
         // 会话、页面里内嵌 `cid`），不借校园卡 / 教务的会话 —— 见 `SsnSession` 的 KDoc。
         // 与校园卡/场馆一样，「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
         register(SsnSession())
+
+        // 考勤（`:data` 的 `AttendanceSession` + `AttendanceLogin`）：`kq` 这条路由进门时要用它
+        //（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**有自己的独立登录入口** ——
+        // `AttendanceLogin` 直连本科生业务站（bk-kq 的 `student-pc`，账号类型已知；失败自动退回
+        // 门户），CAS 回调带 loginRequestId+ticket 换业务令牌 —— 不借校园卡 / 教务的会话（见
+        // `AttendanceSession` 的 KDoc）。与校园卡/场馆一样，「登录页那一步」只是尽力预热它。
+        register(AttendanceSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -366,6 +374,10 @@ class DesktopAuth(
 
         /** 宿舍电费（`ssn`）。缴费页那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
         const val SSN_SITE_KEY = SsnSession.SITE_KEY
+
+
+        /** 考勤（`new_attendance`）。考勤那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val ATTENDANCE_SITE_KEY = AttendanceSession.SITE_KEY
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
@@ -386,6 +398,8 @@ class DesktopAuth(
             COUPON_SITE_KEY,
 
             SSN_SITE_KEY,
+
+            ATTENDANCE_SITE_KEY,
         )
     }
 }

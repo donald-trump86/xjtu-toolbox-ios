@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.attendance
 
-import android.content.Context
-import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.util.AppJson
 
 private const val TAG = "AttendanceStore"
@@ -18,6 +18,17 @@ private const val TAG = "AttendanceStore"
  * - 当前学期：[FRESH_TTL_MS] 内直接用；过期只补最近 [INCREMENTAL_DAYS] 天
  * - 兜底：距上次全量超过 [FULL_RESCAN_MS] 整学期重扫一遍
  * - 下拉刷新：强制全量
+ *
+ * 从 `:app` 的 `attendance/AttendanceRecordStore.kt` 整份搬进 `:data`（同包、同类名，桌面端第 16 条
+ * 真数据路由那一批），只换了两处住址：
+ *
+ * - **落盘**：原来收 `android.content.Context` 自己开 `SharedPreferences`，现在走 `:core` 的
+ *   平台键值缝 [keyValueStore] —— Android 侧的 actual 就是**同一个文件名的 `SharedPreferences`**
+ *   （`attendance_records_ug|pg<suffix>`，键是学期码）⇒ 老缓存一个不丢，不需要迁移代码；
+ * - **日志**：`android.util.Log.d` → `:core` 的 [Log].d。
+ *
+ * 各方法的 `Context` 参数全部去掉（`:app` 的 `schedule/CourseLinks.kt` 是唯一调用方，跟着改名），
+ * 其余签名、常量、`Shard` 的字段与 `merge` / `planFor` 的编排一字未改。
  */
 object AttendanceRecordStore {
 
@@ -41,34 +52,29 @@ object AttendanceRecordStore {
     )
 
     /** [accountId] 由调用方在发起拉取时定下，避免结果回来时已切账号而写错命名空间。 */
-    private fun prefs(ctx: Context, postgraduate: Boolean, accountId: String?) = ctx.getSharedPreferences(
+    private fun store(postgraduate: Boolean, accountId: String?) = keyValueStore(
         (if (postgraduate) "attendance_records_pg" else "attendance_records_ug") +
             AccountContext.suffixFor(accountId),
-        Context.MODE_PRIVATE,
     )
 
     fun load(
-        ctx: Context,
         postgraduate: Boolean,
         termCode: String,
         accountId: String? = AccountContext.activeAccountId,
     ): Shard? {
         if (termCode.isBlank()) return null
-        val raw = prefs(ctx, postgraduate, accountId).getString(termCode, null) ?: return null
+        val raw = store(postgraduate, accountId).getString(termCode) ?: return null
         return runCatching { AppJson.decodeFromString<Shard>(raw) }.getOrNull()
             ?.takeIf { it.records.isNotEmpty() }
     }
 
     fun save(
-        ctx: Context,
         postgraduate: Boolean,
         shard: Shard,
         accountId: String? = AccountContext.activeAccountId,
     ) {
         runCatching {
-            prefs(ctx, postgraduate, accountId).edit()
-                .putString(shard.termCode, AppJson.encodeToString(shard))
-                .apply()
+            store(postgraduate, accountId).putString(shard.termCode, AppJson.encodeToString(shard))
         }
     }
 
