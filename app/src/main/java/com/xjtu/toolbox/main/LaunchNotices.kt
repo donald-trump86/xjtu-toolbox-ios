@@ -155,7 +155,7 @@ class LaunchNotices(
                     category = "投票·${bulletin.id}",
                     content = selected.joinToString("、"),
                     contact = "",
-                    anonId = FeedbackStore.anonId(context),
+                    anonId = FeedbackStore.anonId(),
                 )
             }
         }

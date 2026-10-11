@@ -18,6 +18,7 @@ import com.xjtu.toolbox.community.CommunityFakeUpstream
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
+import com.xjtu.toolbox.feedback.FeedbackFakeUpstream
 
 /**
  * 把假的校园上游起成**一个本地端口**，按请求行里的 **host** 分派给各个夹具（裸 TCP 前置 + 明文/TLS
@@ -183,6 +184,13 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      * 因为它们本来就是两套 API（OAuth 设备码报文 vs GraphQL）。
      */
     val community: CommunityFakeUpstream = CommunityFakeUpstream()
+    /**
+     * 反馈（第 22 条真数据路由）：上游是**飞书开放平台** `open.feishu.cn`（https），
+     * 与学校站点无关，也不套 `DesktopSiteGate`（没有校园会话要建 —— 凭据是宿主注入的
+     * `app_id` + `app_secret`，换一张租户令牌）。
+     */
+    val feedback: FeedbackFakeUpstream = FeedbackFakeUpstream()
+
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -248,6 +256,8 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 社区（第 21 条真数据路由）：GitHub 那两个域名（设备码 / GraphQL）。
             CommunityFakeUpstream.LOGIN_HOST -> community.handleLogin(exchange)
             CommunityFakeUpstream.API_HOST -> community.handleApi(exchange)
+            // 反馈（第 22 条真数据路由）：飞书开放平台那一台 host（令牌 / 提交 / 查询三个端点）。
+            FeedbackFakeUpstream.HOST -> feedback.handle(exchange)
             // 人脸识别签到（第 20 条真数据路由）。
             IclassfaceFakeUpstream.HOST -> iclassface.handle(exchange)
             YwtbFakeUpstream.TRANSACTION_HOST -> ywtb.handleTodos(exchange)
@@ -338,7 +348,8 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 电子凭证（成绩单）：`dzpz.xjtu.edu.cn` 是 https（它的登录入口页与业务接口都是）。
             DzpzFakeUpstream.HOST,
             // 通知公告那三个源：全是 https（教务处 / 化工学院 / OA）。
-            // ⚠️ 又装三枚 SAN（见上面那条：该集合变了，自签证书会重生一份）。
+            // 反馈（第 22 条真数据路由）：`open.feishu.cn` 是 https（令牌 / 提交 / 查询三个端点都是）。
+            FeedbackFakeUpstream.HOST,
         ) + NotificationFakeUpstream.HOSTS
     }
 }

@@ -45,6 +45,8 @@ import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
+import com.xjtu.toolbox.feedback.AppFeedbackSource
+import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessScreen
@@ -243,6 +245,11 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.JwappScore to "成绩",
     AppRoute.Iclassface to "快速考勤流水",
     AppRoute.Community to "社区",
+
+    // 反馈（第 22 条真数据路由）：名字照 `:app` 服务表里的叫法（「反馈与建议」）。
+    // 它**不是**校园站点：后端是飞书开放平台，凭据由宿主在启动时注入（见 `:core` 的
+    // `FeedbackSource` KDoc）⇒ 不套 `DesktopSiteGate`。
+    AppRoute.Feedback to "反馈与建议",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -751,6 +758,22 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             },
             onBack = back,
             onOpenLegacyFeedback = { onNavigate(DesktopTarget.App(AppRoute.Feedback)) },
+        )
+
+        // 反馈（第 22 条真数据路由）：**不套 `DesktopSiteGate`** —— 它没有校园站点会话可建
+        // （上游是飞书开放平台 `open.feishu.cn`，凭据是宿主注入的 `app_id` + `app_secret`，换一张
+        // 租户令牌；见 `:core` 的 `FeedbackSource` KDoc）。屏与本地账本（`FeedbackStore`）都在
+        // `:core`，取数是 `:data` 的 `AppFeedbackSource`（包住搬进 `:data` 的 `FeedbackApi`）。
+        //
+        // 两处如实差异（都在下面两行里看得见）：
+        //  - 外链（GitHub Issue）交给系统浏览器（桌面没有内置浏览器 / 没有 `Intent`）；
+        //  - 凭据没配时整个表单隐藏、只剩外链 —— 与 Android 同一个判据（`isConfigured`）。
+        // 桌面端的凭据来源与 Android 同一份（`feedback.properties` / 环境变量，构建期注入，
+        // 见 `DesktopFeedback`）。
+        AppRoute.Feedback -> FeedbackScreen(
+            source = remember { AppFeedbackSource },
+            onOpenUrl = { url -> if (url.isNotBlank()) openInBrowser(url) },
+            onBack = back,
         )
         AppRoute.Games -> GamesScreen(
             onBack = back,

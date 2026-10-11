@@ -24,6 +24,9 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyScreen
+import com.xjtu.toolbox.feedback.FeedbackApi
+import com.xjtu.toolbox.feedback.FeedbackFakeUpstream
+import com.xjtu.toolbox.feedback.FeedbackStore
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
@@ -77,6 +80,7 @@ import kotlinx.coroutines.runBlocking
  * | `jwapp.png` | 成绩屏（真路由：外壳 → `AppRoute.JwappScore` → `DesktopSiteGate` → `AppJwappScoreSource`） | 第十九条真数据路由：`jwapp.xjtu.edu.cn` **有自己的独立登录链**（开放平台 `appId=1370` → CAS → 回跳带 `token`，令牌从回调 URL 里抠出来当 `Authorization`）；这一屏的上游是**两个站点**（jwapp 那份粗分 + 教务 `xscjcx` 的精确总评，各自一份会话）；图上那门课（高等数学（上））与精确成绩都是夹具样本 |
  * | `iclassface.png` | 快速考勤流水屏（真路由：外壳 → `AppRoute.Iclassface` → `DesktopSiteGate` → `AppIclassfaceSource`） | 第二十条真数据路由：`iclassface.xjtu.edu.cn` 走 CAS OAuth2 `client_id=1543` → 开放平台 `authorizesw` 中转 → 回落 `/oauth/callback/xjtu_new`（凭据就是 `PHPSESSID`）；图上那行签到记录（姓名 / 时间 / 地点 / 类型）是夹具样本 |
  * | `community.png` | 社区屏（真路由：外壳 → `AppRoute.Community`；登录态与取数都是 `:data` 的实现） | 第二十一条真数据路由：上游是 GitHub（`github.com/login` 的设备码 + `api.github.com` 的 GraphQL），不套 `DesktopSiteGate`（没有学校会话可建）；这张图先把一份夹具令牌写进 `SecureGithubSession`（同一个存储名与键），于是图上那条帖子（示例讨论…）与分类都是从假 GitHub 拉回来的 |
+ * | `feedback.png` | 反馈屏（真路由：外壳 → `AppRoute.Feedback` → `AppFeedbackSource`） | 第二十二条真数据路由，也是唯一一条**没有校园站点会话**的：上游是飞书开放平台（`open.feishu.cn`），凭据是宿主注入的 `app_id` + `app_secret` 换一张租户令牌；屏与本地账本在 `:core`（键值缝，与 Android 同一份 `feedback` 存储），取数在 `:data`。图上那张工单与那句开发者回复、两条公开问答都是从假飞书拉回来的（证据运行先往本地账本补一张工单） |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -522,6 +526,50 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Community)) }
         check(communityShown) {
             "community.png：屏上没有夹具那条帖子（${CommunityFakeUpstream.DISCUSSION_TITLE}）—— 多半没取到数"
+        }
+
+        // 反馈（第 22 条真数据路由）：走**真路由**（外壳 → `AppRoute.Feedback` → `AppFeedbackSource`
+        // → 搬进 `:data` 的 `FeedbackApi`）。它**不套 `DesktopSiteGate`** —— 反馈没有校园站点会话，
+        // 上游是飞书开放平台（`open.feishu.cn`，https，由 [FeedbackFakeUpstream] 扮）。
+        //
+        // 两件事先摆好这张图才看得出东西：
+        //  ① 注入一份指向夹具的凭据（真机上那五个值由构建期烘进 `DesktopBuildConfig`，见 `DesktopFeedback`）；
+        //  ② 往本地账本里补一张工单（真机上那是用户自己提的）—— 不然屏上只有表单与公开问答，
+        //    「我提过的」那一栏空空，看不出「开发者的回复真的从上游回来了」。
+        FeedbackApi.config = FeedbackApi.Config(
+            appId = FeedbackFakeUpstream.APP_ID,
+            appSecret = FeedbackFakeUpstream.APP_SECRET,
+            baseToken = FeedbackFakeUpstream.BASE_TOKEN,
+            submitTable = FeedbackFakeUpstream.SUBMIT_TABLE,
+            replyTable = FeedbackFakeUpstream.REPLY_TABLE,
+            versionLabel = "${DesktopBuildConfig.VERSION_NAME} (desktop)",
+            deviceLabel = "Linux amd64（证据运行）",
+            osLabel = "Linux / Java（证据运行）",
+        )
+        FeedbackStore.addTicket(
+            FeedbackStore.Ticket(
+                id = FeedbackFakeUpstream.TICKET,
+                category = "功能坏了",
+                content = "示例反馈：桌面端的按钮点不动（证据运行自己写进账本的那一条）",
+                createdAt = java.lang.System.currentTimeMillis(),
+            ),
+        )
+        var feedbackShown = false
+        shot(
+            "feedback.png",
+            // 比其余图高：这一屏从上到下是「表单 → 大家在问 → 我提过的」，
+            // 那张工单下面的开发者回复（就是 [FeedbackFakeUpstream.REPLY_TEXT]）一定要框进来，
+            // 否则「回复真从上游回来了」这条判据就只剩折叠着的「点开看回复」。
+            height = 1400,
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!feedbackShown && frame >= 5) {
+                    feedbackShown = hasText(scene, FeedbackFakeUpstream.REPLY_TEXT)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Feedback)) }
+        check(feedbackShown) {
+            "feedback.png：屏上没有夹具那条回复（${FeedbackFakeUpstream.REPLY_TEXT}）—— 多半没取到数"
         }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，

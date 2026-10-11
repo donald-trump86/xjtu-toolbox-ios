@@ -18,10 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.BuildConfig
-import com.xjtu.toolbox.home.ServiceUsageTracker
+import com.xjtu.toolbox.platform.keyValueStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -40,17 +38,30 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 必须写在某个 Scaffold 的 content 里，OverlayBottomSheet 才找得到宿主。
  * 延迟弹出，给启动公告 / 更新框先走，避免两层叠在一起。
+ *
+ * ## 搬进 `:core` 时改了什么（三处，判定逻辑一行未改）
+ *
+ * 1. `FeedbackApi` → [FeedbackSource]（参数）；
+ * 2. `BuildConfig.VERSION_CODE` / `VERSION_NAME` → 参数 —— `:core` 不认识 `:app` 的构建常量，
+ *    Android 侧那个调用点把两个值传进来；
+ * 3. `ServiceUsageTracker.counts(context, …)` → `keyValueStore("home_usage")` 逐键读同一个
+ *    文件、同一批键（见 [usageCount]）—— 「这人用了多少」这个估算口径一字未改。
  */
 @Composable
-fun FeedbackPromptSheet() {
-    val context = LocalContext.current
+fun FeedbackPromptSheet(
+    source: FeedbackSource,
+    /** 当前版本号：`BuildConfig.VERSION_CODE`（`:app` 在调用点传）。 */
+    versionCode: Int,
+    /** 当前版本名：`BuildConfig.VERSION_NAME`（`:app` 在调用点传），只用于弹窗标题。 */
+    versionName: String,
+) {
     val scope = rememberCoroutineScope()
 
     var show by remember { mutableStateOf(false) }
     var armed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        val used = ServiceUsageTracker.counts(context, TRACKED_KEYS).values.sum()
-        if (!FeedbackStore.shouldPrompt(context, BuildConfig.VERSION_CODE, used)) return@LaunchedEffect
+        val used = usageCount()
+        if (!FeedbackStore.shouldPrompt(versionCode, used, source.isConfigured)) return@LaunchedEffect
         delay(2200)
         armed = true
         show = true
@@ -61,7 +72,7 @@ fun FeedbackPromptSheet() {
     var sent by remember { mutableStateOf(false) }
 
     fun close() {
-        FeedbackStore.markPrompted(context, BuildConfig.VERSION_CODE)
+        FeedbackStore.markPrompted(versionCode)
         show = false
     }
 
@@ -70,28 +81,27 @@ fun FeedbackPromptSheet() {
         val ticket = FeedbackStore.newTicket()
         scope.launch {
             runCatching {
-                FeedbackApi.submit(
+                source.submit(
                     ticket = ticket,
                     category = "版本评价 · " + rating,
                     content = text.ifBlank { "（未填写）" },
                     contact = "",
-                    anonId = FeedbackStore.anonId(context),
+                    anonId = FeedbackStore.anonId(),
                 )
             }.onSuccess {
                 FeedbackStore.addTicket(
-                    context,
-                    FeedbackStore.Ticket(ticket, "版本评价", text, System.currentTimeMillis())
+                    FeedbackStore.Ticket(ticket, "版本评价", text, nowMillis())
                 )
             }
         }
-        FeedbackStore.markPrompted(context, BuildConfig.VERSION_CODE)
+        FeedbackStore.markPrompted(versionCode)
         sent = true
     }
 
     BackHandler(enabled = show) { close() }
     OverlayBottomSheet(
         show = show,
-        title = "v${BuildConfig.VERSION_NAME} 用着还顺手吗？",
+        title = "v${versionName} 用着还顺手吗？",
         onDismissRequest = { close() }
     ) {
         Column(
@@ -152,7 +162,21 @@ fun FeedbackPromptSheet() {
         }
     }
 }
+/**
+ * 「这人到底用了多少」的估算：逐键读 `home_usage` 那份存储（搬迁前 `:app` 的
+ * `ServiceUsageTracker.counts(context, TRACKED_KEYS).values.sum()`）。
+ *
+ * **同一个文件名、同一批键、同一个求和口径** —— `ServiceUsageTracker` 写进去的就是这些键，
+ * 所以 `:core` 这一段读得到 `:app` 记下的次数（不需要让 `:app` 再把计数传进来）。
+ * 它还留在 `:app/`：`record` / `topKeys` 是首页自己用得上的（快捷入口 top-4、卡片 hint）。
+ */
+private fun usageCount(): Int {
+    val store = keyValueStore("home_usage")
+    return TRACKED_KEYS.sumOf { store.getInt(it, 0) }
+}
 
+/** `System.currentTimeMillis()` 在 commonMain 不存在（`Clock.System` 是同一时刻、同一 epoch 毫秒）。 */
+private fun nowMillis(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 // 只是用来估算"这人用了多少"，不需要跟服务列表严格同步
 private val TRACKED_KEYS = listOf(
     "schedule", "score", "card", "library", "emptyroom",

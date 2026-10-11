@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.feedback
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -55,9 +52,10 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlin.time.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
     "https://github.com/yeliqin666/xjtu-toolbox-android/issues/new"
@@ -65,21 +63,28 @@ private const val FEEDBACK_GITHUB_ISSUE_URL =
 private val CATEGORIES = listOf("功能坏了", "有点难用", "想要新功能", "其他")
 
 /**
- * 反馈页。主路径是页内直接提交（走飞书多维表格），GitHub 降级为备选——
- * 大部分用户不用 GitHub，把提 Issue 当唯一入口约等于没有反馈渠道。
+ * 反馈页。主路径是页内直接提交（走飞书多维表格，见 [FeedbackSource] 的实现方），
+ * GitHub 降级为备选——大部分用户不用 GitHub，把提 Issue 当唯一入口约等于没有反馈渠道。
  *
- * 凭据没配时（见 FeedbackApi.isConfigured）表单整块隐藏，只剩外链，别人 clone
+ * 凭据没配时（[FeedbackSource.isConfigured]）表单整块隐藏，只剩外链，别人 clone
  * 下来照样能编译出可用的包。
+ *
+ * ## 搬进 `:core` 时改了什么（三处，语义一行未改）
+ *
+ * 1. `FeedbackApi` → [FeedbackSource] 端口：屏不再写死飞书那一条链（`:core` 看不见 `:data`）；
+ * 2. `LocalContext` → 参数：落盘全走 `:core` 的 [FeedbackStore]（键值缝，不需要 Context），
+ *    外链交给宿主（`onOpenUrl`）——桌面没有 `Intent`，Android 侧那份嵌的就是搬迁前那两行；
+ * 3. `SimpleDateFormat("M月d日")` → 手写（JVM 专属写法，:core 的既有做法）。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FeedbackScreen(
+    source: FeedbackSource,
+    onOpenUrl: (String) -> Unit,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val dateFmt = remember { SimpleDateFormat("M月d日", Locale.CHINA) }
 
     var category by remember { mutableStateOf(CATEGORIES.first()) }
     var content by remember { mutableStateOf("") }
@@ -88,14 +93,14 @@ fun FeedbackScreen(
     var hint by remember { mutableStateOf<String?>(null) }
     var hintIsError by remember { mutableStateOf(false) }
 
-    var tickets by remember { mutableStateOf(FeedbackStore.tickets(context)) }
+    var tickets by remember { mutableStateOf(FeedbackStore.tickets()) }
     var replies by remember {
         mutableStateOf(
-            FeedbackStore.cachedReplies(context)
-                .mapValues { (_, v) -> FeedbackApi.Reply(v.first, v.second) }
+            FeedbackStore.cachedReplies()
+                .mapValues { (_, v) -> FeedbackReply(v.first, v.second) }
         )
     }
-    var publicQa by remember { mutableStateOf(FeedbackStore.cachedPublicQa(context)) }
+    var publicQa by remember { mutableStateOf(FeedbackStore.cachedPublicQa()) }
     var expandedQa by remember { mutableStateOf(setOf<Int>()) }
 
     var refreshing by remember { mutableStateOf(false) }
@@ -107,31 +112,30 @@ fun FeedbackScreen(
      *   节流是用来挡后台轮询的，不该把「我现在就想看有没有回复」也挡掉。
      */
     suspend fun reload(force: Boolean) {
-        if (!FeedbackApi.isConfigured) return
+        if (!source.isConfigured) return
         // 回复
         if (tickets.isNotEmpty()) {
-            if (replies.isNotEmpty()) FeedbackStore.markRead(context, replies.keys)
+            if (replies.isNotEmpty()) FeedbackStore.markRead(replies.keys)
             val hasPending = tickets.any { it.id !in replies }
-            if (force || hasPending || FeedbackStore.shouldFetchReplies(context, hasPending = false)) {
-                val got = runCatching { FeedbackApi.replies(tickets.map { it.id }) }.getOrNull()
+            if (force || hasPending || FeedbackStore.shouldFetchReplies(hasPending = false)) {
+                val got = runCatching { source.replies(tickets.map { it.id }) }.getOrNull()
                 if (got != null) {
-                    FeedbackStore.markRepliesFetched(context)
+                    FeedbackStore.markRepliesFetched()
                     if (got.isNotEmpty()) {
                         val merged = replies + got
                         FeedbackStore.cacheReplies(
-                            context,
                             merged.mapValues { (_, r) -> r.text to r.time },
                         )
                         replies = merged
-                        FeedbackStore.markRead(context, got.keys)
+                        FeedbackStore.markRead(got.keys)
                     }
                 }
             }
         }
         // 公共问答
-        if (force || FeedbackStore.shouldFetchPublicQa(context)) {
-            runCatching { FeedbackApi.publicQa() }.getOrNull()?.let { got ->
-                FeedbackStore.cachePublicQa(context, got)
+        if (force || FeedbackStore.shouldFetchPublicQa()) {
+            runCatching { source.publicQa() }.getOrNull()?.let { got ->
+                FeedbackStore.cachePublicQa(got)
                 publicQa = got
             }
         }
@@ -141,14 +145,9 @@ fun FeedbackScreen(
     // 打开了却给一份可能几小时前的缓存，等于白开。
     LaunchedEffect(Unit) { reload(force = true) }
 
-    fun open(url: String) {
-        runCatching {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
-    }
+    // 外链交给宿主：Android 是 `Intent.ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`（搬迁前那两行
+    // 原样挪进 `AppNavHost`），桌面交给系统浏览器（见 `ToolboxDesktopApp.openInBrowser`）。
+    fun open(url: String) = onOpenUrl(url)
 
     fun submit() {
         val text = content.trim()
@@ -162,21 +161,20 @@ fun FeedbackScreen(
         scope.launch {
             val ticket = FeedbackStore.newTicket()
             val result = runCatching {
-                FeedbackApi.submit(
+                source.submit(
                     ticket = ticket,
                     category = category,
                     content = text,
                     contact = contact.trim(),
-                    anonId = FeedbackStore.anonId(context),
+                    anonId = FeedbackStore.anonId(),
                 )
             }
             submitting = false
             result.onSuccess {
                 FeedbackStore.addTicket(
-                    context,
-                    FeedbackStore.Ticket(ticket, category, text, System.currentTimeMillis())
+                    FeedbackStore.Ticket(ticket, category, text, nowMillis())
                 )
-                tickets = FeedbackStore.tickets(context)
+                tickets = FeedbackStore.tickets()
                 content = ""
                 contact = ""
                 hint = "收到了，工单号 $ticket。有回复会显示在下面。"
@@ -225,7 +223,7 @@ fun FeedbackScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Spacer(Modifier.height(glassTop))
-            if (FeedbackApi.isConfigured) {
+            if (source.isConfigured) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 16.dp,
@@ -429,7 +427,7 @@ fun FeedbackScreen(
                                 if (t.createdAt > 0L) {
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        dateFmt.format(Date(t.createdAt)),
+                                        monthDayCn(t.createdAt),
                                         style = MiuixTheme.textStyles.footnote2,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
                                     )
@@ -500,3 +498,14 @@ fun FeedbackScreen(
         }   // PullToRefresh
     }
 }
+
+// `SimpleDateFormat("M月d日", Locale.CHINA)` 是 JVM 专属 ⇒ 手写（`:core` 的既有做法，见
+// `inbox/InboxScreen.dayText`）。用系统默认时区，与搬迁前那个 `SimpleDateFormat` 同一条口径。
+private fun monthDayCn(epochMs: Long): String {
+    val date = Instant.fromEpochMilliseconds(epochMs)
+        .toLocalDateTime(TimeZone.currentSystemDefault()).date
+    return "${date.monthNumber}月${date.dayOfMonth}日"
+}
+
+/** `System.currentTimeMillis()` 在 commonMain 不存在（`Clock.System` 是同一时刻、同一 epoch 毫秒）。 */
+private fun nowMillis(): Long = Clock.System.now().toEpochMilliseconds()

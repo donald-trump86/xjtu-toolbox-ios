@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.nav
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import androidx.activity.compose.LocalActivity
@@ -49,6 +50,7 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
+import com.xjtu.toolbox.feedback.AppFeedbackSource
 import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
@@ -564,7 +566,23 @@ fun AppNavHost(
             )
         }
         entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
-            FeedbackScreen(onBack = back)
+            // 屏与落盘（`FeedbackStore`）都已在 `:core`，取数是 `:data` 的 `AppFeedbackSource`
+            // （包住搬进 `:data` 的 `FeedbackApi`：飞书多维表格）。
+            // `onOpenUrl` 就是搬迁前长在屏里的那两行（`Intent.ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`）——
+            // 现在由宿主给：`:core` 不认识 `Intent`（桌面交给系统浏览器）。
+            val feedbackContext = LocalContext.current
+            FeedbackScreen(
+                source = AppFeedbackSource,
+                onOpenUrl = { url ->
+                    runCatching {
+                        feedbackContext.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
+                onBack = back,
+            )
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
             // 取数仍是同一个 FacultyApi（FacultyApiSource 只是把它包成 :core 的端口）——
