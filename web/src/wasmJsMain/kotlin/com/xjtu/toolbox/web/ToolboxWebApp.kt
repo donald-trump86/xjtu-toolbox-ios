@@ -351,22 +351,33 @@ private fun AppPage(
             source = remember(client, mode) { CampusCardNetApi(client, API_BASE, mode) },
             onBack = back,
         )
-        // 体育场馆：与 Android 同一个屏与 ViewModel（`:core/venue`）。**只读** —— campus-api 的
-        // 场馆模块自己写着 `readOnly:true`（抢场要解滑块且属写操作）⇒ `CampusVenueApi` 的
-        // canBook/canCancel 都是 false，于是屏上**没有**「确认预订」「去支付」「取消订单」，
-        // 时段格子一律不可选，验证码弹窗也进不去（captchaHost 传 null：浏览器里没这条路，
-        // 宿主端口见 `:core` 的 `SlideCaptchaHost`）。
+        // 体育场馆：与 Android 同一个屏与 ViewModel（`:core/venue`）。两种形态（见 CampusVenueApi 的 KDoc）：
+        // ① campus-api 那条路自己写着 `readOnly:true`（抢场要解滑块且属写操作）⇒ canBook/canCancel
+        //    都是 false，屏上**没有**「确认预订」「去支付」「取消订单」，时段格子一律不可选；
+        // ② serve 模式下写端点已落地（契约 §5.3.2：`/api/venue/captcha` + `/book` + `/cancel`）
+        //    ⇒ canBook/canCancel 翻 true，于是屏上真能下单 —— **滑块在本端画**：服务端把挑战
+        //    （图 + captchaId）按值端出来，`WebSlideCaptchaHost` 用 `:core` 的图片缝解码、按与
+        //    Android/桌面同一协议采集拖动轨迹，`POST /api/venue/book` 把 captchaId + 轨迹原文带回。
+        //    ⚠️ 「去支付」那一跳仍不可达（浏览器里没有场馆站的会话，支付页地址也只有 `:data` 知道）
+        //    ⇒ CampusVenueApi.paymentUrl 如实给空串，见契约 §5.3.2 末尾的缺口说明。
         // 逐字段映射写在 CampusVenueApi 的 KDoc 里（订单缺 areaName/serviceName、明细时间常为 null
         // ⇒ 如实留空，屏上那几段不画）。
+        // **自动识别**（`solveCaptcha`）在浏览器里没有：`:core` 的 `decodeImagePixels` 在 wasm 上恒 null，
+        // 本端也不传 autoSolveCaptcha（默认 false）⇒ 停在手动滑动那一档。
         AppRoute.Venue -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }
             VenueScreen(
                 source = remember(client, mode) { CampusVenueApi(client, API_BASE, mode) },
                 onBack = back,
-                // 支付那半在 Web 上不可达（canBook=false ⇒ 屏上不画入口）。真走到这里也只做浏览器
+                // 支付那半在两种形态下都不可达（campus-api：canBook=false ⇒ 屏上不画入口；serve：
+                // canBook=true 但支付页地址只有 `:data` 能拼、而且浏览器里没有场馆站的会话 ⇒
+                // `CampusVenueApi.paymentUrl` 如实给空串，这一枪什么都不做）。真走到这里也只做浏览器
                 // 做得到的那一件：打开那个网址；`then`（先过 App 的登录再跳下一站）在浏览器里做不到，
-                // 因为会话在 campus-api 进程里而不在页面上 —— 如实忽略，不假装。
+                // 因为会话在 serve / campus-api 进程里而不在页面上 —— 如实忽略，不假装。
                 onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInNewTab(url) },
+                // 滑块宿主槽位（见上面那段注：serve 模式下下单要它；campus-api 的 canBook=false
+                // ⇒ 验证码弹窗根本不出现）。宿主端口见 `:core` 的 `SlideCaptchaHost`。
+                captchaHost = remember { WebSlideCaptchaHost },
                 // 「功能说明弹过了没」在 Web 存 localStorage（:app 存 feature_hints 那个 SharedPreferences），
                 // 键名与 :app 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说。
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),

@@ -610,7 +610,7 @@ class ServeP0Group2Test {
             setOf("canBook", "canCancel", "browserLoginUrl"),
             statusData.keys,
         )
-        assertEquals(false, statusData.optBoolean("canBook"), "serve 没有滑块宿主 ⇒ canBook 如实 false")
+        assertEquals(true, statusData.optBoolean("canBook"), "写端点 /captcha /book 已落地、滑块由浏览器端宿主画 ⇒ canBook 如实 true")
         assertEquals(true, statusData.optBoolean("canCancel"), "取消不需要滑块 ⇒ 如实 true")
         assertTrue(statusData.optString("browserLoginUrl").orEmpty().isNotEmpty())
     }

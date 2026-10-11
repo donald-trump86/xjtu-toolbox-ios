@@ -359,10 +359,11 @@ class CampusLibraryApi(
     private fun blankToNull(value: String): String? = value.trim().takeIf { it.isNotEmpty() }
 
     /**
-     * 打一发 `/api/library/action`（契约 §5.3.1）：请求体在这里拼（本服务只有一个写端点，不值得引序列化
+     * 打一发 `/api/library/action`（契约 §5.3.1）：请求体在这里拼（本服务只有两个写端点，不值得引序列化
      * 框架 —— 拼的是合法 JSON，字符串值走 [AppJson.encodeToString] 转义）。结果由 [serveAction] 拆成
-     * `(ok, message)`：业务拒绝（409 那种）变成 `BookResult(false, 服务端的中文短句)`，与 `:app` 的
-     * `LibraryApi.bookSeat` 失败时的形状一致 —— 屏上的结果横幅只认 BookResult。
+     * `ok` / `message`（`data` 那一格这里不用：这个端点的结果只有一句话）：业务拒绝（409 那种）变成
+     * `BookResult(false, 服务端的中文短句)`，与 `:app` 的 `LibraryApi.bookSeat` 失败时的形状一致
+     * —— 屏上的结果横幅只认 BookResult。
      */
     private suspend fun postAction(action: String, vararg extra: Pair<String, String>): BookResult {
         val body = buildString {
@@ -374,8 +375,8 @@ class CampusLibraryApi(
             }
             append('}')
         }
-        val (ok, message) = client.serveAction(baseUrl, LIBRARY_ACTION_PATH, body)
-        return BookResult(ok, message)
+        val outcome = client.serveAction(baseUrl, LIBRARY_ACTION_PATH, body)
+        return BookResult(outcome.ok, outcome.message)
     }
 
     /**

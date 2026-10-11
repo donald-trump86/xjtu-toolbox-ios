@@ -7,7 +7,6 @@ import com.xjtu.toolbox.library.LibraryApi
 import com.xjtu.toolbox.library.LibraryCampus
 import com.xjtu.toolbox.library.LibrarySession
 import com.xjtu.toolbox.library.SeatResult
-import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.routing.Route
@@ -324,9 +323,6 @@ private suspend fun ApplicationCall.respondLibraryAction(what: String, action: s
     respondBookResult(result)
 }
 
-/** 上游明确说这次动作不成：409 + 中文短句（见 [ApiErrors.ACTION_REJECTED]）。 */
-private suspend fun ApplicationCall.respondActionRejected(message: String) =
-    respond(HttpStatusCode.Conflict, ApiEnvelope<Unit>(ApiErrors.ACTION_REJECTED, message = message))
 
 // ── 动作码（契约 §5.3.1）────────────────────────────────────────────────
 
