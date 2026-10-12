@@ -19,7 +19,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -36,6 +35,13 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 @Composable
 internal fun ConfigPanel(
     config: AgentConfig,
+    /** 端装配（拉模型列表是 `:data` 的一次真取数，见 [AgentHost.fetchModels]）。 */
+    host: AgentHost,
+    /**
+     * 「形象选择」那一块（形状 + 颜色）：`:app` 交 `PidaiAppearancePanel`。
+     * 没有形象这一档的端（桌面 / Web）传 null ⇒ 那一整块不画。
+     */
+    appearanceSection: (@Composable () -> Unit)? = null,
     scrollBehavior: ScrollBehavior,
     onSave: (AgentConfig) -> Unit,
     modifier: Modifier = Modifier,
@@ -193,7 +199,7 @@ internal fun ConfigPanel(
                                             model = model.trim(), baseUrl = baseUrl.trim())
                                         scope.launch {
                                             try {
-                                                availableModels = AgentModelFetcher.fetch(probe)
+                                                availableModels = host.fetchModels(probe)
                                             } catch (e: Exception) {
                                                 fetchError = e.message ?: "拉取失败"
                                                 availableModels = emptyList()
@@ -334,8 +340,10 @@ internal fun ConfigPanel(
                 )
             }
         }
-        // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取（见 PidaiAppearanceHost）。
-        item { PidaiAppearancePanel() }
+        // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取
+        //（见 `PidaiAppearanceHost`）。**只有有形象的端才画**：`:app` 交 `PidaiAppearancePanel`，
+        // 桌面没有形象设置那一档 ⇒ 这里什么都不出（见 [AgentScreen] 的 `appearanceSection`）。
+        appearanceSection?.let { section -> item { section() } }
         item {
             // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
             val memory = remember { AgentMemory() }

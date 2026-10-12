@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.agent
 
-import com.xjtu.toolbox.network.HttpClients
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -40,7 +39,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 独占一行的 https 图片。
  */
 @Composable
-fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLink: (String) -> Unit = {}) {
+fun MarkdownText(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onLink: (String) -> Unit = {},
+    /** 内联图的取图引擎（见 [AgentImageLoader]）：默认没有 ⇒ 图退成一行可点的链接。 */
+    images: AgentImageLoader = AgentImageLoader.None,
+) {
     val blocks = remember(text) { parseBlocks(text) }
     // 链接回调做成稳定引用，否则每次重组 onLink 是新 lambda，下面按块缓存的 AnnotatedString 全部失效
     val currentOnLink = rememberUpdatedState(onLink)
@@ -135,7 +141,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 )
-                is MdBlock.Image -> MdImage(block.alt, block.url, linkColor, onClick = { linkHandler(block.url) })
+                is MdBlock.Image -> MdImage(block.alt, block.url, images, linkColor, onClick = { linkHandler(block.url) })
             }
         }
     }
@@ -350,72 +356,32 @@ private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color
     if (last < s.length) append(s.substring(last))
 }
 
-/**
- * 回复里的图片。做法照搬教师证件照（FacultyPhotoLoader）：项目里没有 Coil / Glide，
- * 用 OkHttp + BitmapFactory 自己加载，按屏宽采样解码、内存 LRU 缓存。
- *
- * 只认 https，且单张不超过 8MB：图片地址是模型给的（可能来自搜到的网页），
- * 不能让它随手拉一个巨型文件或明文地址。加载失败就退成一行可点的链接。
- */
-private object MdImageLoader {
-    private const val MAX_BYTES = 8L * 1024 * 1024
-    private const val TARGET_PX = 1080
-
-    private val cache = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: android.graphics.Bitmap): Int = value.byteCount
-    }
-    private val failed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-    private val client by lazy {
-        HttpClients.base.newBuilder()
-            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
-
-    fun cached(url: String): android.graphics.Bitmap? = cache.get(url)
-    fun hasFailed(url: String) = url in failed
-
-    suspend fun load(url: String): android.graphics.Bitmap? {
-        if (!url.startsWith("https://") || url in failed) return null
-        cache.get(url)?.let { return it }
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val bytes = client.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { resp ->
-                    val len = resp.body?.contentLength() ?: -1L
-                    if (!resp.isSuccessful || len > MAX_BYTES) return@use null
-                    resp.body?.bytes()?.takeIf { it.size <= MAX_BYTES }
-                } ?: return@runCatching null
-                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                var sample = 1
-                while (bounds.outWidth / sample > TARGET_PX * 2) sample *= 2
-                android.graphics.BitmapFactory.decodeByteArray(
-                    bytes, 0, bytes.size,
-                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
-                )
-            }.getOrNull()?.also { cache.put(url, it) } ?: null.also { failed.add(url) }
-        }
-    }
-}
+// 回复里的图片。做法照搬教师证件照（FacultyPhotoLoader）：`:app` 那份是 OkHttp + BitmapFactory
+// 自己加载，按屏宽采样解码、内存 LRU 缓存；只认 https，且单张不超过 8MB（图片地址是模型给的、
+// 可能来自搜到的网页，不能让它随手拉一个巨型文件或明文地址）。
+//
+// 那一段搬去了 `:app` 的 `AndroidAgentImages` —— `:core` 编不出 okhttp（它只有 jvm / android 变体）。
+// 屏这一侧只认 [AgentImageLoader] 那几个动作，默认 [AgentImageLoader.None]：加载不出来就退成
+// 一行可点的链接（下面 [MdImage] 里本来就有这条退路）。
 
 @Composable
-private fun MdImage(alt: String, url: String, linkColor: Color, onClick: () -> Unit) {
+private fun MdImage(alt: String, url: String, images: AgentImageLoader, linkColor: Color, onClick: () -> Unit) {
     var bitmap by androidx.compose.runtime.remember(url) {
-        androidx.compose.runtime.mutableStateOf(MdImageLoader.cached(url))
+        androidx.compose.runtime.mutableStateOf(images.cached(url))
     }
     var failed by androidx.compose.runtime.remember(url) {
-        androidx.compose.runtime.mutableStateOf(MdImageLoader.hasFailed(url))
+        androidx.compose.runtime.mutableStateOf(images.hasFailed(url))
     }
     androidx.compose.runtime.LaunchedEffect(url) {
         if (bitmap == null && !failed) {
-            bitmap = MdImageLoader.load(url)
+            bitmap = images.load(url)
             failed = bitmap == null
         }
     }
     val bmp = bitmap
     when {
         bmp != null -> androidx.compose.foundation.Image(
-            bitmap = bmp.asImageBitmapCompat(),
+            bitmap = bmp,
             contentDescription = alt.ifBlank { "图片" },
             contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
             modifier = Modifier
@@ -439,4 +405,3 @@ private fun MdImage(alt: String, url: String, linkColor: Color, onClick: () -> U
     }
 }
 
-private fun android.graphics.Bitmap.asImageBitmapCompat() = asImageBitmap()

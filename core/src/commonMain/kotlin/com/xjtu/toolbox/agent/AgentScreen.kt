@@ -31,13 +31,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.ViewModelStoreOwner
-import com.xjtu.toolbox.auth.LocalAppLoginState
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -51,6 +48,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 fun AgentScreen(
+    host: AgentHost,
+    /**
+     * 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，
+     * 见那个模块的 `rememberAndroidAgentImagePicker`）。默认 = 这一端没有相册，
+     * 而 [AgentCapability.IMAGE_INPUT] 会把那颗回形针整颗不画。
+     */
+    imagePicker: AgentImagePicker = AgentImagePicker.None,
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
@@ -61,26 +65,34 @@ fun AgentScreen(
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
     /**
+     * 首屏那个「屁岱形象 + 问候」：`:app` 交 `AndroidPidaiHero`（形象、瞟眼、戳一下换一句话）；
+     * 没有形象的端用默认实现（纯文字问候，见 [agentWelcomePlainHero]）。
+     */
+    hero: @Composable (title: String, facts: WelcomeFacts, now: kotlinx.datetime.LocalDateTime) -> Unit =
+        { title, f, n -> agentWelcomePlainHero(title, f, n) },
+    /** 「戳一下底栏屁岱」的回应气泡：`:app` 交 `AndroidPokeWhisper`；没有形象的端默认不画。 */
+    pokeWhisper: @Composable (Modifier) -> Unit = {},
+    /** 「形象选择」那一整块：`:app` 交 `PidaiAppearancePanel`；没有形象设置的端传 null。 */
+    appearanceSection: (@Composable () -> Unit)? = null,
+    /**
      * tab 模式下宿主玻璃顶栏的高度。非 0 时宿主不再整体下移这一页：对话、配置两个列表铺到
      * 顶栏下面、把这段留白放进列表里；不滚动的会话栏、抽屉自己让出这段高度。
      */
     contentTopPadding: Dp = 0.dp,
 ) {
-    val context = LocalContext.current
-    val loginState = LocalAppLoginState.current
-    val configStore = remember { AgentConfigStore() }
-    var config by remember { mutableStateOf(configStore.load()) }
+    var config by remember { mutableStateOf(host.loadConfig()) }
     // 不要 rememberSaveable：冷启动第一帧可能读到空 key，之后会把设置页钉死。
     var showConfig by remember { mutableStateOf(false) }
-    val vm: AgentViewModel = viewModel(viewModelStoreOwner = context as ViewModelStoreOwner)
+    // 与 `:app` 原来挂在导航项上的那颗 ViewModel 同位（切 tab 不丢）；宿主在宿主侧 remember，
+    // 所以 key 固定成 "agent" 就够（两个宿主形态、一个实例）。
+    val vm: AgentViewModel = viewModel(key = "agent") { AgentViewModel(host) }
 
-    // 多会话持久化：绑定一次，加载会话列表并恢复最近会话
-    // 两者都在 `:data`：根目录/存储由那边的缝解析（Android 就是原来的 filesDir 与两个 SharedPreferences 文件）
-    val sessionStore = remember { AgentSessionStore() }
-    LaunchedEffect(Unit) { vm.bind(sessionStore) }
+    // 多会话持久化：绑定一次，加载会话列表并恢复最近会话。
+    // 存储本体在 `:data`（`AgentSessionStore`），根目录由那边的缝解析（Android 就是原来的 filesDir）。
+    LaunchedEffect(Unit) { vm.bind(host.sessions()) }
 
-    LaunchedEffect(loginState.accountId) {
-        config = configStore.load()
+    LaunchedEffect(host.accountId) {
+        config = host.loadConfig()
         // 刻意不再「没配 key 就自动跳设置页」：那样每次进来都是一屏表单，
         // 既没解释为什么，也让人以为点错了。改为正常进对话界面，
         // 由输入栏上方的提示条说明情况并提供入口（见 ChatPanel 的 needsSetup）。
@@ -94,7 +106,7 @@ fun AgentScreen(
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
         vm.newSession()
-        vm.sendMessage(pending.text, config, loginState, context, llmAnnex = pending.snapshot)
+        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot)
     }
 
     // 上下文耗尽主动弹窗：避免"输入框禁用 + label 文字里藏一句"的隐晦提示
@@ -199,11 +211,13 @@ fun AgentScreen(
             ) { configVisible ->
                 if (configVisible) {
                     ConfigPanel(
+                        host = host,
+                        appearanceSection = appearanceSection,
                         config = config,
                         scrollBehavior = effectiveScrollBehavior,
                         onSave = { newConfig ->
                             // 即改即存：每次配置变动立即写入，不必等到用户点「保存」
-                            configStore.save(newConfig)
+                            host.saveConfig(newConfig)
                             config = newConfig
                         },
                         modifier = Modifier
@@ -217,7 +231,10 @@ fun AgentScreen(
                     ChatPanel(
                         vm = vm,
                         config = config,
-                        loginState = loginState,
+                        host = host,
+                        imagePicker = imagePicker,
+                        hero = hero,
+                        pokeWhisper = pokeWhisper,
                         padding = padding,
                         listTopPadding = contentTopPadding,
                         scrollBehavior = effectiveScrollBehavior,

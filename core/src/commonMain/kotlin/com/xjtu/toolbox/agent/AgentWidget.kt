@@ -44,6 +44,9 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.schedule.XjtuTime
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.daysUntil
 import com.xjtu.toolbox.schedule.colorOf
 import top.yukonga.miuix.kmp.basic.Text
 import kotlinx.coroutines.Dispatchers
@@ -166,12 +169,14 @@ private val DAY_NAMES = listOf("", "周一", "周二", "周三", "周四", "周�
 @Composable
 fun AgentWidgetView(
     widget: AgentWidget,
+    /** 端上资源（平面图缓存、存进下载）：见 `:core` 的 [AgentHost]。 */
+    host: AgentHost,
     modifier: Modifier = Modifier,
     onAsk: (String) -> Unit = {},
     onNavigate: (AppRoute) -> Unit = {},
 ) {
     when (widget) {
-        is LibraryWidget    -> LibraryWidgetView(widget, modifier, onNavigate)
+        is LibraryWidget    -> LibraryWidgetView(widget, host, modifier, onNavigate)
         is ScheduleWidget   -> ScheduleWidgetView(widget, modifier)
         is ExamWidget       -> ExamWidgetView(widget, modifier)
         is RoomWidget       -> RoomWidgetView(widget, modifier)
@@ -179,7 +184,7 @@ fun AgentWidgetView(
         is AttendanceWidget -> AttendanceWidgetView(widget, modifier)
         is GradeWidget      -> GradeWidgetView(widget, modifier)
         is CardWidget       -> CardWidgetView(widget, modifier)
-        is ZyxfWidget       -> ZyxfWidgetView(widget, modifier, onAsk)
+        is ZyxfWidget       -> ZyxfWidgetView(widget, host, modifier, onAsk)
     }
 }
 
@@ -392,7 +397,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
 
 /** 考试日期块：上面月份、下面日子，和日历 App 的日期图标一个意思。 */
 @Composable
-private fun DateBlock(date: java.time.LocalDate?, accent: Color) {
+private fun DateBlock(date: LocalDate?, accent: Color) {
     val dark = LocalIsDarkTheme.current
     Column(
         Modifier
@@ -404,7 +409,7 @@ private fun DateBlock(date: java.time.LocalDate?, accent: Color) {
         if (date == null) {
             Text("待定", style = MiuixTheme.textStyles.footnote2, color = accent, fontWeight = FontWeight.Bold)
         } else {
-            Text("${date.monthValue}月", style = MiuixTheme.textStyles.footnote2, color = accent)
+            Text("${date.monthNumber}月", style = MiuixTheme.textStyles.footnote2, color = accent)
             Text("${date.dayOfMonth}", style = MiuixTheme.textStyles.body1, color = accent, fontWeight = FontWeight.Bold)
         }
     }
@@ -413,7 +418,7 @@ private fun DateBlock(date: java.time.LocalDate?, accent: Color) {
 @Composable
 private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
     val accent = MiuixTheme.colorScheme.primary
-    val today = java.time.LocalDate.now()
+    val today = todayInSystemZone()
     WidgetCard(
         title = "考试安排",
         icon = Icons.AutoMirrored.Filled.EventNote,
@@ -422,8 +427,8 @@ private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
         modifier = modifier,
     ) {
         w.exams.take(12).forEach { e ->
-            val date = runCatching { java.time.LocalDate.parse(e.examDate.take(10)) }.getOrNull()
-            val days = date?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
+            val date = runCatching { LocalDate.parse(e.examDate.take(10)) }.getOrNull()
+            val days = date?.let { today.daysUntil(it) }
             WidgetRow(
                 primary = e.courseName,
                 secondary = listOf(e.examTime, e.location, e.seatNumber.takeIf { it.isNotBlank() }?.let { "座位 $it" })
@@ -432,7 +437,7 @@ private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
                 trailing = when {
                     days == null -> null
                     days < 0 -> ({ WidgetBadge("已结束", MiuixTheme.colorScheme.onSurfaceVariantSummary) })
-                    days == 0L -> ({ WidgetBadge("今天", MiuixTheme.colorScheme.error) })
+                    days == 0 -> ({ WidgetBadge("今天", MiuixTheme.colorScheme.error) })
                     days <= 7 -> ({ WidgetBadge("${days} 天", MiuixTheme.colorScheme.error) })
                     else -> ({ WidgetBadge("${days} 天", accent) })
                 },
@@ -649,9 +654,11 @@ private const val ZYXF_DOWNLOADING = "下载中…"
  * 点目录则把"继续翻这一层"交回给屁岱（[onAsk]），因为那本来就是它该接着做的事。
  */
 @Composable
-private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+private fun ZyxfWidgetView(w: ZyxfWidget, host: AgentHost, modifier: Modifier, onAsk: (String) -> Unit) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // 这一端存不了文件（没有系统「下载」目录）的活，那一行的下载动作**整行不画** ——
+    // 画出来点了没反应比不画更糟（同一条纪律见 [AgentCapability.FILE_SAVE]）。
+    val canSave = AgentCapability.FILE_SAVE in host.honored
     // 每行的下载状态，key 是文件 ID；滚动离屏再回来也不会丢。
     val states = androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateMapOf<Int, String>()
@@ -680,18 +687,14 @@ private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) ->
                 ).joinToString(" · "),
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .clickable(enabled = !busy) {
+                    .clickable(enabled = !busy && (item.isFolder || canSave)) {
                         if (item.isFolder) {
                             onAsk("打开仲英学辅资料站的目录 ${item.id}（${item.name}）")
-                        } else {
+                        } else if (canSave) {
                             states[item.id] = ZYXF_DOWNLOADING
                             scope.launch {
-                                val saved = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        com.xjtu.toolbox.zyxf.ZyxfApi.download(context, item.id)
-                                    }.getOrNull()
-                                }
-                                states[item.id] = if (saved != null) "已保存到下载" else "下载失败，稍后再试"
+                                // 存进「下载」是端能力（`:app` = ZyxfApi.download），文案也由它给。
+                                states[item.id] = host.saveZyxfFile(item.id) ?: "下载失败，稍后再试"
                             }
                         }
                     },
@@ -710,16 +713,18 @@ private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) ->
                         )
                     }
                 },
-                trailing = {
-                    WidgetBadge(
-                        when {
-                            item.isFolder -> "打开"
-                            busy -> "…"
-                            state == "已保存到下载" -> "已下载"
-                            else -> "下载"
-                        },
-                        accent,
-                    )
+                trailing = if (!item.isFolder && !canSave) null else {
+                    {
+                        WidgetBadge(
+                            when {
+                                item.isFolder -> "打开"
+                                busy -> "…"
+                                state == "已保存到下载" -> "已下载"
+                                else -> "下载"
+                            },
+                            accent,
+                        )
+                    }
                 },
             )
         }
@@ -734,27 +739,13 @@ private val FOLDER_TINT = Color(0xFFE0A030)
 // ── 图书馆平面图 ──────────────────────────────────────────────────────────
 
 @Composable
-private fun LibraryWidgetView(w: LibraryWidget, modifier: Modifier, onNavigate: (AppRoute) -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+private fun LibraryWidgetView(w: LibraryWidget, host: AgentHost, modifier: Modifier, onNavigate: (AppRoute) -> Unit) {
     val dark = LocalIsDarkTheme.current
-    // 底图工具执行时已经进了磁盘缓存；历史会话里缓存过期被清掉了，就只剩文字
-    // (缩略图, 原图宽)：座位坐标是原图像素，缩略图降采样过，要按原图宽换算
-    val decoded by androidx.compose.runtime.produceState<Pair<androidx.compose.ui.graphics.ImageBitmap, Int>?>(null, w.imageName) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val file = java.io.File(java.io.File(context.cacheDir, "library_plan"), w.imageName.replace('/', '_'))
-                if (!file.isFile) return@runCatching null
-                val bytes = file.readBytes()
-                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                val opts = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = if (bounds.outWidth > 1600) 2 else 1
-                    inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
-                }
-                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-                    ?.let { bmp -> Pair(bmp.asImageBitmap(), bounds.outWidth) }
-            }.getOrNull()
-        }
+    // 底图工具执行时已经进了磁盘缓存（`:app` = `cacheDir/library_plan/`）；历史会话里缓存过期
+    // 被清掉了、或这一端没有那份缓存（桌面）就只剩文字。读+解码都在宿主那侧，
+    // 尺寸取的是**原始**宽（座位坐标是相对原图算的）。
+    val decoded by androidx.compose.runtime.produceState<DecodedPlanImage?>(null, w.imageName) {
+        value = host.readPlanImage(w.imageName)
     }
     val free = w.seats.count { it.available }
     val accent = Color(0xFF2FA36B)
@@ -776,8 +767,8 @@ private fun LibraryWidgetView(w: LibraryWidget, modifier: Modifier, onNavigate: 
     ) {
         val d = decoded
         if (d != null && w.seats.isNotEmpty()) {
-            val img = d.first
-            val origW = d.second.toFloat()
+            val img = d.image
+            val origW = d.originalWidth.toFloat()
             val dimFilter = if (dark) androidx.compose.ui.graphics.ColorFilter.colorMatrix(
                 androidx.compose.ui.graphics.ColorMatrix().apply { setToScale(0.78f, 0.78f, 0.8f, 1f) }
             ) else null

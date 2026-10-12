@@ -37,22 +37,17 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
+import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clipToBounds
-import android.widget.Toast
 import kotlinx.coroutines.launch
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.basic.*
@@ -63,7 +58,10 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 internal fun ChatPanel(
     vm: AgentViewModel,
     config: AgentConfig,
-    loginState: com.xjtu.toolbox.auth.AppLoginState,
+    /** 端装配与端上资源（见 `:core` 的 [AgentHost]）。 */
+    host: AgentHost,
+    /** 系统相册挑图（`:app` 实现；没有相册的端那一档不画，见 [AgentCapability.IMAGE_INPUT]）。 */
+    imagePicker: AgentImagePicker,
     padding: PaddingValues,
     scrollBehavior: ScrollBehavior,
     onNavigate: (AppRoute) -> Unit,
@@ -71,9 +69,19 @@ internal fun ChatPanel(
     bottomReserve: Dp = 0.dp,
     /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
     listTopPadding: Dp = 0.dp,
+    /**
+     * 「戳一下底栏屁岱」的回应气泡（输入框正上方那颗小气泡）：`:app` 交 `AndroidPokeWhisper`
+     * （它认 `ProactiveBubbleHost` 与形象外观，都还在那一端）；没有形象的端默认什么都不画。
+     */
+    /**
+     * 首屏那个「屁岱形象 + 问候」：`:app` 交 `AndroidPidaiHero`；没有形象的端用
+     * [AgentWelcome] 的默认实现（纯文字问候）。
+     */
+    hero: @Composable (title: String, facts: WelcomeFacts, now: kotlinx.datetime.LocalDateTime) -> Unit =
+        { title, f, n -> agentWelcomePlainHero(title, f, n) },
+    pokeWhisper: @Composable (Modifier) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     var input by rememberSaveable { mutableStateOf("") }
     var editingLast by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -83,33 +91,14 @@ internal fun ChatPanel(
     // 只在模型认图片时给入口（见 AgentVision.supportsVision）。换模型会实时生效：
     // 从视觉模型切到非视觉模型时，已经挑好的图要清掉，否则发出去必被服务端拒。
     var attachments by remember { mutableStateOf<List<String>>(emptyList()) }
-    val attachScope = rememberCoroutineScope()
+    // 只在模型认图片、且**这一端真有相册**时给入口（见 AgentVision.supportsVision 与
+    // [AgentCapability.IMAGE_INPUT]）。换模型会实时生效：从视觉模型切到非视觉模型时，
+    // 已经挑好的图要清掉，否则发出去必被服务端拒。
     val visionEnabled = remember(config.provider, config.effectiveModel) {
-        AgentVision.supportsVision(config)
+        AgentVision.supportsVision(config) && AgentCapability.IMAGE_INPUT in host.honored
     }
     LaunchedEffect(visionEnabled) {
         if (!visionEnabled && attachments.isNotEmpty()) attachments = emptyList()
-    }
-
-    val pickImages = rememberLauncherForActivityResult(
-        // PickMultipleVisualMedia 走系统相册选择器，**不需要读存储权限**——
-        // 用户在系统 UI 里挑哪张就授权哪张，比申请 READ_MEDIA_IMAGES 干净得多。
-        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(
-            AgentVision.MAX_IMAGES_PER_MESSAGE
-        )
-    ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        attachScope.launch {
-            val room = AgentVision.MAX_IMAGES_PER_MESSAGE - attachments.size
-            val added = withContext(Dispatchers.IO) {
-                uris.take(room).mapNotNull { AgentVision.attach(context, it) }
-            }
-            if (added.isEmpty()) {
-                Toast.makeText(context, "图片读取失败", Toast.LENGTH_SHORT).show()
-            } else {
-                attachments = attachments + added
-            }
-        }
     }
 
     fun send() {
@@ -123,9 +112,9 @@ internal fun ChatPanel(
         keyboard?.hide()
         if (editingLast) {
             editingLast = false
-            vm.replaceLastUserAndSend(text, config, loginState, context)
+            vm.replaceLastUserAndSend(text, config)
         } else {
-            vm.sendMessage(text, config, loginState, context, images = images)
+            vm.sendMessage(text, config, images = images)
         }
     }
 
@@ -139,7 +128,7 @@ internal fun ChatPanel(
         if (text.isBlank() || vm.isLoading || vm.contextExhausted) return
         if (!config.isConfigured) { onOpenConfig(); return }
         keyboard?.hide()
-        vm.sendMessage(text, config, loginState, context)
+        vm.sendMessage(text, config)
     }
 
     Column(
@@ -172,8 +161,9 @@ internal fun ChatPanel(
             if (vm.messages.isEmpty()) {
                 item(key = "welcome") {
                     AgentWelcome(
-                        greetingName = loginState.cachedNickname.orEmpty()
-                            .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() },
+                        host = host,
+                        hero = hero,
+                        greetingName = host.greetingName,
                         configured = config.isConfigured,
                         onAsk = ::askFromWidget,
                         onFill = { input = it },
@@ -185,6 +175,7 @@ internal fun ChatPanel(
                 when (row) {
                     is AgentRow.User -> MessageBubble(
                         msg = row.msg,
+                        host = host,
                         showReasoning = config.showReasoning,
                         onNavigate = onNavigate,
                         canEdit = !vm.isLoading && row.msg === lastUser,
@@ -198,6 +189,7 @@ internal fun ChatPanel(
                     }
                     is AgentRow.Assistant -> MessageBubble(
                         msg = row.msg,
+                        host = host,
                         showReasoning = config.showReasoning,
                         onNavigate = onNavigate,
                         toolEvents = row.tools,
@@ -225,7 +217,7 @@ internal fun ChatPanel(
             // 聊天中戳底栏屁岱：首屏已经不在了，就在输入框正上方冒一句小话，几秒后自己收起。
             // 不走底栏气泡（会压住输入框），也不打断对话。
             if (vm.messages.isNotEmpty()) {
-                PokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                pokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
             }
         }
 
@@ -291,6 +283,7 @@ internal fun ChatPanel(
         }
         val composerHint = remember { COMPOSER_HINTS.random() }
         AgentComposer(
+            host = host,
             placeholder = composerHint,
             input = input,
             onInputChange = { input = it },
@@ -302,17 +295,16 @@ internal fun ChatPanel(
             attachments = attachments,
             visionEnabled = visionEnabled,
             onPickImage = {
-                pickImages.launch(
-                    androidx.activity.result.PickVisualMediaRequest(
-                        androidx.activity.result.contract.ActivityResultContracts
-                            .PickVisualMedia.ImageOnly
-                    )
-                )
+                // 压好落盘那一步在宿主那边（`:app` = AgentVision.attach）：选中的图直接给本地路径。
+                imagePicker.pick(AgentVision.MAX_IMAGES_PER_MESSAGE - attachments.size) { added ->
+                    if (added.isEmpty()) showBriefMessage("图片读取失败")
+                    else attachments = attachments + added
+                }
             },
             onRemoveAttachment = { path ->
                 attachments = attachments - path
                 // 还没发出去就撤了，压缩件留着没用。
-                AgentVision.deleteAll(listOf(path))
+                host.deleteImageFiles(listOf(path))
             },
         )
     }
@@ -478,6 +470,8 @@ private fun ReasoningBar(
     text: String,
     streaming: Boolean = false,
     onNavigate: (AppRoute) -> Unit = {},
+    /** 思考过程里也可能带图：取图引擎照样递下去（见 [AgentImageLoader]）。 */
+    images: AgentImageLoader = AgentImageLoader.None,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     AgentTraceCard(
@@ -492,6 +486,7 @@ private fun ReasoningBar(
             MarkdownText(
                 text = text,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                images = images,
                 onLink = { url -> onNavigate(AppRoute.Browser(url)) },
             )
         },
@@ -545,6 +540,8 @@ private fun ToolCallNote(events: List<ChatMessage>, modifier: Modifier = Modifie
 @Composable
 private fun MessageBubble(
     msg: ChatMessage,
+    /** 端上资源（附件缩略图要读本地文件，卡片要平面图/存进下载）。 */
+    host: AgentHost,
     showReasoning: Boolean,
     onNavigate: (AppRoute) -> Unit,
     canEdit: Boolean = false,
@@ -555,19 +552,13 @@ private fun MessageBubble(
     /** 卡片替用户问一句（如资料卡上点"打开目录"）。 */
     onAskFromWidget: (String) -> Unit = {},
 ) {
-    // [LocalClipboard] 取代已废弃的 [LocalClipboardManager]：suspend setClip，跨进程兼容。
-    val clipboard = androidx.compose.ui.platform.LocalClipboard.current
-    val coroutineScope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    // 与 `:core` 其余几屏同一套写法（`community` / `emptyroom`）：
+    // 已废弃的 [LocalClipboardManager] 在共享 UI 里是**唯一**能用的一份（新的 `LocalClipboard`
+    // 要平台自己的 `ClipEntry`，Android 那个必须构造 `android.content.ClipData`）。
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     fun copyText(text: String) {
-        coroutineScope.launch {
-            clipboard.setClipEntry(
-                androidx.compose.ui.platform.ClipEntry(
-                    android.content.ClipData.newPlainText("message", text)
-                )
-            )
-            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-        }
+        clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+        showBriefMessage("已复制")
     }
     when (msg.role) {
         "user" -> {
@@ -577,7 +568,7 @@ private fun MessageBubble(
                         Modifier.padding(bottom = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        msg.images.forEach { AttachmentThumb(it, size = 76.dp) }
+                        msg.images.forEach { AttachmentThumb(it, host, size = 76.dp) }
                     }
                 }
                 // 只发图不打字时不画空气泡——一个空的蓝色圆角块看着像渲染坏了。
@@ -612,7 +603,12 @@ private fun MessageBubble(
                 horizontalAlignment = Alignment.Start
             ) {
                 if (showReasoning && msg.reasoningContent.isNotBlank()) {
-                    ReasoningBar(text = msg.reasoningContent, streaming = streaming, onNavigate = onNavigate)
+                    ReasoningBar(
+                        text = msg.reasoningContent,
+                        streaming = streaming,
+                        onNavigate = onNavigate,
+                        images = host.images,
+                    )
                     if (msg.content.isNotBlank()) Spacer(Modifier.height(6.dp))
                 }
                 if (msg.content.isNotBlank()) {
@@ -625,6 +621,7 @@ private fun MessageBubble(
                                 onClick = {},
                                 onLongClick = { copyText(msg.content) },
                             ),
+                        images = host.images,
                         onLink = { url ->
                             onNavigate(AppRoute.Browser(url))
                         }
@@ -633,6 +630,7 @@ private fun MessageBubble(
                 msg.widgets.forEach { widget ->
                     AgentWidgetView(
                         widget,
+                        host,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = if (msg.content.isNotBlank()) 10.dp else 0.dp),
@@ -680,63 +678,6 @@ private fun MessageBubble(
                     ToolCallNote(toolEvents, Modifier.padding(top = 8.dp))
                 }
             }
-        }
-    }
-}
-/**
- * 聊天中戳屁岱的回应：输入框上方浮起一颗小气泡，左边是迷你屁岱，右边是那句闲话，
- * 弹一下出来，3.5 秒后淡出。每戳一次（[ProactiveBubbleHost.heroPokes] 变化）换一句。
- */
-@Composable
-private fun PokeWhisper(modifier: Modifier = Modifier) {
-    val host = ProactiveBubbleHost
-    val seen = remember { intArrayOf(host.heroPokes) }
-    var text by remember { mutableStateOf<String?>(null) }
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(host.heroPokes) {
-        if (host.heroPokes == seen[0]) return@LaunchedEffect
-        seen[0] = host.heroPokes
-        text = host.heroLine ?: return@LaunchedEffect
-        visible = true
-        kotlinx.coroutines.delay(3500)
-        visible = false
-    }
-    val look = pidaiNavAppearance()
-    androidx.compose.animation.AnimatedVisibility(
-        visible = visible && text != null,
-        enter = androidx.compose.animation.fadeIn(tween(160)) +
-            androidx.compose.animation.scaleIn(
-                androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
-                initialScale = 0.7f,
-                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f),
-            ),
-        exit = androidx.compose.animation.fadeOut(tween(220)) +
-            androidx.compose.animation.slideOutVertically(tween(220)) { it / 3 },
-        modifier = modifier,
-    ) {
-        Row(
-            Modifier
-                .shadow(8.dp, RoundedCornerShape(20.dp), ambientColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.25f), spotColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.25f))
-                .clip(RoundedCornerShape(20.dp))
-                .background(MiuixTheme.colorScheme.surfaceVariant)
-                .clickable { visible = false }
-                .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BloubBotIcon(
-                beat = PidaiBeat.IDLE,
-                ink = look.ink,
-                paper = MiuixTheme.colorScheme.surfaceVariant,
-                cast = look.cast,
-                modifier = Modifier.size(26.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text.orEmpty(),
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 2,
-            )
         }
     }
 }

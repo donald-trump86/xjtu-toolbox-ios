@@ -48,6 +48,24 @@ interface AgentTransport {
         onDelta: suspend (String) -> Unit,
         onReasoningDelta: suspend (String) -> Unit,
     ): AgentStreamResult
+
+    companion object {
+
+        /**
+         * 没接传输层的端（`:core` 自己的测试、只跑纯逻辑的探针）：真去发一次请求就是 Bug，
+         * 所以**抛**而不是回一个空结果 —— 免得「一句话都没答」被当成模型的问题。
+         */
+        val None: AgentTransport = object : AgentTransport {
+            override suspend fun stream(
+                config: AgentConfig,
+                reqBody: JsonObject,
+                onDelta: suspend (String) -> Unit,
+                onReasoningDelta: suspend (String) -> Unit,
+            ): AgentStreamResult = throw IllegalStateException(
+                "这一端没有接 LLM 传输层（见 AgentHost.transport）"
+            )
+        }
+    }
 }
 
 /**
@@ -66,6 +84,34 @@ interface AgentTools {
 
     /** 执行一次工具调用，返回给模型看的文本。失败就抛，由循环决定怎么记。 */
     suspend fun execute(name: String, argsJson: String): String
+
+    // ── 屏那几件（不是循环要的，是 `AgentViewModel` 要的）────────────────────
+
+    /**
+     * 取走这一轮生成的卡片（课表、成绩、空教室、图书馆座位……）并清空。
+     * 没接卡片的端是空的 —— 屏上就没有卡片这一层。
+     */
+    fun drainWidgets(): List<AgentWidget> = emptyList()
+
+    /** 用户画像那一段（姓名／学院／身份），拼进系统提示。没接的端是空串。 */
+    suspend fun userContext(allowNetwork: Boolean): String = ""
+
+    /** 记住的用户偏好那一段，拼进系统提示。 */
+    fun memoryBlock(): String = ""
+
+    companion object {
+
+        /**
+         * 什么都没接的工具层：画不出工具、执行一律回 `not_found`。
+         * `:core` 自己的测试与「只跑循环、不接工具」的探针用它。
+         */
+        val None: AgentTools = object : AgentTools {
+            override val toolDefinitions: String = "[]"
+            override fun rateLimitKeyOf(toolName: String): String? = null
+            override suspend fun execute(name: String, argsJson: String): String =
+                ToolReply.notFound("tool", name)
+        }
+    }
 }
 
 /**

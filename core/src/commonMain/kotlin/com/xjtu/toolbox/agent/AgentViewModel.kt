@@ -10,7 +10,6 @@ import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
-import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -19,10 +18,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import com.xjtu.toolbox.auth.AppLoginState
-import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import kotlinx.datetime.isoDayNumber
+import com.xjtu.toolbox.util.formatTwoDigits
+import com.xjtu.toolbox.util.nowInSystemZone
+import kotlin.time.Clock
 
 /**
  * 聊天消息 UI 模型。
@@ -39,7 +41,7 @@ data class ChatMessage(
     val reasoningContent: String = "",
     /** 随这条消息发出的图片，存的是应用私有目录里的压缩件路径。见 [AgentVision]。 */
     val images: List<String> = emptyList(),
-    val timestamp: Long = System.currentTimeMillis(),
+    val timestamp: Long = Clock.System.now().toEpochMilliseconds(),
     /**
      * 工具调用失败信息：非 null 时 UI 上对应气泡标红并显示原因。
      * 区分 [isToolCall] 的"执行中转圈"和"执行失败"——避免用户被空提示骗"还在跑"。
@@ -56,7 +58,7 @@ object AgentThinkingHost {
     var isThinking by mutableStateOf(false)
 }
 
-class AgentViewModel : ViewModel() {
+class AgentViewModel(private val host: AgentHost) : ViewModel() {
     companion object {
         private const val CONTEXT_TOKEN_LIMIT = 800_000L
         /** 流式分片合并写入的间隔：约 3 帧，肉眼仍是连续输出，重组和解析次数降一两个数量级。 */
@@ -95,14 +97,14 @@ class AgentViewModel : ViewModel() {
     val sessions = mutableStateListOf<AgentSession>()
     var currentSessionId by mutableStateOf<String?>(null)
         private set
-    private var store: AgentSessionStore? = null
+    private var store: AgentSessionPersistence? = null
 
     // LLM 多轮历史（含 system prompt + 所有轮次），与 messages（UI 专用）独立维护。
     // 保持历史稳定以利用 provider 端 prefix cache：system prompt 只在首轮写入一次。
     private var llmHistory: MutableList<JsonElement> = mutableListOf()
 
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
-    private var tools: AgentToolRegistry? = null
+    private var tools: AgentTools? = null
     private var toolsSearchEngine: String? = null
     /** 工具注册表里的 DataCache 构造时绑定账号，换账号必须重建，否则工具读写的是旧账号缓存。 */
     private var toolsAccountId: String? = null
@@ -122,8 +124,6 @@ class AgentViewModel : ViewModel() {
     fun replaceLastUserAndSend(
         newText: String,
         config: AgentConfig,
-        loginState: AppLoginState,
-        context: Context,
     ) {
         val text = newText.trim()
         if (text.isBlank()) return
@@ -133,7 +133,7 @@ class AgentViewModel : ViewModel() {
         currentJob?.cancel()
         applyLoading(false)
         dropLastUserTurn()
-        sendMessage(text, config, loginState, context, images = keptImages)
+        sendMessage(text, config, images = keptImages)
     }
 
     private fun dropLastUserTurn() {
@@ -199,7 +199,7 @@ class AgentViewModel : ViewModel() {
     // ── 会话管理 ────────────────────────────────────────────────────────
 
     /** 绑定持久化存储并加载会话列表（仅一次）。空则自动建首个会话。 */
-    fun bind(store: AgentSessionStore) {
+    fun bind(store: AgentSessionPersistence) {
         if (this.store != null) return
         this.store = store
         sessions.addAll(store.list())
@@ -233,8 +233,8 @@ class AgentViewModel : ViewModel() {
                 reasoningContent = m.reasoningContent.orEmpty(),
                 // 图片文件可能已被清掉（清缓存、换账号），这里只过滤掉不存在的，
                 // 气泡少显示一张图，比留个破图标好。
-                images = m.images.orEmpty().filter { path -> java.io.File(path).isFile },
-                timestamp = m.timestamp ?: System.currentTimeMillis(),
+                images = m.images.orEmpty().filter { path -> host.imageFileExists(path) },
+                timestamp = m.timestamp ?: Clock.System.now().toEpochMilliseconds(),
                 isToolCall = false,
                 toolError = m.toolError,
             ))
@@ -290,10 +290,10 @@ class AgentViewModel : ViewModel() {
      * 这两样一段对话里会变（跨天、中途换模型），所以不放进只生成一次的系统提示。
      */
     private fun nowTag(model: String): String {
-        val now = java.time.LocalDateTime.now()
+        val now = nowInSystemZone()
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
-        val w = days.getOrElse(now.dayOfWeek.value) { "" }
-        val time = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        val w = days.getOrElse(now.dayOfWeek.isoDayNumber) { "" }
+        val time = "${now.date} ${formatTwoDigits(now.hour)}:${formatTwoDigits(now.minute)}"
         return "[现在：$time $w" + (if (model.isBlank()) "" else " · $model") + "]"
     }
 
@@ -310,7 +310,7 @@ class AgentViewModel : ViewModel() {
         val firstAssistant = messages.lastOrNull { it.role == "assistant" }?.content?.trim().orEmpty()
         if (firstAssistant.isBlank()) return
         viewModelScope.launch {
-            val title = AgentTitleGen.generate(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
+            val title = host.generateTitle(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
                 ?: return@launch
             if (!store.isLocked(id)) {           // 期间用户可能已手动改名
                 store.rename(id, title, lock = true)
@@ -323,16 +323,14 @@ class AgentViewModel : ViewModel() {
     private fun deriveTitle(): String {
         val firstUser = messages.firstOrNull { it.role == "user" }?.content?.trim().orEmpty()
         return when {
-            firstUser.isBlank() -> AgentSessionStore.DEFAULT_TITLE
-            else -> sanitizeAgentTitle(firstUser, AgentSessionStore.DEFAULT_TITLE)
+            firstUser.isBlank() -> AGENT_SESSION_DEFAULT_TITLE
+            else -> sanitizeAgentTitle(firstUser, AGENT_SESSION_DEFAULT_TITLE)
         }
     }
 
     fun sendMessage(
         userText: String,
         config: AgentConfig,
-        loginState: AppLoginState,
-        context: Context,
         /** 不进聊天气泡，只进发给模型的 user 消息。见屁岱提醒快照。 */
         llmAnnex: String? = null,
         /** 随消息发送的图片路径，见 [AgentVision.attach]。 */
@@ -402,16 +400,14 @@ class AgentViewModel : ViewModel() {
                     toolsSearchEngine = config.searchEngine
                     toolsAccountId = accountNow
                 }
-                val registry = tools ?: AgentToolRegistry(
-                    loginState,
-                    DataCache(context, accountNow),
-                    context,
-                    config.searchEngine
-                ).also { tools = it }
+                // 工具层与传输层都是**端装配**（见 `:core` 的 [AgentHost]）：`:app` 交取数那些
+                // `*Api` + Android 能力，桌面交它能取到的那部分。没接的端 `honored` 为空，
+                // 那几档就不会画给模型（见 `AgentCapability`）。
+                val registry = tools ?: host.tools(config.searchEngine).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 // 循环与「发一次请求」现在是两件事，见 `:core` 的 [AgentRunner] / [AgentTransport]：
                 // Android 这一侧就传 `:data` 那份 okhttp SSE 传输（与搬迁前是同一份实现）。
-                val runner = AgentRunner(registry, SseAgentTransport())
+                val runner = AgentRunner(registry, host.transport())
 
                 // 系统提示**一段对话只生成一次**：对话里还没有它（新对话，或老数据缺了）才生成，
                 // 之后原样复用。名字、偏好、画像中途变了，都从下一个新对话起生效——
@@ -423,7 +419,7 @@ class AgentViewModel : ViewModel() {
                 if (!hasSystem) {
                     // 联网补齐姓名/学院只在登录态变过之后再试：没登录时每个新对话都去撞一次网络，
                     // 只会让第一条消息先干等一轮超时。
-                    val loginKey = "${loginState.isLoggedIn}|${loginState.activeUsername}"
+                    val loginKey = host.loginKey
                     val allowProfileNetwork = userContextProbe != loginKey
                     if (allowProfileNetwork) userContextProbe = loginKey
                     val systemPrompt = AgentPrompt.build(
@@ -464,7 +460,7 @@ class AgentViewModel : ViewModel() {
                 val userMsg = buildJsonObject {
                     put("role", "user")
                     // 无图时这里仍是纯字符串，历史结构和以前完全一致。
-                    put("content", AgentVision.userContent(llmUser, images))
+                    put("content", AgentVision.userContent(llmUser, images, host))
                 }
                 turnUserMsg = userMsg
                 llmHistory.add(userMsg)
@@ -479,7 +475,7 @@ class AgentViewModel : ViewModel() {
                 // 协程在 run() 挂起期间仍存活，MFA 完成后我们再把这个事件标 isToolCall=false 让它收尾。
                 var mfaBubbleIdx = -1
                 var mfaJob: kotlinx.coroutines.Job? = null
-                val mfaFlow = loginState.sessionManager?.activeMfaRequest
+                val mfaFlow = host.mfaRequests
                 if (mfaFlow != null) {
                     mfaJob = launch {
                         mfaFlow.collect { req ->
@@ -635,19 +631,23 @@ class AgentViewModel : ViewModel() {
                         )
                 }
                 throw e
-            } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-                discardUnfinishedTurn()
-                if (currentSessionId == turnSid)
-                    messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
             } catch (e: Exception) {
-                // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
-                val detail = e.message?.takeIf { it.isNotBlank() }
-                    ?: e::class.simpleName?.let { "请求异常（$it）" }
-                    ?: "未知错误"
-                discardUnfinishedTurn()
-                if (currentSessionId == turnSid) {
-                    errorMessage = detail
-                    messages.add(ChatMessage("assistant", "出错了：$detail"))
+                // 「登录态失效」是 `:core` 的标记接口（见 `error/SessionExpiredFailure`）——
+                // `catch` 抓不了接口，所以先抓 `Exception` 再判，与评教/成绩/校园卡/加餐券同一条缝。
+                if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
+                    discardUnfinishedTurn()
+                    if (currentSessionId == turnSid)
+                        messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
+                } else {
+                    // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
+                    val detail = e.message?.takeIf { it.isNotBlank() }
+                        ?: e::class.simpleName?.let { "请求异常（$it）" }
+                        ?: "未知错误"
+                    discardUnfinishedTurn()
+                    if (currentSessionId == turnSid) {
+                        errorMessage = detail
+                        messages.add(ChatMessage("assistant", "出错了：$detail"))
+                    }
                 }
             } finally {
                 flushStream()   // 出错路径上已收到的部分也要落到气泡里再持久化

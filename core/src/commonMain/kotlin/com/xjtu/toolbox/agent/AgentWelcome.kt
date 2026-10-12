@@ -1,9 +1,6 @@
 package com.xjtu.toolbox.agent
 
-import com.xjtu.toolbox.util.toJavaTime
-import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.ui.components.pressScale
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -58,25 +55,23 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamCountdown
-import com.xjtu.toolbox.schedule.cachedNextExam
-import com.xjtu.toolbox.schedule.HolidayApi
-import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.schedule.TermWeeks
-import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
-import java.time.LocalDateTime
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
+import com.xjtu.toolbox.util.formatFixed
+import com.xjtu.toolbox.util.formatTwoDigits
+import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.todayInSystemZone
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -94,7 +89,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 
 /** 首屏要用的本地数据快照。 */
-internal data class WelcomeFacts(
+/**
+ * 首屏要用的本地数据快照（`:app` 从 `DataCache` + 校园卡偏好 + 聊天事实里读，见 `AndroidAgentHost`）。
+ *
+ * 公开类型：它是 `:core` 的 [AgentHost.welcomeFacts] 的返回值 —— 读不到的端回空快照，
+ * 那几张卡片就**直接不出**（不放空壳）。
+ */
+data class WelcomeFacts(
     val chatter: ChatterFacts = ChatterFacts(),
     /** 今天还没开始的下一节课。 */
     val nextToday: CourseItem? = null,
@@ -105,40 +106,6 @@ internal data class WelcomeFacts(
     val todaySpend: Float = -1f,
 )
 
-internal object WelcomeFactsLoader {
-
-    fun load(ctx: Context, now: LocalDateTime = LocalDateTime.now()): WelcomeFacts = runCatching {
-        val today = now.toLocalDate()
-        val cache = DataCache(ctx)
-        val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx)).mapKeys { it.key.toJavaTime() }
-        val schedule = ScheduleCache.readCurrentTermSchedule(cache)
-        val courses: List<CourseItem> = schedule?.courses.orEmpty()
-        val start = schedule?.start?.toJavaTime()
-        fun on(date: LocalDate): List<CourseItem> {
-            if (start == null || holidays.containsKey(date)) return emptyList()
-            val week = TermWeeks.weekOf(start.toKx(), date.toKx())
-            return courses.filter { it.dayOfWeek == date.dayOfWeek.value && it.isInWeek(week) }
-                .distinctBy { Triple(it.courseName, it.startSection, it.location) }
-                .sortedBy { it.startSection }
-        }
-        // XjtuTime 现在给 kotlinx 的 LocalTime → 先按同一套类型转换，再直接比大小
-        val nowTime = now.toLocalTime().toKx()
-        val todayCourses = on(today)
-        val upcoming = todayCourses.filter { c ->
-            XjtuTime.getClassTime(c.startSection)?.start?.let { it > nowTime } ?: false
-        }
-        val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(ctx)
-        WelcomeFacts(
-            chatter = ChatterFactsLoader.load(ctx, today),
-            nextToday = upcoming.firstOrNull(),
-            todayLeft = upcoming.size,
-            tomorrow = on(today.plusDays(1)),
-            exam = cachedNextExam(com.xjtu.toolbox.data.DataCache(ctx)),
-            balance = prefs.getFloat("card_balance_cache", -1f),
-            todaySpend = prefs.getFloat("card_today_spend_cache", -1f),
-        )
-    }.getOrDefault(WelcomeFacts())
-}
 
 private class Suggestion(
     val icon: ImageVector,
@@ -153,10 +120,11 @@ private val TintBlue = Color(0xFF3B82F6)
 private val TintTeal = Color(0xFF14B8A6)
 private val TintAmber = Color(0xFFF59E0B)
 private val TintRose = Color(0xFFF43F5E)
-private val TintViolet = Color(0xFF8B5CF6)
+val TintViolet = Color(0xFF8B5CF6)
 private val TintGreen = Color(0xFF22C55E)
 
-private fun hhmm(t: LocalTime?): String = t?.let { "%02d:%02d".format(it.hour, it.minute) } ?: ""
+private fun hhmm(t: LocalTime?): String =
+    t?.let { "${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" } ?: ""
 
 /** 按时段排好的问题卡片，最多 4 张（两列排两行正好）。 */
 private fun buildSuggestions(f: WelcomeFacts, now: LocalDateTime): List<Suggestion> {
@@ -194,10 +162,10 @@ private fun buildSuggestions(f: WelcomeFacts, now: LocalDateTime): List<Suggesti
         )
     }
     if (f.balance >= 0f) {
-        val spend = if (f.todaySpend > 0f) " · 今日 ¥${"%.2f".format(f.todaySpend)}" else ""
+        val spend = if (f.todaySpend > 0f) " · 今日 ¥${formatFixed(f.todaySpend, 2)}" else ""
         cards["card"] = Suggestion(
             Icons.Outlined.AccountBalanceWallet, TintAmber, "饭卡还剩多少",
-            "¥${"%.2f".format(f.balance)}$spend",
+            "¥${formatFixed(f.balance, 2)}$spend",
             "校园卡余额多少？最近都花在哪了？",
             warn = f.balance < 30f,
         )
@@ -266,18 +234,27 @@ private val CapTints = listOf(TintAmber, TintBlue, TintViolet, TintTeal, TintGre
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AgentWelcome(
+    /** 端装配与端上资源（见 `:core` 的 [AgentHost]）：首屏那张快照由它给。 */
+    host: AgentHost,
     greetingName: String,
     configured: Boolean,
     onAsk: (String) -> Unit,
     onFill: (String) -> Unit,
     onOpenConfig: () -> Unit,
+    /**
+     * 首屏那个「屁岱形象 + 问候」的槽位。`:app` 交 `AndroidPidaiHero`（形象、瞟眼、
+     * 戳一下换一句话、连戳彩蛋都在那一端）；没有形象这一档的端（桌面 / Web）用默认实现
+     * [agentWelcomePlainHero]：同一个标题、同一句闲话，只是没有那颗可以戳的形象 —— **如实降级**，
+     * 不是「画出来点了没反应」。
+     */
+    hero: @Composable (title: String, facts: WelcomeFacts, now: LocalDateTime) -> Unit =
+        { title, f, n -> agentWelcomePlainHero(title, f, n) },
 ) {
-    val context = LocalContext.current
-    val now = remember { LocalDateTime.now() }
-    val facts by produceState(WelcomeFacts(), context) {
-        value = withContext(Dispatchers.IO) { WelcomeFactsLoader.load(context, now) }
+    val now = remember { nowInSystemZone() }
+    val facts by produceState(WelcomeFacts(), host) {
+        value = withContext(Dispatchers.IO) { host.welcomeFacts(now) }
     }
-    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime().toKx())
+    val greeting = com.xjtu.toolbox.home.Greeting.of(now.time)
     val primary = MiuixTheme.colorScheme.primary
 
     Column(
@@ -300,10 +277,10 @@ internal fun AgentWelcome(
             }
             .padding(top = 8.dp, bottom = 8.dp),
     ) {
-        Hero(
-            title = if (greetingName.isBlank()) greeting else "$greeting，$greetingName",
-            facts = facts,
-            now = now,
+        hero(
+            if (greetingName.isBlank()) greeting else "$greeting，$greetingName",
+            facts,
+            now,
         )
         TodayStrip(facts)
         Spacer(Modifier.height(18.dp))
@@ -347,138 +324,44 @@ internal fun AgentWelcome(
     }
 }
 
-/** 挑一句闲话当问候的第二行；避开推广句和带动作的句子，也避开刚说过的那句。 */
-private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): String? {
-    repeat(6) {
-        val l = ChatterPool.pick(now.toKx(), emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
-            ?.takeIf { !it.id.startsWith("app_") }
-            ?.text
-        if (l != null && l != avoid) return l
-    }
-    return null
-}
-
+/**
+ * 没有屁岱形象的端（桌面 / Web）的问候头：同一个标题 + 同一句闲话，只是没有那颗可以戳的形象。
+ * 文案来源与 `:app` 那份一致（`ChatterPool` + `Greeting`），所以两端读起来是同一个屁岱在说话。
+ */
 @Composable
-private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
+internal fun agentWelcomePlainHero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
     val primary = MiuixTheme.colorScheme.primary
-    val look = pidaiNavAppearance()
-    val host = ProactiveBubbleHost
-    var line by remember(facts) {
-        mutableStateOf(host.heroLine ?: pickLine(facts, now, null) ?: "课表、考试、空教室、饭卡，直接问我就行")
-    }
-    // 进来先眨个眼打招呼，之后回到待命；戳它一下换一句话，连戳放彩蛋
-    var beat by remember { mutableStateOf(PidaiBeat.IDLE) }
-    val pokes = remember { PidaiPokes() }
-    LaunchedEffect(pokes.serial) {
-        delay(beat.holdMs(look.cast) ?: return@LaunchedEffect)
-        beat = PidaiBeat.REST
-    }
-    // 已经在屁岱页又点了底栏屁岱：那句闲话由这里说，不从底栏冒泡
-    val seenPokes = remember { intArrayOf(host.heroPokes) }
-    LaunchedEffect(host.heroPokes) {
-        if (host.heroPokes == seenPokes[0]) return@LaunchedEffect
-        seenPokes[0] = host.heroPokes
-        host.heroLine?.let { line = it }
-        beat = pokes.poke()
-    }
-    // 轻轻上下浮动：约 30 帧/秒推进相位，页面不可见就停（和底栏屁岱同一档开销）
-    val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
-    val floatPhase = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    if (visible) {
-        LaunchedEffect(Unit) {
-            val start = System.nanoTime()
-            while (true) {
-                floatPhase.floatValue = ((System.nanoTime() - start) / 1_000_000_000.0 * 1.6).toFloat()
-                delay(33)
-            }
-        }
-    }
-    // 打字机：新的一句逐字出现
-    var shown by remember(line) { mutableStateOf(0) }
-    LaunchedEffect(line) {
-        shown = 0
-        while (shown < line.length) {
-            delay(38)
-            shown++
-        }
-    }
-
-    val enter = rememberEnter(0)
-    Row(
+    val line = remember(facts) { plainHeroLine(facts, now) }
+    Column(
         Modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                alpha = enter.value
-                translationY = (1f - enter.value) * 12.dp.toPx()
-            }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(primary.copy(alpha = 0.12f), TintViolet.copy(alpha = 0.08f)),
+                )
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Box(
-            Modifier
-                .size(88.dp)
-                .clip(CircleShape)
-                .clickable {
-                    beat = pokes.poke()
-                    pickLine(facts, LocalDateTime.now(), line)?.let { line = it }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            BloubBotIcon(
-                beat = beat,
-                ink = look.ink,
-                paper = MiuixTheme.colorScheme.surface,
-                cast = look.cast,
-                pokeSerial = pokes.serial,
-                modifier = Modifier
-                    .size(72.dp)
-                    .graphicsLayer { translationY = -4.dp.toPx() + kotlin.math.sin(floatPhase.floatValue) * 4.dp.toPx() },
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        // 对话气泡：左边一个小尖角指向屁岱
-        Column(
-            Modifier
-                .weight(1f)
-                .drawBehind {
-                    val r = 7.dp.toPx()
-                    val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(0f, size.height / 2f - r)
-                        lineTo(-r, size.height / 2f)
-                        lineTo(0f, size.height / 2f + r)
-                        close()
-                    }
-                    drawPath(path, primary.copy(alpha = 0.12f))
-                }
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(primary.copy(alpha = 0.12f), TintViolet.copy(alpha = 0.08f)),
-                    )
-                )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Text(
-                title,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Box {
-                // 先用整句占住高度，逐字出现时气泡不跟着一跳一跳地长
-                Text(line, style = MiuixTheme.textStyles.body2, color = Color.Transparent)
-                Text(
-                    line.take(shown),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-        }
+        Text(
+            title,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(line, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
+
+/** 问候头第二行那句闲话：`:app` 那份 `pickLine` 的简化版（没有「避开刚说过的那句」那一层）。 */
+private fun plainHeroLine(facts: WelcomeFacts, now: LocalDateTime): String =
+    ChatterPool.pick(now, emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
+        ?.takeIf { !it.id.startsWith("app_") }
+        ?.text
+        ?: "课表、考试、空教室、饭卡，直接问我就行"
 
 /** 今日速览：一排小胶囊，把课、考试、余额、假期这些「此刻最相关的数」摆出来。读不到的不出。 */
 @Composable
@@ -538,7 +421,7 @@ private fun SectionTitle(text: String) {
 
 /** 进场动画：全 App 共用的那一份（见 ui/components/Motion.kt），按序号错开依次浮上来，只播一次。 */
 @Composable
-private fun rememberEnter(index: Int) = com.xjtu.toolbox.ui.components.rememberEnterProgress(index)
+fun rememberEnter(index: Int) = com.xjtu.toolbox.ui.components.rememberEnterProgress(index)
 
 @Composable
 private fun SuggestionCard(s: Suggestion, index: Int, modifier: Modifier, onClick: () -> Unit) {

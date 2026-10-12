@@ -2,6 +2,10 @@
 
 package com.xjtu.toolbox.agent
 
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.util.formatTwoDigits
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.AnimatedVisibility
@@ -274,4 +278,8 @@ private fun SessionRow(
     }
 }
 private fun formatSessionTime(ts: Long): String =
-    java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(ts))
+    // `SimpleDateFormat("MM-dd HH:mm")` 的跨端等价（commonMain 没有 `java.text`）：
+    // 系统默认时区 + 同样补零，年月日之外的部分本来就是稳定格式。
+    Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault())
+        .let { "${formatTwoDigits(it.monthNumber)}-${formatTwoDigits(it.dayOfMonth)} " +
+            "${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" }

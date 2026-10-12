@@ -31,7 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.ui.graphics.asImageBitmap
+import com.xjtu.toolbox.platform.decodeImageFull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -47,6 +47,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 internal fun AgentComposer(
+    /** 端上资源：附件缩略图要读本地文件（见 [AgentHost.readImageBytes]）。 */
+    host: AgentHost,
     input: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -58,7 +60,7 @@ internal fun AgentComposer(
     placeholder: String = "问一句…",
     /** 待发送的图片路径。空列表表示这个模型不支持图片，连按钮都不显示。 */
     attachments: List<String> = emptyList(),
-    /** 模型认不认图片。不认就不给入口——贴了也只会被服务端拒掉。 */
+    /** 给不给图片入口：模型认图片**且这一端有相册**（调用点把两件合成这一个布尔）。 */
     visionEnabled: Boolean = false,
     onPickImage: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
@@ -123,7 +125,7 @@ internal fun AgentComposer(
             ) {
                 attachments.forEach { path ->
                     Box {
-                        AttachmentThumb(path)
+                        AttachmentThumb(path, host)
                         Box(
                             Modifier
                                 .align(Alignment.TopEnd)
@@ -240,10 +242,12 @@ internal fun AgentComposer(
  * `remember(path)` 保证同一张只解一次，重组不会反复读盘。
  */
 @Composable
-internal fun AttachmentThumb(path: String, size: Dp = 62.dp) {
+internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
     val bitmap = remember(path) {
         runCatching {
-            android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap()
+            // 读盘与解码都是平台的事（`:app` = `BitmapFactory.decodeFile`，全尺寸 ARGB_8888）；
+            // 桌面没有本地附件（相册那一档不画）⇒ 读不到就画下面那个占位。
+            host.readImageBytes(path)?.let { decodeImageFull(it) }
         }.getOrNull()
     }
     Box(
