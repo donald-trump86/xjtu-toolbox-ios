@@ -421,7 +421,7 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
 **这是注释过时，不是行为不一致**（写路径由上面那两条用例钉住）。本轮只允许动 `docs/`，
 所以它记在这里，等下次动那个文件时一并改准。
 
-### 12.3 Stage C · 宿主机能族 → 40/40 —— **未达成**（还差 `AppRoute.Agent` 一条）
+### 12.3 Stage C · 宿主机能族 → 40/40 —— **主体已全区**（`AppRoute.Agent` 与本轮的 `AppRoute.Match` 都已点亮）
 
 判据原文（§6 Stage C）：设置 / 多账号 / 下载管理 / 首页 / 通知（小组件用通知替代）；
 **验收：40 条路由在桌面都有真实实现（`NotPortedScreen` 归零）**。
@@ -446,12 +446,13 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
 | 反馈与建议 | `f1e7c3b` | 唯一一条没有校园会话的路由（上游是飞书开放平台）；`:core` 的 `FeedbackScreen` + `FeedbackStore` 本地账本；桌面 `DesktopFeedback` 在窗口起来之前注入凭据；证据图 `feedback.png` |
 | 校园公告（只搬数据半，不新增路由） | `0b80244` | `:core` 的 `BulletinRules`/`BulletinStore` + `:data` 的 `BulletinApi`；桌面侧已接上（首页顶部堆叠条 + 冷启动弹框，见 `ced0818` / `70b98c9`） |
 
-**两条不是「没搬」、而是「这一端没有等价载体 / 数据」**（落 `HostUnavailableScreen`，**不是** `NotPortedScreen`，
-也**不在** `DESKTOP_SUPPORTED_ROUTES` 里 ⇒ **不算真实现**）：`AppRoute.GameMerge`（游戏本体是 `:app` 的 `assets/games/merge/`
-那套 HTML + JS，跑在 WebView 里 —— 桌面没有 WebView，也没有 JVM 上的 JS 引擎）与 `AppRoute.Match`
-（全程离线算本机缓存，而学工档案 / 校园卡消费 / 课表教材缓存那几件里还有仍是 `:app` 实现的）。
-两条各有一支真分支（第 1143 / 1175 行）指向一个**如实说明卡在哪**的页（`HostUnavailableScreen`，
-第 1369 行起）—— 那是如实告知，不是「坏了的屏」。
+| 匹配交友（最后一条「说明页」变真屏） | `51673daa`（算法/模型/屏进 `:core` + 两条平台缝 + `:app` 只留适配器）+ 本提交（桌面点亮） | `:core` 的 `MatchProfile`/`MatchData`/`DiningHabit`/`MatchScreen` + `MatchHost`/`MatchScanner` 两个端口 + `platform/Deflate.kt`/`platform/Base64Url.kt` 两条平台缝（Android/jvm = 原来那份实现，wasmJs 如实没有）；桌面 `DesktopMatchHost`（课表族缓存与「我的课表」同一份）；`:desktop:test` 的 `DesktopMatchJvmTest`（**2** 例）；证据图 `schedule_match.png`（`hasText` 钉住夹具算出来的交集）；`:core:jvmTest` 的 `MatchShareCodeJvmTest`（**4** 例） |
+**还有一条不是「没搬」、而是「这一端没有等价载体」**（落 `HostUnavailableScreen`，**不是** `NotPortedScreen`，
+也**不在** `DESKTOP_SUPPORTED_ROUTES` 里 ⇒ **不算真实现**）：`AppRoute.GameMerge`（游戏本体是 `:app` 的
+`assets/games/merge/` 那套 HTML + JS，跑在 WebView 里 —— 桌面没有 WebView，也没有 JVM 上的 JS 引擎）。
+它有一支真分支指向一个**如实说明卡在哪**的页（`HostUnavailableScreen`）—— 那是如实告知，不是「坏了的屏」。
+
+另一条「说明页」`AppRoute.Match` **本轮点亮了** —— 见下面那一节。
 
 **另外七条游戏路由是真实路由**（`playful` 那一批）：合集页 `AppRoute.Games` 与 `Game2048` / `GameBlocks` /
 `GameGomoku` / `GameHop` / `GameGo` / `GameXiangqi`。它们是纯 UI、与数据源无关，屏和逻辑三端同一份，
@@ -471,6 +472,24 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
   调过来回 `not_found`）+ 证据图 `agent.png`（夹具传输，**一个 LLM 请求都不发**）+ `:desktop:test` 的
   `DesktopAgentJvmTest`（**4** 例，含「发一条 → 流式回一条 → 会话与配置落盘」）。
 
+#### `AppRoute.Match`（匹配交友）—— 已点亮（最后一条「说明页」变真屏）
+
+- **阶段 1** `51673daa`：算法与模型（`MatchProfile` 一族 / `MatchData` / `DiningHabit`）与屏按五步法搬进 `:core`；
+  本机数据源收成 `MatchHost` 缝（`:app` 那三件原样：`DataCache` / `HelloProfileStore` / `CampusCardCache`），
+  deflate 与 URL-safe Base64 收成两条平台缝（Android/jvm = 搬迁前那份实现，wasmJs 如实没有），
+  扫码与相册收成 `MatchScanner`（`:app` 那份覆盖层原样）；`:app` 的 `MatchProfileTest` 一条断言未改。
+- **阶段 2**（本提交）：桌面点亮 —— `AppRoute.Match to "匹配交友"` + `DesktopMatchHost`
+  （课表族缓存与「我的课表」「首页」**同一份** 0600 键值文件 ⇒ 离线算交集在这一端**是真算的**）+ 证据图
+  `schedule_match.png`（夹具课表 + 对手那段码，`hasText` 钉住「一起上 1 门课」与夹具课名）+ `:desktop:test` 的
+  `DesktopMatchJvmTest`（**2** 例：离线比出交集 / 如实降级）。
+- **两处如实降级**（都不是「坏掉」）：① 桌面没有相机也没有相册 ⇒ `scanner` 传 `null`，
+  屏上「扫一扫」「从相册选图」**一个字都不画**，只留「粘一段文字码」那一条（它真能用）；
+  ② 学工系统档案（`HelloProfileStore`）与校园卡消费（`CampusCardCache`）仍是 `:app` 的实现 ⇒
+  `identity()` 为 `null`、`transactions()` 空表，屏上「年级 专业 校区 生源地」与「吃」那两维禁用并写明原因
+  （要真点亮它们，见 `DesktopMatchHost` 的 KDoc：学工要接 hello 站点，消费要给校园卡那条路由补一份落盘）。
+- **wasmJs（`:web`）**：那两条缝都没有 ⇒ `MatchProfile.codecAvailable` 为 false，屏上如实说「这一端生成不了分享码」
+  （TODO 在 `platform/Deflate.kt` 里），既不画假的码也不假装能扫。
+
 #### 「`NotPortedScreen` 归零」的判据（2026-10-13 复核）
 
 - `AppRoute` 表 **43** 条声明；`DesktopPage` 的 `when (route)`（第 552 行）里是 **42** 条真分支 + 一条兜底 `else`。
@@ -481,8 +500,8 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
   `is AppRoute.Browser -> openInBrowser(...)`（第 633 / 818 / 838 行）交给系统浏览器（`java.awt.Desktop.browse`）——
   那三处是**子屏的 `when`**，不在这条顶层分支里。要不要也给顶层单开一支（「把地址交给系统浏览器」的一屏）
   仍是**下一个决定**（§13.3 第 2 条）。
-- 43 条里 **2** 条不是真数据（`GameMerge` / `Match`，各自的 `HostUnavailableScreen` 如实说明页），
-  **38** 条在 `DESKTOP_SUPPORTED_ROUTES` 里，剩下 3 条（`Browser` / `Jiaocai1Reader` / `Settings`）有屏但不是那张表的口径。
+- 43 条里 **1** 条不是真数据（`GameMerge`，它自己那张 `HostUnavailableScreen` 如实说明页 —— 卡的是**载体**不是取数；`Match` 本轮点亮了），
+  **39** 条在 `DESKTOP_SUPPORTED_ROUTES` 里（含本轮新增的 `Match`），剩下 3 条（`Browser` / `Jiaocai1Reader` / `Settings`）有屏但不是那张表的口径。
 - 「40/40」这个写法来自 §6.4 当初的**估计**（原文用的是「**≈** 40」），今天的口径以「43 条声明 / 42 条顶层分支 /
   `NotPortedScreen` 仍会命中 `Browser` 一条」为准。
 - 证据图 **41** 张在 `desktop/build/screenshots/`（本轮 `:desktop:renderScreens` 真跑后复核，含新增的 `agent.png`）。

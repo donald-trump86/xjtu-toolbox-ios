@@ -439,13 +439,22 @@ private fun MyCodeCard(
             }
 
             is QrState.Ready -> {
-                Box(Modifier.fillMaxWidth(), Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(232.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        // 二维码得是深色印在浅色上才扫得出，这一块不跟随深色主题。
+                        .background(Color.White)
+                        .padding(10.dp),
+                    Alignment.Center,
+                ) {
                     // 与付款码同一份画法、同一个静默区（1 个模块，与搬迁前 `QrBitmap` 的
-                    // `MARGIN=1` 同宽）；`CodeMatrixView` 自己铺白底，所以不再补背景色。
+                    // `MARGIN=1` 同宽）；那个 10dp 的白边与搬迁前的 `padding(10.dp)` 同一宽度，
+                    // 所以这一块在 Android 上看起来与搬迁前逐像素一致（码本体 212dp）。
                     CodeMatrixView(
                         matrix = s.matrix,
                         quietZoneModules = 1,
-                        modifier = Modifier.size(232.dp).clip(RoundedCornerShape(12.dp)),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 Spacer(Modifier.height(10.dp))
