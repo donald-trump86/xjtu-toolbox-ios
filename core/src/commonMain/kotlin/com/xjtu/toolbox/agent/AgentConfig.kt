@@ -1,24 +1,27 @@
 package com.xjtu.toolbox.agent
 
-import android.content.Context
-import android.content.SharedPreferences
-import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.data.SecurePrefs
-
 /**
- * 把存下来的思考强度收敛到本地支持的档位。
+ * 存下来的思考强度收敛到本地支持的档位。
  *
  * DeepSeek 的别名（`minimal`→low、`medium`/`xhigh`→high）也认：用户可能在别处见过这些
  * 写法，或者以后服务端改口径。认不出的一律回落到「自动」——下发一个服务端不认的值，
  * 整个请求会 400，表现是屁岱一句话都不说。
+ *
+ * 跨模块可见性：原来是 `internal`，`:data` 的 `AgentConfigStore` 在用它。
  */
-internal fun normalizeReasoningEffort(raw: String?): String = when (raw?.trim()?.lowercase()) {
+fun normalizeReasoningEffort(raw: String?): String = when (raw?.trim()?.lowercase()) {
     "minimal", AgentConfig.REASONING_LOW -> AgentConfig.REASONING_LOW
     "medium", "xhigh", AgentConfig.REASONING_HIGH -> AgentConfig.REASONING_HIGH
     AgentConfig.REASONING_MAX -> AgentConfig.REASONING_MAX
     else -> AgentConfig.REASONING_AUTO
 }
 
+/**
+ * 屁岱的配置：服务商、密钥、模型、助手名、联网搜索源、思考开关。
+ *
+ * 这里只有**模型与口径**，没有存取（落在 `:data` 的 `AgentConfigStore`）：桌面端的配置面板
+ * 与 Android 共用同一批默认值、同一批标签、同一套「认不出的值怎么回落」的判据。
+ */
 data class AgentConfig(
     val provider: String = PROVIDER_DEEPSEEK,
     val apiKey: String = "",
@@ -124,84 +127,4 @@ fun sanitizeAgentTitle(raw: String, fallback: String = AgentConfig.DEFAULT_ASSIS
         .trim()
         .ifBlank { fallback }
     return if (normalized.length <= 12) normalized else normalized.take(12) + "…"
-}
-
-class AgentConfigStore(context: Context) {
-    private val appContext = context.applicationContext
-
-/**
- * EncryptedSharedPreferences 按账号缓存。
- *
- * **为什么需要缓存**：
- * - `EncryptedSharedPreferences.create()` 每次都做 keystore 密钥派生（一次 ~50–200ms），
- *   在 `ConfigPanel` 每次按键都触发 `save()` 的场景下会让 UI 卡顿数秒。
- * - 用 `lazy` 一次性建好后，按账号缓存；切账号时新建。
- *
- * **为什么不用 `lazy {}` 全局**：
- * - 全局 lazy 会导致切账号后还读到旧账号的 prefs，违反账号隔离。
- *   所以必须按 `safeSuffix()` 分别缓存。
- */
-private val securePrefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
-private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
-
-private val securePrefs: SharedPreferences
-    get() = securePrefsCache.getOrPut(AccountContext.safeSuffix()) {
-        SecurePrefs.open(
-            appContext,
-            "agent_config_secure${AccountContext.safeSuffix()}",
-            legacyFallbackName = "agent_config_fallback${AccountContext.safeSuffix()}",
-        )
-    }
-
-private val prefs: SharedPreferences
-    get() = prefsCache.getOrPut(AccountContext.safeSuffix()) {
-        appContext.getSharedPreferences("agent_config${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
-    }
-
-    fun load(): AgentConfig = AgentConfig(
-        provider = prefs.getString("provider", AgentConfig.PROVIDER_DEEPSEEK) ?: AgentConfig.PROVIDER_DEEPSEEK,
-        apiKey = securePrefs.getString("api_key", "") ?: "",
-        model = prefs.getString("model", "") ?: "",
-        baseUrl = prefs.getString("base_url", "") ?: "",
-        assistantName = sanitizeAgentTitle(
-            prefs.getString("assistant_name", AgentConfig.DEFAULT_ASSISTANT_NAME)
-                ?: AgentConfig.DEFAULT_ASSISTANT_NAME
-        ),
-        searchEngine = prefs.getString("search_engine", AgentConfig.SEARCH_AUTO)
-            ?.let { raw ->
-                when {
-                    // 老配置里存着已下线的源，静默迁回自动，别让用户卡在一个必然失败的引擎上。
-                    raw in AgentConfig.RETIRED_SEARCH_ENGINES -> AgentConfig.SEARCH_AUTO
-                    raw in AgentConfig.SEARCH_ENGINES -> raw
-                    else -> AgentConfig.SEARCH_AUTO
-                }
-            }
-            ?: AgentConfig.SEARCH_AUTO,
-        thinkingEnabled = prefs.getBoolean("thinking_enabled", true),
-        reasoningEffort = normalizeReasoningEffort(
-            prefs.getString("reasoning_effort", AgentConfig.REASONING_AUTO)
-        ),
-        showReasoning = prefs.getBoolean("show_reasoning", true)
-    )
-
-    fun save(config: AgentConfig) {
-        prefs.edit()
-            .putString("provider", config.provider)
-            .putString("model", config.model)
-            .putString("base_url", config.baseUrl)
-            // 工具次数上限、能力开关都已取消，清掉老配置里的残留键
-            .remove("max_tool_calls")
-            .remove("disabled_caps")
-            .putString("assistant_name", sanitizeAgentTitle(config.assistantName))
-            .putString("search_engine", config.searchEngine)
-            // 回复风格已取消（只剩亲切一种），清掉老配置里的残留键
-            .remove("response_style")
-            .putBoolean("thinking_enabled", config.thinkingEnabled)
-            .putString("reasoning_effort", config.reasoningEffort)
-            .putBoolean("show_reasoning", config.showReasoning)
-            .apply()
-        securePrefs.edit()
-            .putString("api_key", config.apiKey)
-            .apply()
-    }
 }

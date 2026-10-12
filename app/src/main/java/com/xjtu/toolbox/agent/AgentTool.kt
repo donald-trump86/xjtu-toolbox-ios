@@ -102,7 +102,9 @@ class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
     private val context: Context,
-    private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO
+    private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO,
+    /** 记住的用户偏好（[AgentMemory]）：宿主可以换一份落盘实现，见那个类的 KDoc。 */
+    private val memory: AgentMemory = AgentMemory(),
 ) {
 
     /**
@@ -112,7 +114,7 @@ class AgentToolRegistry(
     fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
 
     /** 记住的用户偏好，拼进系统提示。走注册表是因为 ViewModel 手上没有 Context。 */
-    fun memoryBlock(): String = AgentMemory.promptBlock(context)
+    fun memoryBlock(): String = memory.promptBlock()
 
     /** 工具 → 它访问的后端系统。只用于限流分组。 */
     private val toolSites = mapOf(
@@ -667,8 +669,8 @@ class AgentToolRegistry(
             "preference" -> {
                 val key = args.str("key") ?: ""
                 val value = (args.str("value")).orEmpty()
-                if (value.isBlank()) AgentMemory.forget(context, key)
-                else AgentMemory.remember(context, key, value)
+                if (value.isBlank()) memory.forget(key)
+                else memory.remember(key, value)
             }
             "find_faculty" -> findFaculty(
                 name = args.str("name") ?: "",

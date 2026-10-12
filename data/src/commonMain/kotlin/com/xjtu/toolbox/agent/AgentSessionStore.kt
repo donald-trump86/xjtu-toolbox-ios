@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.agent
 
-import android.content.Context
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.platform.dataFilesDir
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -50,19 +50,26 @@ data class StoredConversation(
 /**
  * Agent 多会话持久化存储。
  *
- * 存放于 `filesDir/agent_sessions/`（非 cache，避免被系统清理）：
+ * 存放于 `filesDir/agent_sessions<账号后缀>/`（非 cache，避免被系统清理）：
  *   - `index.json`        —— 全部会话元数据（抽屉列表用，快速加载）
  *   - `convo_{id}.json`   —— 单个会话的消息与 LLM 历史
  *
  * 单机本地存储，无需 SQLite；每会话一个 JSON 文件的方案对标 opencode 早期实现，足够规范。
+ *
+ * ## 搬迁（`:app` → `:data`）
+ *
+ * 形状只改了一处：原来是 `class AgentSessionStore(context: Context)` 抓 `context.filesDir`，
+ * 现在根目录走 [dataFilesDir] 缝（Android 那份就是**同一个** `filesDir`，桌面那份是数据根目录），
+ * 并允许宿主传入另一个根（单测与多实例用）。**目录名、文件名、JSON 字段一个字符未改**，
+ * 老用户的会话与 LLM 历史照旧读得回来。
  */
-class AgentSessionStore(context: Context) {
-
-    private val appContext = context.applicationContext
-
+class AgentSessionStore(
+    /** 数据根目录（**每次调用重新解析**，默认取本端的 `dataFilesDir()`）。 */
+    private val rootDirOf: () -> File = { dataFilesDir() },
+) {
     /** 当前账号命名空间下的会话目录，每次调用动态解析以响应账号切换。 */
     private val dir: File
-        get() = File(appContext.filesDir, "agent_sessions${AccountContext.safeSuffix()}").apply { mkdirs() }
+        get() = File(rootDirOf(), "agent_sessions" + AccountContext.safeSuffix()).apply { mkdirs() }
     private val indexFile: File
         get() = File(dir, "index.json")
 
