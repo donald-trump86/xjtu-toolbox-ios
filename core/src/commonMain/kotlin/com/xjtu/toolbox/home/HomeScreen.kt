@@ -960,7 +960,7 @@ private val STATUS_BLUE = Color(0xFF1565C0)
  * 要编到 wasmJs，那里没有它）—— 与课表搬迁时那几处同一个坑。金额只会是非负数（余额、日均），
  * 所以 `+ 0.5` 截断就是 `%.2f` 的进位口径。
  */
-private fun yuanText(value: Double): String {
+private fun yuanText(value: Float): String {
     val cents = (value * 100 + 0.5).toLong()
     return "¥${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
 }
