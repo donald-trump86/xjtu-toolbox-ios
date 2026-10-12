@@ -41,13 +41,15 @@ import kotlinx.coroutines.Dispatchers
  *    取数本身在这一端跑得通，但「课表显示考勤角标」这个开关还只有 Android 在读
  *    （桌面设置页没画那一行，见 `DesktopSettingsHost` 的 TODO #4）⇒ 这一档整档不画，
  *    免得出现「开关关不掉、角标自己冒出来」；
- *  - `WIDGET_REFRESH` / `HOME_SIGNALS` —— 桌面没有桌面小组件，也没有首页 Hero
- *    （`HomeSignals` 是 `:app` 首页的跨层信号）⇒ 课表落地后不需要通知谁；
+ *  - `WIDGET_REFRESH` —— 桌面没有桌面小组件（设计文档 §6 Stage C 说「小组件用系统通知替代」，
+ *    那条路还没做，见 `DesktopHomeScreen` 的 TODO #1）⇒ 课表落地后没有小组件要刷；
+ *    `HOME_SIGNALS` **列了**（这一端现在有首页了：`AppRoute.Main` → `DesktopHomeScreen`，
+ *    它盯的就是 `DesktopHomeSignals.scheduleVersion`）；
  *  - `SCHEDULE_CHANGE_BUBBLE` —— 调课/停课的气泡走 `InboxStore`，这一端还没有那份消息收纳的宿主；
  *  - `ONLINE_CHECK` —— 桌面只按直连走（`DesktopAuth` 的已知缺口），没有校内外判定 ⇒
  *    `isOnline()` 走默认 true（真发请求失败时自然会被当成失败）。
  *
- * **TODO（下一批要接的两档）**：
+ * **TODO（下一批要接的那几档）**：
  *  1. `SEAT_COUNT`：桌面已经装配了「空闲教室」那条路由（`AppRoute.EmptyRoom`，源自己 ensure 三档
  *     数据源），把 `EmptyRoomApi` 那一步接过来就能画「N座」；
  *  2. `SHARE_FILE`：桌面的对应动作是「写进一个用户看得见的目录 + 打开它」（`java.awt.Desktop`），
@@ -62,10 +64,20 @@ internal class DesktopScheduleHost(private val auth: DesktopAuth) : ScheduleHost
     override val honored: Set<ScheduleCapability> = setOf(
         ScheduleCapability.CUSTOM_COURSE_EDIT,
         ScheduleCapability.LMS_LINK,
+        // 课表落地后给首页发信号：桌面现在有首页了（`AppRoute.Main` → `DesktopHomeScreen`），
+        // 它盯的版本号就是 `DesktopHomeSignals.scheduleVersion`（见 onScheduleSynced）。
+        // WIDGET_REFRESH 仍旧不列 —— 这一端没有桌面小组件（设计文档 §6 Stage C 说
+        // 「小组件用系统通知替代」，那条路还没做，见 `DesktopHomeScreen` 的 TODO #1）。
+        ScheduleCapability.HOME_SIGNALS,
     )
 
     /** 与搬迁前同一个池（`:app` 的日程页一直是 `Dispatchers.IO`）。 */
     override val io: CoroutineDispatcher = Dispatchers.IO
+    /**
+     * 课表落地之后要通知的事：桌面只有一件 —— 让首页重读一次缓存
+     *（`:app` 那一份还挂着桌面小组件刷新与提醒评估，桌面上没有那两样）。
+     */
+    override fun onScheduleSynced() = DesktopHomeSignals.onScheduleSynced()
 
     override fun cache(accountId: String?): ScheduleCacheStore =
         KeyValueScheduleCacheStore(

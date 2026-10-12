@@ -42,11 +42,11 @@ internal val desktopSettings: SettingsStore by lazy {
  *
  * ## TODO（桌面侧还缺的宿主面）
  *
- * 1. **外壳只接了深色模式与取色**：`主题`（首页两套布局）、`显示常用功能`、`界面风格`（底栏玻璃/经典）
- *    是 `:app` 首页与底栏的宿主面，桌面这一端还没有对应实现 ⇒ 那几行**不画**（列进 honoredRows
- *    才是假装能用）。要接的时候：底栏换成 `:core` 的 `GlassBottomTabs`（`:app` 用的是同一份），
- *    首页主题在桌面没有意义（底栏五格里没有首页）。
- * 2. **默认启动 Tab**：桌面底栏固定五格（校历 / 图书馆 / 黄页 / 游戏 / 全部），没有「默认进哪个 tab」这一档。
+ * 1. **外壳只接了深色模式 / 取色 / 首页主题**：`显示常用功能`与`界面风格`（底栏玻璃/经典）
+ *    是 `:app` 首页与底栏的宿主面，桌面这一端还没有对应实现 ⇒ 那两行**不画**（列进 honoredRows
+ *    才是假装能用）。要接的时候：底栏换成 `:core` 的 `GlassBottomTabs`（`:app` 用的是同一份）；
+ *    常用功能那一排要先把点击记录（`ServiceUsageTracker`）搬进共享层。
+ * 2. **默认启动 Tab**：桌面底栏固定六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部），没有「默认进哪个 tab」这一档。
  * 3. **触感反馈**：`HapticsController` 的 jvm actual 是空实现（桌面不震）⇒ 那一行不画。
  * 4. **课表来源 / 课表考勤 / 场馆验证码**：课表屏已经点亮（见上表），但「来源」「考勤角标」这两行
  *    还没有改值的入口，「场馆下单」这一端也不支持（`canBook = false`）⇒ 三行都不画。
@@ -63,7 +63,20 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
      */
     override val versionText: String = "v${DesktopBuildConfig.VERSION_NAME} (desktop)"
 
-    override val honoredRows: Set<SettingsRow> = setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR)
+    /**
+     * 真会照着办的行。
+     *
+     *  - [SettingsRow.DARK_MODE] / [SettingsRow.DYNAMIC_COLOR]：外壳按这两个偏好套 `XJTUToolBoxTheme`；
+     *  - [SettingsRow.HOME_THEME]：**本轮接上** —— 桌面现在有首页了（`AppRoute.Main` →
+     *    `DesktopHomeScreen`），它读的就是这个键（`SettingsStore.homeTheme`，与 `:app` 同一个键、
+     *    同一个值域）：改一下再回首页，两套布局真的会换。
+     *
+     * `显示常用功能`（[SettingsRow.QUICK_ACTIONS]）**不列**：桌面没有 `ServiceUsageTracker` 那份
+     * 点击记录，首页那一排「常用功能」在桌面上压根不画（见 `DesktopHomeScreen` 的如实降级那段）
+     * —— 开关拨了也看不到任何变化，那就是假装能用。
+     */
+    override val honoredRows: Set<SettingsRow> =
+        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_THEME)
 
     override val changelog: List<ChangelogEntry> = emptyList()
 

@@ -199,11 +199,24 @@ class DesktopScheduleJvmTest {
     fun `如实降级：这一端只声明它真接得上的那几档能力`() = withFakeCampus {
         val host = DesktopScheduleHost(newAuth())
         assertEquals(
-            setOf(ScheduleCapability.CUSTOM_COURSE_EDIT, ScheduleCapability.LMS_LINK),
+            setOf(
+                ScheduleCapability.CUSTOM_COURSE_EDIT,
+                ScheduleCapability.LMS_LINK,
+                // 课表落地后要给首页发信号：这一端现在有首页了（`AppRoute.Main`），
+                // 它盯的就是 `DesktopHomeSignals.scheduleVersion`。
+                ScheduleCapability.HOME_SIGNALS,
+            ),
             host.honored,
             "桌面只有「自建日程」与「思源入口」这两档（见 DesktopScheduleHost 的表与 TODO）—— " +
                 "改这里就等于屏上多画一档，先确认那一档的宿主面真接上了",
         )
+        // 首页信号那一档要在行为上真的会响：课表落地 → 版本号加一（首页据此重读缓存）。
+        // `WIDGET_REFRESH` 则相反 —— 桌面没有桌面小组件，所以它既不在 honored 里、
+        // `onScheduleSynced()` 也只做首页那件事。
+        assertFalse(ScheduleCapability.WIDGET_REFRESH in host.honored, "桌面没有桌面小组件")
+        val before = DesktopHomeSignals.scheduleVersion
+        host.onScheduleSynced()
+        assertEquals(before + 1, DesktopHomeSignals.scheduleVersion, "课表落地应当叫醒首页")
         // 没接的那几档要在行为上也是「没有」，不能只是没列进集合
         assertFalse(ScheduleCapability.SHARE_FILE in host.honored)
         assertEquals(false, host.shareFile("BEGIN:VCALENDAR", "x.ics", "text/calendar"), "桌面没有分享面板")
