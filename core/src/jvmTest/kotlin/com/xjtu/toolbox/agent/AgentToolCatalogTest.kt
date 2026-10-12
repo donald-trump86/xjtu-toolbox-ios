@@ -195,15 +195,15 @@ class AgentToolCatalogTest {
         val host = AgentHost.None
         assertEquals(emptySet(), host.honored)
         assertEquals(
-            ToolReply.notFound("tool", AgentCapability.ALARM.tool),
+            ToolReply.notFound("tool", AgentCapability.ALARM.tool ?: ""),
             host.setAlarm(9, 0, null, null),
         )
         assertEquals(
-            ToolReply.notFound("tool", AgentCapability.APP_SETTINGS.tool),
+            ToolReply.notFound("tool", AgentCapability.APP_SETTINGS.tool ?: ""),
             host.readAppSettings(),
         )
         assertEquals(
-            ToolReply.notFound("tool", AgentCapability.APP_SETTINGS.tool),
+            ToolReply.notFound("tool", AgentCapability.APP_SETTINGS.tool ?: ""),
             host.writeAppSetting("dark_mode", "dark"),
         )
     }
