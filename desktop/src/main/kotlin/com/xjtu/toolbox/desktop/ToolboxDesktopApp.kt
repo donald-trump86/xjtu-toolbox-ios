@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.agent.AgentConfig
+import com.xjtu.toolbox.agent.AgentHost
+import com.xjtu.toolbox.agent.AgentScreen
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
@@ -205,9 +211,21 @@ internal fun ToolboxDesktopApp(
      *（与图书馆那张 `library-demo.png` 注入 `DemoLibrarySource` 同一条口径）。
      */
     bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
+    /**
+     * 屁岱的宿主面（`:core` 的 [AgentHost]）。
+     *
+     * 默认是**本端真装配**的那一份（`DesktopAgentHost`：配置/会话/记忆真落盘、`:data` 的 SSE
+     * 传输、五件接得上的工具）。留这一格与上面的 [bulletinFetch] 同一条理由：离屏证据运行要拿
+     * **夹具传输**（见 `RenderScreens` 的 `agent.png`）—— 那一枪不该真去连一次 LLM。
+     */
+    agentHost: AgentHost? = null,
 ) {
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
+
+    // 屁岱的宿主面：进程内一份（与 `:app` 把屁岱挂在导航项上同位 —— 切页不丢会话）。
+    val agent = agentHost ?: remember(auth) { DesktopAgentHost(auth) }
+
 
     // 公告（顶部那条堆叠条 + 冷启动弹框）：四层都在共享层，这一端只装配（见 `DesktopBulletins`）。
     // 冷启动跑一次：先铺本地缓存，再去拉远端那份 JSON（拉不到就继续用缓存）。
@@ -245,7 +263,7 @@ internal fun ToolboxDesktopApp(
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 when (val t = target) {
-                    is DesktopTarget.App -> DesktopPage(auth, t.route, bulletins, { appearanceTick++ }) { target = it }
+                    is DesktopTarget.App -> DesktopPage(auth, t.route, bulletins, agent, { appearanceTick++ }) { target = it }
                     DesktopTarget.Routes -> RoutesPage(auth) { target = it }
                 }
             }
@@ -310,6 +328,11 @@ internal val DESKTOP_TABS = listOf(
  * `WebVpnCodec` 缝）与账号管理（多账号：看/切/增/删，动作本体是 `:desktop` 的 `DesktopAccounts`）。
  *
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
+ *
+ * 最后一条是**屁岱**（`AppRoute.Agent`）：屏与调度循环在 `:core`，工具层五件里有两件取数走
+ * `:data`（黄页 / 教师检索，都免登录），宿主面（配置 / 会话 / 记忆三份真落盘、`:data` 的 SSE
+ * 传输）在本端 —— 见 `DesktopAgentHost`（那里也列了它没接的那几档与 TODO）。
+ * 它同样不是校园站点：`AppRoute.Agent.loginType` 是 null。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // 首页（第 31 条真数据路由，也是底栏的第一格）：屏是 `:core` 的 `HomeScreen`，这一端提供
@@ -394,6 +417,12 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // 但它每一个动作都要会话内核：切账号 = 换绑 backends、新增 = 先探活登录再落库。
     // 名字照 `:app` 服务表里的叫法（「账号管理」/「切换或添加统一认证账号」）。
     AppRoute.Accounts to "账号管理",
+
+    // 屁岱（`AppRoute.Agent`，最后一条点亮的路由）：名字照 `:app` 底栏那一格的叫法（`BottomTab.PIDAI`
+    // 的 `"屁岱"`，也是它自己顶栏上的那个标题）。屏、调度循环、工具层的纯逻辑都在 `:core`，
+    // 这一端交宿主面（配置 / 会话 / 记忆三份真落盘、`:data` 的 SSE 传输）与五件接得上的工具 ——
+    // 见 `DesktopAgentHost`。它也不套 `DesktopSiteGate`（这一端接的两档取数都免登录）。
+    AppRoute.Agent to "屁岱",
 )
 
 /**
@@ -512,6 +541,8 @@ private fun DesktopPage(
     route: AppRoute,
     /** 公告宿主面（只有首页用得上：顶部那条堆叠条）。 */
     bulletins: DesktopBulletins,
+    /** 屁岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
+    agentHost: AgentHost,
     /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
     onAppearanceChanged: () -> Unit,
     onNavigate: (DesktopTarget) -> Unit,
@@ -1155,11 +1186,63 @@ private fun DesktopPage(
             ),
             onNavigate = onNavigate,
         )
+        // 屁岱（`AppRoute.Agent`，最后一条点亮的路由）：屏与调度循环（`AgentRunner`）在 `:core`，
+        // 这一端交的是宿主面与工具层（配置 / 会话 / 记忆三份真落盘、`:data` 的 SSE 传输、
+        // 五件接得上的工具），见 `DesktopAgentHost`。
+        //
+        // 不套 `DesktopSiteGate`：`AppRoute.Agent.loginType` 是 null，而这一端接的两档取数
+        //（黄页 / 教师检索）都是**免登录**的公开门户接口；会话本身要的那几档（闹钟 / 应用设置 /
+        // 自建日程）这一端没有，也就不会去建任何校园会话。整个外壳本来就只在登录之后才画这些屏。
+        AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
+
         // 其余路由**如实说「没搬过来」**，不拿有数据的屏冒充（深链/误点看着像 bug，也分不清
         // 「没实现」与「坏了」）。
         else -> NotPortedScreen(route, onNavigate)
     }
 }
+/**
+ * 屁岱在桌面的**宿主壳** —— `:core` 的 [AgentScreen] 自己不带顶栏：它把标题与「会话列表 / 配置」
+ * 两颗按钮反向交给宿主（`:app` 那边画在 `MainTopAppBar` 里）。
+ *
+ * 这一端没有 `:app` 那种 Scaffold + TopAppBar（桌面的每一屏自己画头部，底栏在内容下面、不盖在
+ * 上面），所以照它要的那三格拼一条最简的顶栏：左边会话列表开关、中间标题、右边配置。
+ * 两样不传，这一端没有对应物：`scrollBehavior`（没有折叠式玻璃顶栏）与 `contentTopPadding`
+ *（顶栏是这条 `Row` 里的普通一行，不浮在内容上）。
+ */
+@Composable
+private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
+    // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走，进配置面板时变成「配置」。
+    var title by remember { mutableStateOf(AgentConfig.DEFAULT_ASSISTANT_NAME) }
+    var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
+    var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            navIcon?.invoke()
+            Text(
+                title,
+                color = MiuixTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            actions?.invoke(this)
+        }
+        AgentScreen(
+            host = host,
+            // 导航就是在壳里换一屏（桌面没有内置浏览器这一层，与其余屏的 onNavigate 同一条口径）。
+            onNavigate = { route -> onNavigate(DesktopTarget.App(route)) },
+            onTitleChange = { title = it },
+            onActionsChange = { actions = it },
+            onNavIconChange = { navIcon = it },
+        )
+    }
+}
+
 
 /**
  * 全部页面：先列**真能用**的，再列**屏在了但没数据源**的。这一页同时是 Stage A 的进度表，

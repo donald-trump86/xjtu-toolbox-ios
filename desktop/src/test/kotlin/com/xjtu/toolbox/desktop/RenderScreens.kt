@@ -13,6 +13,8 @@ import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import androidx.compose.ui.unit.Density
+import com.xjtu.toolbox.agent.AgentConfig
+import com.xjtu.toolbox.agent.AgentPendingPrompt
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -112,6 +114,8 @@ import kotlinx.datetime.LocalDate
  * | `game_merge.png` | 合成西交大的**如实说明页**（`AppRoute.GameMerge`） | 这条路由卡的是**载体**：游戏本体是 `:app` 的 `assets/games/merge/`（HTML + 776 行 JS + Matter.js 物理引擎），跑在 Android 的 WebView 里；桌面端没有 WebView、依赖里也没有 JVM 上的 JS 引擎 ⇒ 这一端没有能执行它的地方。这张图就是那张说明页本身（**不进** `DESKTOP_SUPPORTED_ROUTES`），不是「没搬过来」那个通用页 —— 卡的不是取数 |
  * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算。课表缓存那一层随「我的课表」搬过来了（见 `schedule.png`），但学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）与算法本体（`MatchProfile`，900 行）还在 `:app`；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
  * | `schedule.png` | 我的课表屏（真路由：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的 `ScheduleScreen` + 本端 `DesktopScheduleHost`） | 第三十条真数据路由，也是本批的主角：屏与 ViewModel 按五步法搬进 `:core`（模型 / `CustomCourseStore` 端口 / 宿主槽位 / `CourseLinks` 按能力切开），这一端只提供宿主面（键值落盘 / 教务会话 / 节假日 / 思源入口）。图上的课名与教室都是夹具样本，而且**是格子画出来的**（`CourseCell` 那两行文本节点），不是只有一段说明文字 |
+ * | `agent.png` | 屁岱（真路由：外壳 → `AppRoute.Agent` → `:core` 的 `AgentScreen` + 本端 `DesktopAgentHost`） | 最后一条点亮的路由：屏、调度循环（`AgentRunner`）、工具层的纯逻辑都在 `:core`，这一端交宿主面（配置 / 会话 / 记忆三份**真落盘**、`:data` 的 `SseAgentTransport`、五件接得上的工具）。那一枪的「发一条」走 `:core` 的 `AgentPendingPrompt`（与 `:app` 从提醒气泡进来同一条路），模型那一侧换成夹具传输（`FixtureAgentTransport`，**不连任何 LLM**，回复是写死的常量）—— 图上那条助手气泡就是它，而配置与那轮会话是**真落在临时数据根目录里的文件** |
+ * | `agent_welcome.png` | 屁岱的**未配置欢迎页**（同一个 `AppRoute.Agent` 真路由，只把夹具传输换成空配置下的状态） | 与 `agent.png` 同一屏的另一个入口：没接模型时先落在「先接一个模型」那张欢迎页上。这一枪只断言「真路由接上宿主面之后确实落在这张页上」，对话流与落盘由 `agent.png`（及 `DesktopAgentJvmTest`）钉住 |
  * | `home.png` | 首页（真路由：外壳 → `AppRoute.Main` → `:core` 的 `HomeScreen` + 本端 `DesktopHomeScreen`） | 第三十一条真数据路由，也是 Stage C 「宿主机能族」的第一条：首页就是底栏的第一格（不另造一套壳）。这张图上的**第 4 周**、**下周那节课（夹具课名 + 教室）**、**考试倒计时（还有 5 天 · 主楼B-201）**与顶部那条**公告条**都是从**本端键值缓存**算出来的（`HomeHero` / `HomeScheduleStats` / `BulletinFeed` 都是 `:core` 的）；课表/考试/教材是拍之前写进去的夹具（值都是编的），公告那一枪注入的是夹具公告（`.invalid` 域名）。首页一个网络请求都不发 |
  * | `main.png` | 主壳（同一个 `AppRoute.Main`，宽窗 900×900） | 首页接进**现有导航壳**之后的形态：底栏六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部）都在，第一格「首页」是当前页；同一份夹具缓存与同一条夹具公告。外壳的**默认首屏**这一轮也改成了首页（与 `:app` 落在「Tab 1」同一条口径）—— 原来那个默认（图书馆）的理由是「它是这一端唯一有真数据的屏」，首页点亮之后这条不再成立。**桌面小组件这一端没有**（设计文档 §6 Stage C 的口径是「用系统通知替代」，那条路还没做）—— 它不在这一端任何一个宿主面里，不是「画不出来」 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
@@ -873,6 +877,29 @@ fun main(args: Array<String>) {
         check(mainHomeTabShown) { "main.png：底栏上没有「首页」那一格 —— 首页没接进现有壳？" }
         check(mainBulletinShown) { "main.png：顶部没有夹具那条公告" }
 
+        // 屁岱（最后一条点亮的路由 `AppRoute.Agent`）：屏与调度循环在 `:core`，这一端只给宿主面
+        //（`DesktopAgentHost`：配置/会话/记忆真落盘）。模型那一侧注入夹具传输
+        //（`FixtureAgentTransport`）⇒ 这一枪一个 LLM 请求都不发；配置是空的 ⇒ 落在 `:core` 屏自己的
+        //「先接一个模型」欢迎页上（那句话不是本端画的）。「发一条 → 流式回一条」的端到端判据在
+        // `DesktopAgentJvmTest` 里（断言的就是 `AGENT_FIXTURE_REPLY`）。
+        var agentWelcomeShown = false
+        shot(
+            "agent_welcome.png",
+            frames = 12,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!agentWelcomeShown) agentWelcomeShown = hasText(scene, "先接一个模型")
+                }
+            },
+        ) {
+            ToolboxDesktopApp(
+                auth,
+                DesktopTarget.App(AppRoute.Agent),
+                agentHost = fixtureAgentHost(auth, FixtureAgentTransport()),
+            )
+        }
+        check(agentWelcomeShown) { "agent_welcome.png：没落在「先接一个模型」那张欢迎页上 —— AppRoute.Agent 没接上宿主面？" }
+
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
@@ -974,6 +1001,41 @@ fun main(args: Array<String>) {
                 DesktopScheduleHost(auth).cache(AccountContext.activeAccountId),
             ) != null,
         ) { "schedule.png：拍完了但课表缓存是空的 —— 上屏的数据没落盘" }
+        // ── 屁岱（`AppRoute.Agent`，最后一条点亮的路由）─────────────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Agent` → `:core` 的 `AgentScreen` + 本端 `DesktopAgentHost`
+        //（配置 / 会话 / 记忆三份**真落盘**、`:data` 的 `SseAgentTransport`、五件接得上的工具）。
+        //
+        // 这条链上唯一的外部依赖是「发一次 chat/completions」：这一枪把它换成夹具传输
+        //（`FixtureAgentTransport`，见 `AgentFixture.kt`）—— **不连任何 LLM**，回复是写死的常量。
+        // 「发一条」走 `:core` 的 `AgentPendingPrompt`（与 `:app` 从提醒气泡点进来同一条路；
+        // 离屏场景里没有鼠标，点不到输入栏那颗发送圆键）。
+        //
+        // 拍之前先落一份夹具配置（`saveConfig`，与配置面板同一个动作本体）：没有 key 时屏上
+        // 是「先去设置里配一下」那条提示，根本没有对话可拍。
+        // 图上的判据是**那条夹具回复**（`hasText`）：助手气泡里出现了它，就说明
+        // 「待发消息 → 装配工具层与传输 → 流式回调 → 上屏」整条真的跑通了。
+        val agent = fixtureAgentHost(auth, FixtureAgentTransport())
+        agent.saveConfig(AgentConfig(apiKey = "fixture-key", model = "fixture-model"))
+        AgentPendingPrompt.set("帮我看一下桌面这一端接上了没有")
+        var agentReplied = false
+        shot(
+            "agent.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!agentReplied && frame >= 4) agentReplied = hasText(scene, AGENT_FIXTURE_REPLY)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Agent), agentHost = agent) }
+        check(agentReplied) { "agent.png：屏上没有那条夹具回复 —— 待发消息没发出去，或流式回包没上屏" }
+        // 配置与那一轮会话都落在本端数据根目录里（逐条钉落盘的是 `DesktopAgentJvmTest`）。
+        val agentConfigFile = File(shotsRoot, "agent_config${AccountContext.safeSuffix()}.properties")
+        check(agentConfigFile.isFile) { "agent.png：配置没落盘：${agentConfigFile.absolutePath}" }
+        check(
+            shotsRoot.walkTopDown().any {
+                it.isFile && it.name.startsWith("convo_") && it.readText().contains(AGENT_FIXTURE_REPLY)
+            },
+        ) { "agent.png：拍完了但那轮会话没落盘" }
+        println("屁岱落盘：${agentConfigFile.absolutePath}")
+
 
         // ── 账号管理（多账号，第二十九条真数据路由）────────────────────────────────
         // 走**真路由**（外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`），注入的是
