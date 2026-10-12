@@ -149,8 +149,10 @@ serve 模式走的是**浏览器承载**，对应 `wasmJsMain` 那 18 个 actual
 
 设置 / 多账号 / 下载管理 / 首页 / 通知。（小组件用通知替代。）
 **验收**：40 条路由在桌面都有真实实现（`NotPortedScreen` 归零）。
-> **验收记录：见 §12.3**（**已达成**：`AppRoute` 表的 43 条声明在桌面的 `when (route)` 里各有真分支，
-> `NotPortedScreen` 零命中）。口径提醒：这里的「40 条」是当初的估计，今天的数字以 §12.3 为准。
+> **验收记录：见 §12.3**（宿主机能族**全部落地**，`AppRoute.Agent` 是最后一条、已于 `997929be` 点亮）。
+> 但「`NotPortedScreen` 归零」这句要按实际收窄：`AppRoute` 的 43 条声明里 **42** 条在 `DesktopPage` 的
+> `when (route)` 里有真分支，**`AppRoute.Browser` 一条没有** ⇒ 直接导航到它仍落 `else -> NotPortedScreen`。
+> 口径提醒：这里的「40 条」是当初的估计（§6.4 原文用的就是「**≈** 40」），今天的数字以 §12.3 / §14 为准。
 
 ### 6.4 关于"40/40"
 
@@ -363,12 +365,12 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 
 ## 12. Stage A / B / C 验收记录（2026-10-13 清点）
 
-> 这一节把 §6 的三条验收判据与仓库里的事实逐条对上。**本轮是纯文档轮次**：`docs/` 之外一行未改，
-> 开工前 `git status --porcelain` 为空，**没有重跑任何 gradle 门禁**。下面的数字因此分两类，读的时候别混：
-> ① **仓库里的实测产物** —— `build/test-results/**` 的 XML、`build/screenshots/*.png`、
-> `build/compose/binaries/**` 的文件：本轮只做 `ls` 与解析 XML，**不是本轮复现**；
-> ② **提交信息里记的数字** —— `git log -1 <hash> --format=%B`：只在 ① 对得上时才引用（对得上就两边都写）。
-> 本文档里出现的每个 hash 都核过是当前 `HEAD`（`97d1d476`）的祖先（`git merge-base --is-ancestor`）。
+> 这一节把 §6 的三条验收判据与仓库里的事实逐条对上。**分两轮**，读的时候别混：
+> ① 2026-10-13 上午的**文档清点轮**（`383b8cf6` → `eaf7a1c7`）：`docs/` 之外一行未改，**没有跑任何 gradle 门禁**，
+>    当时的数字只来自 `ls` 与解析 `build/test-results/**` 的 XML —— 那一轮有几处口径写错了（路由分支数、`DESKTOP_SUPPORTED_ROUTES` 的条数、证据图张数），本轮已按实际更正；
+> ② 2026-10-13 **04:23–04:49 的最终验收轮**：真跑了全量门禁 + 两个打包任务，命令、产物与未验证项见 **§14**；
+>    本节里与 §14 冲突的数字，一律以 §14 为准。
+> 本文档里出现的每个 hash 都核过是当前 `HEAD` 的祖先（`git merge-base --is-ancestor`，本轮 30 个 hash 全过）。
 
 ### 12.1 Stage A · 只读主要屏可用 —— 已达成（「装上」那一半另有缺口，见末段）
 
@@ -378,7 +380,7 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 |---|---|---|
 | 登录自己的账号（不经过任何我方服务器） | ✓ | 窗口模式用 `:data` 的会话内核自己登（`DesktopAuth`）；`:desktop:test` 的 `DesktopAuthLibraryJvmTest`（**28** 个 `@Test`）钉住真登录（密码 RSA 加密提交 CAS）、错密码不落盘、冷启动从凭据文件静默恢复、会话失效自动重登重放、退出即清除 |
 | 取数不借 campus-api | ✓ | `:desktop` 的取数全是 `:data` 的 `*Api`/`*Source`；脚手架在 §11 那一步已拆，只剩离屏证据运行里那个 `DemoLibrarySource`（`desktop/src/test/…/DemoLibrarySource.kt`，只在 test 源集、不进包） |
-| 只读主要屏可用 | ✓ 远超判据 | 索引页那张「真能画的路由」表 **37** 条；Stage A 的中间态进度表 `DESKTOP_PENDING_ROUTES` **是空的**（它的 KDoc 里记着这份历史一共长出过 17 条，第 17 条考勤搬完后归零） |
+| 只读主要屏可用 | ✓ 远超判据 | 索引页那张「真能画的路由」表 **38** 条（Stage A 清点那会儿是 37，`Agent` 点亮后多一格）；Stage A 的中间态进度表 `DESKTOP_PENDING_ROUTES` **是空的**（它的 KDoc 里记着这份历史一共长出过 17 条，第 17 条考勤搬完后归零） |
 | 「约 23~27 条」这个数字 | 判据过时，不是没达成 | 那个数来自 §6.4 的推理（浏览器端卡在 campus-api 的能力上）；桌面自己直连，落点见下面那张路由账 |
 | Android 行为不变（C1） | 本轮未逐提交核 `:app` 的 diff | 各批搬迁提交自己核的（每批都写明 `:app` 侧只搬走 + 引用改名，且 `:app` 用例数只平移不减少）；本轮只核到 `app/build/test-results/testDebugUnitTest/` 的 XML：**429 通过 / 0 失败** |
 
@@ -388,14 +390,14 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 |---|---|---|
 | `AppRoute` 声明总数 | **43** | `core/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt` —— 40 个 `data object` + 3 个带参 `data class`（`Lms` / `Jiaocai1Reader` / `Browser`） |
 | 桌面主壳里出现过的 | **43** | `grep -o 'AppRoute\.[A-Za-z0-9_]*' desktop/src/main/kotlin/com/xjtu/toolbox/desktop/ToolboxDesktopApp.kt \| sort -u` —— 声明集与引用集两边求差都为空（`Agent` 已于 `997929be` 点亮） |
-| `DesktopPage` 的顶层分支 | **43** + 一条兜底的 `else -> NotPortedScreen` | 同一文件 `when (route)`；把声明集与分支集各自提取后求差，两个方向都为空 —— **`else` 今天没有路由命中** |
-| `DESKTOP_SUPPORTED_ROUTES`（真能画） | **43** | 同一文件那段列表（一行一个 `AppRoute to "中文名"`）；`Agent` 加进去之后与 `AppRoute` 声明数相等 |
+| `DesktopPage` 的顶层分支 | **42** + 一条兜底的 `else -> NotPortedScreen` | 同一文件 `when (route)`（第 552 行起，`else` 在第 1200 行）；把声明集与**顶层分支集**各自提取后求差，只有一边非空：**`AppRoute.Browser` 没有分支**（另外三处 `is AppRoute.Browser ->`（第 633 / 818 / 838 行）是**子屏回调**里把外链交给系统浏览器，不是这一层的分支） |
+| `DESKTOP_SUPPORTED_ROUTES`（真能画） | **38** | 同一文件那段列表（第 337–426 行，一行一个 `AppRoute to "中文名"`，含 `AppRoute.Lms()` 那个带参默认实例）；与声明数差 **5**：`Browser`（无分支）、`GameMerge`/`Match`（`HostUnavailableScreen` 如实说明页）、`Jiaocai1Reader`（二级屏，表里用的是 `Jiaocai1`）与 `Settings`（真分支但不取数）—— 后两条的理由写在 `DESKTOP_OPENABLE_ROUTE_IDS` 的 KDoc 里 |
 | `DESKTOP_PENDING_ROUTES`（屏在了、取数还在 `:app`） | **空** | 同一文件 `emptyList<Pair<AppRoute, String>>()` |
-| 提交信息里的「真数据路由」编号 | 到 **31** 为止 | `git log --oneline \| grep 真数据路由`：最大是 `70b98c9` 的「第 31 条真数据路由」（首页） |
+| 提交信息里的「真数据路由」编号 | 到 **32** 为止 | `git log --oneline \| grep 真数据路由`：最大是 `997929be` 的「第三十二条真数据路由」（屁岱 / `AppRoute.Agent`） |
 
-**证据图**：`desktop/build/screenshots/` 共 **39** 个 PNG（`ls | wc -l`），与 `RenderScreens.kt` 里 **39** 处 `shot(` 一一对应；**其中没有 `agent.png`**（`ls desktop/build/screenshots/agent.png` 报「No such file」）。
+**证据图**：`desktop/build/screenshots/` 共 **41** 个 PNG（`ls \| wc -l`；本轮 `:desktop:renderScreens` 真跑后复核），含 `agent.png` 与 `agent_welcome.png`（`997929be` 新增）。
 
-**门禁数字（本机留下的实测文件）**：`:desktop:test` **76 通过 / 0 失败 / 0 跳过**（17 个 XML，`desktop/build/test-results/test/`，时间戳 2026-10-12 20:24）—— 与 `97d1d476` 提交信息里的「`:desktop:test` 76（`--rerun` 真跑）」对得上。
+**门禁数字（本机留下的实测文件）**：`:desktop:test` **80 通过 / 0 失败 / 0 跳过**（18 个 XML，`desktop/build/test-results/test/`，时间戳 2026-10-13 04:10）—— 与 §14 那一轮五个模块的数字出自同一批文件。
 
 ⚠️ **「装上」这一半只有 Linux 兑现了出包**：`.deb` / app-image / `tar.gz` 本机真出过（字节数见 §13.1），
 但**真装一次、真桌面启动都还没验**（`docs/linux-delivery.md` §7 第 1/2/6/8 条）；
@@ -444,10 +446,16 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
 | 反馈与建议 | `f1e7c3b` | 唯一一条没有校园会话的路由（上游是飞书开放平台）；`:core` 的 `FeedbackScreen` + `FeedbackStore` 本地账本；桌面 `DesktopFeedback` 在窗口起来之前注入凭据；证据图 `feedback.png` |
 | 校园公告（只搬数据半，不新增路由） | `0b80244` | `:core` 的 `BulletinRules`/`BulletinStore` + `:data` 的 `BulletinApi`；桌面侧已接上（首页顶部堆叠条 + 冷启动弹框，见 `ced0818` / `70b98c9`） |
 
-**两条不是「没搬」、而是「这一端没有等价载体 / 数据」**（落 `HostUnavailableScreen`，不是 `NotPortedScreen`，
-也不在 `DESKTOP_SUPPORTED_ROUTES` 里）：`AppRoute.GameMerge`（游戏本体是 `:app` 的 `assets/games/merge/`
+**两条不是「没搬」、而是「这一端没有等价载体 / 数据」**（落 `HostUnavailableScreen`，**不是** `NotPortedScreen`，
+也**不在** `DESKTOP_SUPPORTED_ROUTES` 里 ⇒ **不算真实现**）：`AppRoute.GameMerge`（游戏本体是 `:app` 的 `assets/games/merge/`
 那套 HTML + JS，跑在 WebView 里 —— 桌面没有 WebView，也没有 JVM 上的 JS 引擎）与 `AppRoute.Match`
 （全程离线算本机缓存，而学工档案 / 校园卡消费 / 课表教材缓存那几件里还有仍是 `:app` 实现的）。
+两条各有一支真分支（第 1143 / 1175 行）指向一个**如实说明卡在哪**的页（`HostUnavailableScreen`，
+第 1369 行起）—— 那是如实告知，不是「坏了的屏」。
+
+**另外七条游戏路由是真实路由**（`playful` 那一批）：合集页 `AppRoute.Games` 与 `Game2048` / `GameBlocks` /
+`GameGomoku` / `GameHop` / `GameGo` / `GameXiangqi`。它们是纯 UI、与数据源无关，屏和逻辑三端同一份，
+都在 `DESKTOP_SUPPORTED_ROUTES` 里、各有真分支（第 1098 / 1104 / 1105 / 1106 / 1110 / 1111 / 1124 行）。
 
 #### `AppRoute.Agent`（屁岱）—— 已点亮（最后一条）
 
@@ -465,12 +473,19 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
 
 #### 「`NotPortedScreen` 归零」的判据（2026-10-13 复核）
 
-- `AppRoute` 表 **43** 条声明，`DesktopPage` 的 `when (route)` 里 **43** 条真分支 —— 把两边各自提取后求差，**两个方向都为空**。
-- `else -> NotPortedScreen(...)` 那一行仍留着当兜底，但**今天没有任何路由命中它**。
-- 43 条里 **2** 条不是真数据（`GameMerge` / `Match`，各有自己的 `HostUnavailableScreen` 说明页），其余都是真屏；
-  「40/40」这个写法来自 §6.4 当初的**估计**（原文用的是「**≈** 40」），今天的口径以「43 条声明 / 43 条分支 /
-  `NotPortedScreen` 零命中」为准。
-- 证据图 **41** 张在 `desktop/build/screenshots/`（本轮新增 `agent.png`）。
+- `AppRoute` 表 **43** 条声明；`DesktopPage` 的 `when (route)`（第 552 行）里是 **42** 条真分支 + 一条兜底 `else`。
+  把声明集与**顶层分支集**各自提取后求差：只有一边非空 —— **差的那一条是 `AppRoute.Browser`**（带参 `data class`）。
+  也就是说 `else -> NotPortedScreen(route, onNavigate)`（第 1200 行）**今天仍会被命中**：直接导航到
+  `AppRoute.Browser(url)`（深链 / 索引页 / 旧版本存下的目标）会落到占位页。
+- `AppRoute.Browser` 并不等于「外链全断」：这一端没有内置浏览器，**子屏**把外链回调上来时由三处
+  `is AppRoute.Browser -> openInBrowser(...)`（第 633 / 818 / 838 行）交给系统浏览器（`java.awt.Desktop.browse`）——
+  那三处是**子屏的 `when`**，不在这条顶层分支里。要不要也给顶层单开一支（「把地址交给系统浏览器」的一屏）
+  仍是**下一个决定**（§13.3 第 2 条）。
+- 43 条里 **2** 条不是真数据（`GameMerge` / `Match`，各自的 `HostUnavailableScreen` 如实说明页），
+  **38** 条在 `DESKTOP_SUPPORTED_ROUTES` 里，剩下 3 条（`Browser` / `Jiaocai1Reader` / `Settings`）有屏但不是那张表的口径。
+- 「40/40」这个写法来自 §6.4 当初的**估计**（原文用的是「**≈** 40」），今天的口径以「43 条声明 / 42 条顶层分支 /
+  `NotPortedScreen` 仍会命中 `Browser` 一条」为准。
+- 证据图 **41** 张在 `desktop/build/screenshots/`（本轮 `:desktop:renderScreens` 真跑后复核，含新增的 `agent.png`）。
 
 **本轮仍未验证的（不在上面这条验收里，别混为一谈）**：桌面屁岱只跑到夹具传输（真 LLM 没连过，API key 用户自填）；
 Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能验的那一半（见 §13 与两份交付文档的「未验证项」清单）。
@@ -488,10 +503,10 @@ Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能
 
 | 交付面 | 产物 / 入口 | 可核证据 | 状态 |
 |---|---|---|---|
-| **Android**（`:app`） | 签名 APK → GitHub Release（`main` 出 Latest 并同步 Gitee；`dev` 出 Pre-release、不同步 Gitee） | `.github/workflows/build.yml`（触发 `push: [main, dev]` + `workflow_dispatch`；出包 / Release / 同步 Gitee 的步骤都在该文件里）；`:app:testDebugUnitTest` **429 通过 / 0 失败**（`app/build/test-results/testDebugUnitTest/`） | 与三端重构无关，按 C1 口径行为不变；灰度与预览渠道见 `docs/preview-channel.md` |
-| **Linux 桌面** | `.deb` · app-image · `tar.gz` | `docs/linux-delivery.md`（`603ece98`）：本机真出过三样 —— `.deb` **111,170,448 B**、app-image **204,922,515 B（207 个文件）**、`tar.gz` **123,750,278 B**；本轮 `ls` 复核：三个文件仍在 `desktop/build/compose/binaries/main/{deb,app,tar}/`，字节数一致 | 出包已验证；**真装与真启动未验证** |
+| **Android**（`:app`） | 签名 APK → GitHub Release（`main` 出 Latest 并同步 Gitee；`dev` 出 Pre-release、不同步 Gitee）；本机验收出的是调试包 | `.github/workflows/build.yml`（触发 `push: [main, dev]` + `workflow_dispatch`；出包 / Release / 同步 Gitee 的步骤都在该文件里）；`:app:testDebugUnitTest` **429 通过 / 0 失败**（`app/build/test-results/testDebugUnitTest/`）；本轮真跑 `:app:assembleDebug` 出 **`app/build/outputs/apk/debug/app-debug.apk` 42,254,022 B**（2026-10-13 04:49，见 §14） | 与三端重构无关，按 C1 口径行为不变；灰度与预览渠道见 `docs/preview-channel.md`；**签名与 Release 链路仍未在本机跑过** |
+| **Linux 桌面** | `.deb` · app-image · `tar.gz` · 可分发目录 | `docs/linux-delivery.md`（`603ece98`）：本机真出过三样 —— `.deb` **111,170,448 B**、app-image **204,922,515 B（207 个文件）**、`tar.gz` **123,750,278 B**；本轮 `ls` 复核：三个文件仍在 `desktop/build/compose/binaries/main/{deb,app,tar}/`，字节数一致；本轮又真跑 `:desktop:createDistributable` 出 **`desktop/build/compose/binaries/main/app/` 205,474,839 B / 207 个文件**（启动器 `xjtu-toolbox/bin/xjtu-toolbox`，见 §14） | 出包已验证；**真装与真启动未验证** |
 | **Windows 桌面** | `.msi` / `.exe`（只能在 Windows 上打） | `docs/windows-delivery.md`（`b624008`）：DPAPI 保护器缝 + 假保护器单测、`targetFormats` 含 `Msi`/`Exe`、`.github/workflows/desktop-windows.yml`（`windows-latest`）、更新骨架 `DesktopUpdate`；本轮 `ls` 复核：`desktop/build/compose/binaries/main/` 下**没有** `msi`/`exe` 目录 | 配置与 CI 就绪；**打包与 DPAPI 真调用都没在本机验过** |
-| **serve 模式**（`:server` + `:web`） | 一个 JVM 进程：托管 wasm 产物 + `/api/*`（默认只监听 `127.0.0.1`，访问令牌换 `serve_token` cookie） | 契约真源是 `docs/api-contract.md`；`:server` 的端点已落地（§5.1 会话 / §5.2 P0 取数 / §5.3 需登录只读 / §5.3.1 与 §5.3.2 两条写路径）；`:server` 契约测试 **44 通过 / 0 失败**（`server/build/test-results/test/`，10 个 XML）；`:web` 的滑块宿主 `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSlideCaptchaHost.kt` | 覆盖范围**以契约 §5 为准**；**浏览器端到端没有可核记录**，且 §5 表里 P2 那三行仍未实现（见 13.2 第 ④ 组） |
+| **serve 模式**（`:server` + `:web`） | 一个 JVM 进程：托管 wasm 产物 + `/api/*`（默认只监听 `127.0.0.1`，访问令牌换 `serve_token` cookie） | 契约真源是 `docs/api-contract.md`；`:server` 的端点已落地（§5.1 会话 / §5.2 P0 取数 / §5.3 需登录只读 / §5.3.1 与 §5.3.2 两条写路径）；`:server` 契约测试 **44 通过 / 0 失败**（`server/build/test-results/test/`，10 个 XML）；`:web` 的滑块宿主 `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSlideCaptchaHost.kt`；wasm 产物本机在 `web/build/dist/wasmJs/productionExecutable/`（两个 `.wasm` 各 **8,131,435 B** / **8,640,316 B** + `toolbox-web.js` **541,599 B**，时间戳 2026-10-11 06:21） | 覆盖范围**以契约 §5 为准**；**浏览器端到端没有可核记录**，且 §5 表里 P2 那三行仍未实现（见 13.2 第 ④ 组）；本轮重跑 `:web:wasmJsBrowserDistribution` **失败**（失败原文与原因见 §14 第 2 条）——目录里仍是上面那一份旧产物 |
 
 ### 13.2 未验证项汇总（按交付面分组，逐条指向原文）
 
@@ -543,10 +558,105 @@ Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能
 
 | # | 存疑的事 | 为什么存疑 | 待谁 / 怎么核 |
 |---|---|---|---|
-| 1 | `RenderScreens.kt` 第 94 / 408 行仍写 `canBook = false` | `184bd527` 之后没跟着改（§12.2 已记原委） | 下次动那个文件时改准（本轮只动 `docs/`） |
-| 2 | `AppRoute.Browser` 在桌面要不要单独给一支 | 直连它会落占位页；内联的那三处才走系统浏览器（§12.3） | 产品决定 |
-| 3 | `Agent` 三步的具体切法 | 本域还在搬；本文档只记「差什么」 | 那一轮的实现提交 |
+| 1 | `RenderScreens.kt` 第 96 / 412 行仍写 `canBook = false` | `184bd527` 之后没跟着改（§12.2 已记原委；行号因 `997929be` 增行而从 94 / 408 平移） | 下次动那个文件时改准（本轮只动 `docs/`） |
+| 2 | `AppRoute.Browser` 在桌面要不要单独给一支 | 今天它是**唯一还会落 `NotPortedScreen` 的路由**（§12.3 的归零判据）；子屏回调那三处已走系统浏览器 | 产品决定 |
+| 3 | 桌面屁岱只跑到夹具传输：真 LLM 没连过（API key 由用户自填） | `997929be` 的证据图 `agent.png` 用的是夹具传输，`.github` 里也没有它的端到端记录 | 用户真填一次 key 跑一遍 |
 | 4 | §6.4 的「可达上限 ≈ 40」这个数目 | 它是**估计**（原文用「≈」），而今天 `AppRoute` 是 43 条声明 —— 口径不同 | 待用户确认要不要把 §6.4 重算一遍（本文档**不改** §6.4） |
 | 5 | serve 模式的浏览器端到端 | 无记录、`:web` 无测试源集（§13.2 第 ④ 组第 1 条） | 见那一行 |
 | 6 | `docs/api-contract.md` §5.1 的 TODO ①②③④（MFA 绑定手机号不投影、`attemptsLeft` 的第二份写法、轮询间隔） | 契约自己标着，本轮只对齐了「已落地 / 未实现」这一层 | `:web` 那个弹窗真开始画时 / 契约改形状时一起收 |
 | 7 | Linux / Windows 两份交付文档里的未验证项 | 它们是那两批交付的事实记录，本文档不改它们 | 各自的「下一个决定」或 CI 真跑（§13.2 第 ② / ③ 组） |
+| 8 | `:web:wasmJsBrowserDistribution` 本轮那一红 | 失败输入是**未提交**的在途改动（`core/src/commonMain/kotlin/com/xjtu/toolbox/social/MatchProfile.kt`），不是提交状态；且那一跑跑到中途了另一条构建，**没做到独占**（§14.3 记了失败原文与这两点） | 那批改动落地 / 工作区干净之后，**独占**重跑一次（`:core` 的 wasm 编译要真过） |
+| 9 | 本轮五个测试任务全是 `UP-TO-DATE`（**没有真正重跑**） | 04:03–04:16 那一轮同样的输入真跑过、全绿；本轮 04:23 起跑时输入没变，Gradle 直接复用产物（§14.1） | 要「同一刻重跑一遍」的话，那五个任务加 `--rerun` 再跑 |
+| 10 | `Match`（匹配交友）「卡在 `:app` 缓存」这条理由还准不准 | 提交状态里它确实是 `HostUnavailableScreen`；但本轮验收期间同一工作区里出现了**未提交**的 `core/.../social/`（Match 域往 `:core` 搬） | 那批提交落地后按实际重核 §12.3 那一段 |
+
+---
+
+## 14. 三端最终验收（2026-10-13 真跑）
+
+> 这一节只记**本轮真跑出来的东西**：命令、输出的原文数字、产物路径与字节数（`stat -c '%s'` / `du -sb`）。
+> 跑法：每次一条 gradle 命令、`--max-workers=1 -Pkotlin.incremental=false`（本机 7 GB，增量缓存被中断弄坏过），
+> 后台跑 + 轮询；两条命令**起跑前**都核过没有别的 gradle 构建在跑。⚠️ 但第二跑（§14.3）**跑到中途同一目录里又起了一条构建**
+> —— 那一次的结论按「非独占」打折看待，原委写在 §14.3 里。
+
+### 14.1 全量门禁 + Android APK + 桌面可分发目录（同一条命令）
+
+```
+sh gradlew --console=plain --max-workers=1 -Pkotlin.incremental=false \
+  :server:test :testkit:compileKotlin :core:compileKotlinWasmJs :core:compileAndroidMain :core:jvmTest \
+  :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test :desktop:renderScreens \
+  :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :desktop:createDistributable
+```
+
+**结果：`BUILD SUCCESSFUL in 26m 8s`** —— `110 actionable tasks: 35 executed, 11 from cache, 64 up-to-date`（日志 `/tmp/accept.log`）。
+
+| 模块 | 用例 | 失败 | 错误 | 跳过 | XML 个数 | 实测文件时间戳 |
+|---|---|---|---|---|---|---|
+| `:server:test` | **44** | 0 | 0 | 0 | 10 | 2026-10-13 04:07 |
+| `:core:jvmTest` | **415** | 0 | 0 | 0 | 66 | 2026-10-13 02:57 |
+| `:data:jvmTest` | **259** | 0 | 0 | 0 | 45 | 2026-10-13 03:00 |
+| `:desktop:test` | **80** | 0 | 0 | 0 | 18 | 2026-10-13 04:10 |
+| `:app:testDebugUnitTest` | **429** | 0 | 0 | 0 | 76 | 2026-10-13 03:04 |
+
+> 五个模块共 **1227** 条用例，0 失败 0 错误 0 跳过。数字的核法：解析各自 `build/test-results/**/*.xml` 的根节点
+> `tests` / `failures` / `errors` / `skipped` 属性求和（不是从提交信息抄的）。
+>
+> ⚠️ **如实说明：这五个测试任务本轮在 Gradle 里都是 `UP-TO-DATE`（没有真正重跑）** —— 因为 04:03–04:16 那一轮
+> 用**同样的输入**（含最新的 `9f2145ec` / `997929be`）真跑过、全绿，本次输入没变，Gradle 直接复用产物。
+> 本轮**真正执行**的是：`:desktop:renderScreens`、`:app:assembleDebug`、`:desktop:createDistributable` 与各自的依赖链
+> （编译类任务是 `FROM-CACHE` / `UP-TO-DATE`）。想要「同一刻重跑」的话，那五个任务加 `--rerun` 再跑一遍就行（§13.3 第 9 条）。
+
+### 14.2 三端产物（路径与字节数都是本轮真出的）
+
+| 端 | 任务 | 产物路径 | 大小 | 实测时间 |
+|---|---|---|---|---|
+| **Android** | `:app:assembleDebug` | `app/build/outputs/apk/debug/app-debug.apk` | **42,254,022 B**（`stat -c '%s'`） | 2026-10-13 04:49:03 |
+| **Linux 桌面** | `:desktop:createDistributable` | `desktop/build/compose/binaries/main/app/` | **205,474,839 B** / **207 个文件**（`du -sb` / `find -type f \| wc -l`）；启动器 `xjtu-toolbox/bin/xjtu-toolbox` | 2026-10-13 04:49 |
+| **桌面证据图** | `:desktop:renderScreens` | `desktop/build/screenshots/` | **41 张** PNG（含 `agent.png`） | 2026-10-13 04:25:17–04:30:49 |
+
+> **Windows 的 `.msi` / `.exe` 本轮照旧没出** —— 那两个任务只能在 Windows 上打（本机 Linux）。
+> 「本机命令绿了」不代表它们验过：`:desktop:packageMsi` / `packageExe` 在本机是 `SKIPPED`，不是通过（见 `docs/windows-delivery.md` §7）。
+
+### 14.3 `:web` 的 wasm 产物 —— 本轮**失败**（如实记下原文）
+
+```
+sh gradlew --console=plain --max-workers=1 :web:wasmJsBrowserDistribution
+```
+
+**结果：`BUILD FAILED in 5m 13s`** —— `29 actionable tasks: 27 executed, 2 up-to-date`（日志 `/tmp/webdist.log`）。
+失败点在 `:core:compileKotlinWasmJs`：
+
+```
+e: .../core/src/commonMain/kotlin/com/xjtu/toolbox/social/MatchProfile.kt:267:64 'fun String(chars: CharArray): String' is deprecated. Use CharArray.concatToString() instead.
+e: .../core/src/commonMain/kotlin/com/xjtu/toolbox/social/MatchProfile.kt:497:29 'fun String(chars: CharArray): String' is deprecated. Use CharArray.concatToString() instead.
+```
+
+（同一批 `:core/social/` 文件里还有其它同类报错，全文在 `/tmp/webdist.log`。）
+
+**这条红不是提交状态的结论**：`core/src/commonMain/kotlin/com/xjtu/toolbox/social/` 当时是工作区里**未跟踪**的在途文件
+（`git status --porcelain` 里显示为 `??`），是「匹配交友」域往 `:core` 搬迁的中间态。提交状态那一侧的证据是：
+
+- 本轮 14.1 那条命令里 `:core:compileKotlinWasmJs` 是 **`UP-TO-DATE`**（工作区还干净时的那一段）；
+- 04:03–04:16 那一轮全量门禁里它**编译通过**（含最新的两个提交）。
+
+所以 `web/build/dist/wasmJs/productionExecutable/` 里现在仍只有 **2026-10-11 06:21** 的那一份产物（`ls -l` 复核），
+本轮**没有**重新生成 —— 想要一份新的 wasm 产物，得等那批在途改动落地之后**独占重跑一次**（§13.3 第 8 条）。
+
+⚠️ **这条命令没有做到「独占」**：它 ≈04:51:50 起跑、04:57:02 失败（5m 13s），而 04:52:05 同一目录里又起了另一条
+`gradle --max-workers=1 :core:compileKotlinJvm :core:compileKotlinWasmJs`（日志 `/tmp/c1.log`；它同样没过 ——
+卡在那批 `:core/social/` 文件的 deprecation 上，`BUILD FAILED in 11m 6s`）。
+两条构建不在同一个 daemon 里（Gradle 另起了一个，04:52:15），但**共用同一个工作区与缓存目录**，
+所以这一次的「失败 / 通过」不能当独占验收结论用。失败本身是编译错误（上面的原文），不是抢占 —— 但按纪律它仍算
+**未按规矩跑完**，因此同时记进 §13.3 第 8 条：要的是一份干净工作区上的**独占重跑**。
+
+### 14.4 这一轮**没有**随之验证的
+
+不复述 §13.2 的清单，只列与上面三个产物直接相关的四条：
+
+1. **真站点**：上面的测试全部走本地夹具 / 假上游，没有一条打真站点；真账号、真下单、真座位都没验过。
+2. **Windows**：`.msi` / `.exe` 没出包，DPAPI 的真实行为没调用过，`desktop-windows.yml` 那条 CI **在 GitHub 上还没跑过**。
+3. **Linux 真装 / 真启动**：`.deb` 装一次、桌面环境里启动一次都没做（本机 `DISPLAY` 为空）。
+4. **`:web` 的 serve 覆盖范围**：浏览器里跑 serve 模式没有可核记录；`:server` 的 44 条契约用例验的是**形状**（临时端口），
+   不是部署形态。
+
+> 三端之外的第五条：**跨端一致性对照**本轮也没做（`:testkit` 夹具只钉「同一份上游 → 数据层」与「同一份数据层 → HTTP 形状」两层）。
+

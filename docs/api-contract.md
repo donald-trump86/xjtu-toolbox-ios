@@ -17,7 +17,7 @@
 
 | | campus-api（旧） | `/api/*`（新） |
 |---|---|---|
-| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**：约座 / 换座 / 签到 / 退座 / 下单 / 取消 / 付款码（`:data` 里已经有了，campus-api 没有） |
+| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用，但这套 `/api/*` **还没有对应端点**（§5 表里仍是 P2 未实现） |
 | **谁能做** | 一刀切只读 | **能力开关随部署与账号变**：`canBook` / `canCancel` / `canSubmit` / `hasSeatPlan` / `availableSources` 必须**如实**出现在响应里，屏按它决定画不画按钮（"点了会失败的按钮一个都不画"） |
 | **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌）。令牌先换成 cookie `serve_token`（只有它能被浏览器带着走），之后的请求就只靠它 |
 
@@ -376,7 +376,9 @@ POST /api/venue/cancel
   也就是 §7 的「三处同改」）；
 - 本节**只记消费方自己的行为**，端点形状的改动仍要走 §7；
 - 本节**没有**覆盖 Stage C 那批宿主能力（加餐券 / 付款码）：它们在 `:server` 侧还是 P2 未实现（§5 表那三行），
-  所以 `:web` 这边也还没有可谈的消费方行为。
+  所以 `:web` 这边也还没有可谈的消费方行为。⚠️ 但别读成「这两样没实现」：`:data` 侧的实现都在（
+  `data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），
+  Android 与桌面都在用（`docs/desktop-port-plan.md` §12.2 / §12.3）；缺的只是 `:server` 把它们端出去。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
