@@ -149,7 +149,8 @@ serve 模式走的是**浏览器承载**，对应 `wasmJsMain` 那 18 个 actual
 
 设置 / 多账号 / 下载管理 / 首页 / 通知。（小组件用通知替代。）
 **验收**：40 条路由在桌面都有真实实现（`NotPortedScreen` 归零）。
-> **验收记录：见 §12.3**（**未达成**：还差最后一条 `AppRoute.Agent`，`NotPortedScreen` 还没归零）。
+> **验收记录：见 §12.3**（**已达成**：`AppRoute` 表的 43 条声明在桌面的 `when (route)` 里各有真分支，
+> `NotPortedScreen` 零命中）。口径提醒：这里的「40 条」是当初的估计，今天的数字以 §12.3 为准。
 
 ### 6.4 关于"40/40"
 
@@ -386,9 +387,9 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 | 口径 | 数字 | 怎么核 |
 |---|---|---|
 | `AppRoute` 声明总数 | **43** | `core/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt` —— 40 个 `data object` + 3 个带参 `data class`（`Lms` / `Jiaocai1Reader` / `Browser`） |
-| 桌面主壳里出现过的 | **42** | `grep -o 'AppRoute\.[A-Za-z0-9_]*' desktop/src/main/kotlin/com/xjtu/toolbox/desktop/ToolboxDesktopApp.kt \| sort -u` —— 差额**只有 `AppRoute.Agent`** |
-| `DesktopPage` 的顶层分支 | **41** + 一条 `else -> NotPortedScreen` | 同一文件 `when (route)`（第 521 行起，`else` 在第 1160 行）；没有分支的两条是 `Agent` 与 `Browser` |
-| `DESKTOP_SUPPORTED_ROUTES`（真能画） | **37** | 同一文件那段列表（一行一个 `AppRoute to "中文名"`） |
+| 桌面主壳里出现过的 | **43** | `grep -o 'AppRoute\.[A-Za-z0-9_]*' desktop/src/main/kotlin/com/xjtu/toolbox/desktop/ToolboxDesktopApp.kt \| sort -u` —— 声明集与引用集两边求差都为空（`Agent` 已于 `997929be` 点亮） |
+| `DesktopPage` 的顶层分支 | **43** + 一条兜底的 `else -> NotPortedScreen` | 同一文件 `when (route)`；把声明集与分支集各自提取后求差，两个方向都为空 —— **`else` 今天没有路由命中** |
+| `DESKTOP_SUPPORTED_ROUTES`（真能画） | **43** | 同一文件那段列表（一行一个 `AppRoute to "中文名"`）；`Agent` 加进去之后与 `AppRoute` 声明数相等 |
 | `DESKTOP_PENDING_ROUTES`（屏在了、取数还在 `:app`） | **空** | 同一文件 `emptyList<Pair<AppRoute, String>>()` |
 | 提交信息里的「真数据路由」编号 | 到 **31** 为止 | `git log --oneline \| grep 真数据路由`：最大是 `70b98c9` 的「第 31 条真数据路由」（首页） |
 
@@ -448,31 +449,31 @@ Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §
 那套 HTML + JS，跑在 WebView 里 —— 桌面没有 WebView，也没有 JVM 上的 JS 引擎）与 `AppRoute.Match`
 （全程离线算本机缓存，而学工档案 / 校园卡消费 / 课表教材缓存那几件里还有仍是 `:app` 实现的）。
 
-#### 还差 `AppRoute.Agent` —— 已经动了两步，还差三步
+#### `AppRoute.Agent`（屁岱）—— 已点亮（最后一条）
 
-已落地（都在本分支上）：
+- **阶段 1** `bed793f6`：配置 / 多会话落盘 / 记忆 / 两条取数搬进 `:core` + `:data`（键值缝 + 数据根目录缝 `dataFilesDir()`）。
+- **阶段 2** `97d1d476` + `c6d429d3`：调度循环 `AgentRunner` 搬 `:core`（两处接线收成缝 `AgentTransport` / `AgentTools`）；
+  工具层与屏（`AgentScreen` 一族 + `AgentViewModel`）按「纯逻辑进 `:core` / 取数走 `:data` / Android 专属走可空槽位
+  `AgentToolHost` + `AgentCapability` honored 清单（没有的档一个字都不画）」搬完。
+- **阶段 3** `9f2145ec`：跨端收口 —— `AgentHost.io` 调度器缝（与 `ScheduleHost.io` 同一条口径：`:app` 覆写回
+  `Dispatchers.IO`）、`String.format` / `System.arraycopy` / `Math.PI` 三处 JVM 专属用法换跨端等价
+  （都是 `:core:compileKotlinWasmJs` 报出来的）。
+- **阶段 4** `997929be`：桌面点亮 —— `AppRoute.Agent to "屁岱"` + `DesktopAgentHost`（配置/会话/记忆真落盘：
+  `secureKeyValueStore` + `:data` 的 `dataFilesDir()`）+ `DesktopAgentTools`（这一端接得上的五件；没接的档不画、
+  调过来回 `not_found`）+ 证据图 `agent.png`（夹具传输，**一个 LLM 请求都不发**）+ `:desktop:test` 的
+  `DesktopAgentJvmTest`（**4** 例，含「发一条 → 流式回一条 → 会话与配置落盘」）。
 
-- **阶段 1** `bed793f6`：配置 / 多会话落盘 / 记忆 / 两条取数搬进 `:core` + `:data`（键值缝 + 新开的数据根目录缝 `dataFilesDir()`）；
-- **阶段 2 前半** `97d1d476`：调度循环 `AgentRunner`（`:app` 那 426 行 → `:core` 的 287 行）搬进 `:core`，两处接线收成缝 —— `AgentTransport`（发一次请求）与 `AgentTools`（工具表那三件事）。
+#### 「`NotPortedScreen` 归零」的判据（2026-10-13 复核）
 
-**还差的三步**（只写「差什么」，不预设切法）：
+- `AppRoute` 表 **43** 条声明，`DesktopPage` 的 `when (route)` 里 **43** 条真分支 —— 把两边各自提取后求差，**两个方向都为空**。
+- `else -> NotPortedScreen(...)` 那一行仍留着当兜底，但**今天没有任何路由命中它**。
+- 43 条里 **2** 条不是真数据（`GameMerge` / `Match`，各有自己的 `HostUnavailableScreen` 说明页），其余都是真屏；
+  「40/40」这个写法来自 §6.4 当初的**估计**（原文用的是「**≈** 40」），今天的口径以「43 条声明 / 43 条分支 /
+  `NotPortedScreen` 零命中」为准。
+- 证据图 **41** 张在 `desktop/build/screenshots/`（本轮新增 `agent.png`）。
 
-| # | 还差什么 | 现在在哪（可核） | 怎么算做完 |
-|---|---|---|---|
-| 1 | **工具层切开**：`AgentTool.kt` 要按「纯逻辑 / 取数 / Android 专属」切开，并立 `AgentToolHost` 槽位与 honored 清单 | `app/src/main/java/com/xjtu/toolbox/agent/AgentTool.kt`，**2954** 行（`wc -l`）；`AgentToolRegistry` 现在 `implements` 了 `:core` 的 `AgentTools`，三件事各只多一个 `override` —— **缝已经在了，内容是本体** | 切完的纯逻辑与取数分别落 `:core` / `:data`，`:app` 只剩宿主实现 |
-| 2 | **屏搬 `:core`**：`AgentScreen` 一族与 `AgentViewModel` | `app/src/main/java/com/xjtu/toolbox/agent/` 现在还有 **19** 个顶层 `.kt` | 屏与 VM 在 `:core`，三端同一份 |
-| 3 | **桌面点亮**：`ToolboxDesktopApp.kt` 加 `AppRoute.Agent` 分支 + 桌面宿主（凭据 / 数据根目录 / 分享 / 语音…按能力补齐，缺的如实降级） | **不存在**：`grep -n Agent desktop/src/main/kotlin/com/xjtu/toolbox/desktop/ToolboxDesktopApp.kt` 无命中，`AppRoute.Agent` 现在落 `else -> NotPortedScreen` | 分支亮了 + `renderScreens` 出 **`agent.png`**（现在 `desktop/build/screenshots/` 里没有这一张）+ `:desktop:test` 里有钉它的用例 |
-
-**所以「`NotPortedScreen` 归零」此刻还没达成**，说清楚它现在还会被哪两条命中：
-
-- `Agent`（上面那三步）；
-- `Browser` —— 这一端没有内置浏览器，「外链」是在三处内联交给系统浏览器（`java.awt.Desktop.browse`），
-  但**直接**导航到 `AppRoute.Browser(...)` 仍会落到占位页（`DesktopTarget.App` → `DesktopPage` → `else`）。
-  要不要也给它单独一支（「把地址交给系统浏览器」的一屏）是**下一个决定**，不在本轮结论里。
-
-**明确不写的话**：不写「40/40 已完成」。§6.4 里那句「桌面的可达上限 **≈ 40**」是**估计**（原文用的就是「≈」），
-而今天的 `AppRoute` 表是 **43** 条声明 —— 两个数字口径不同，别拿 43 减 42 去推 40/40 的进度。
-`Agent` 一条到底之后，这一节会改成「验收通过」并给出新的数字；在那之前它保持「未达成」。
+**本轮仍未验证的（不在上面这条验收里，别混为一谈）**：桌面屁岱只跑到夹具传输（真 LLM 没连过，API key 用户自填）；
+Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能验的那一半（见 §13 与两份交付文档的「未验证项」清单）。
 
 ---
 
