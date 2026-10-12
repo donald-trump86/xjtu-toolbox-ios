@@ -7,7 +7,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Assessment
@@ -20,6 +19,8 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.ui.draw.drawBehind
+import com.xjtu.toolbox.util.formatFixed
+import com.xjtu.toolbox.util.formatTwoDigits
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -337,7 +338,7 @@ private fun WidgetMore(text: String) {
  * 作息按今天所在月份定。
  */
 private fun courseClock(c: CourseItem): Pair<String, String> {
-    fun fmt(m: Int) = "%02d:%02d".format(m / 60, m % 60)
+    fun fmt(m: Int) = formatTwoDigits(m / 60) + ":" + formatTwoDigits(m % 60)
     val (start, end) = c.clockMinutes(XjtuTime.isSummerTime())
     return fmt(start) to fmt(end)
 }
@@ -548,11 +549,11 @@ private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
         title = "成绩",
         icon = Icons.Default.Assessment,
         accent = accent,
-        subtitle = "${w.grades.size} 门 · 计入学分 ${"%.1f".format(w.totalPoints)}",
+        subtitle = "${w.grades.size} 门 · 计入学分 ${formatFixed(w.totalPoints, 1)}",
         trailing = w.gpa?.let { gpa ->
             {
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("%.2f".format(gpa), style = MiuixTheme.textStyles.title4,
+                    Text(formatFixed(gpa, 2), style = MiuixTheme.textStyles.title4,
                         fontWeight = FontWeight.Bold, color = accent)
                     Text("加权 GPA", style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -570,7 +571,7 @@ private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
             }
             WidgetRow(
                 primary = g.courseName,
-                secondary = "${g.coursePoint} 学分" + (g.gpa?.let { " · 绩点 %.2f".format(it) } ?: ""),
+                secondary = "${g.coursePoint} 学分" + (g.gpa?.let { " · 绩点 " + formatFixed(it, 2) } ?: ""),
                 trailing = { WidgetBadge(g.score, color) },
             )
         }
@@ -620,13 +621,13 @@ private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
         Spacer(Modifier.height(22.dp))
         Text("余额", style = MiuixTheme.textStyles.footnote1, color = onCard.copy(alpha = 0.75f))
         Text(
-            "¥%.2f".format(info.balance),
+            "¥" + formatFixed(info.balance, 2),
             style = MiuixTheme.textStyles.title2,
             fontWeight = FontWeight.Bold,
             color = onCard,
         )
         val notes = buildList {
-            if (info.pendingAmount > 0) add("待入账 ¥%.2f".format(info.pendingAmount))
+            if (info.pendingAmount > 0) add("待入账 ¥" + formatFixed(info.pendingAmount, 2))
             if (info.lostFlag) add("已挂失")
             if (info.frozenFlag) add("已冻结")
         }

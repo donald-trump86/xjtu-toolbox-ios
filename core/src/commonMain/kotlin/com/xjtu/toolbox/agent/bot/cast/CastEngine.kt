@@ -122,7 +122,7 @@ class CastEngine(private val cast: CastCharacter) {
     }
 
     private fun remember(now: Double) {
-        System.arraycopy(pokeTimes, 0, pokeTimes, 1, POKE_MEMORY - 1)
+        for (i in POKE_MEMORY - 1 downTo 1) pokeTimes[i] = pokeTimes[i - 1]
         pokeTimes[0] = now
     }
 

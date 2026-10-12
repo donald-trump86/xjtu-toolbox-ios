@@ -252,7 +252,7 @@ internal fun AgentWelcome(
 ) {
     val now = remember { nowInSystemZone() }
     val facts by produceState(WelcomeFacts(), host) {
-        value = withContext(Dispatchers.IO) { host.welcomeFacts(now) }
+        value = withContext(host.io) { host.welcomeFacts(now) }
     }
     val greeting = com.xjtu.toolbox.home.Greeting.of(now.time)
     val primary = MiuixTheme.colorScheme.primary

@@ -67,6 +67,9 @@ internal class AndroidAgentHost(
 
     override val honored: Set<AgentCapability> = AgentCapability.entries.toSet()
 
+    /** 阻塞 IO 仍走与搬迁前同一个池（`:core` 的默认值是 `Dispatchers.Default`）。 */
+    override val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
+
     // ── 端装配 ────────────────────────────────────────────────────────────────
 
     override fun tools(searchEngine: String): AgentTools = AgentToolRegistry(

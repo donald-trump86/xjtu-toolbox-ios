@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.ui.graphics.ImageBitmap
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.LocalDateTime
 
@@ -35,6 +37,12 @@ import kotlinx.datetime.LocalDateTime
  * （见 `:app` 的 `AndroidAgentHost`）。
  */
 interface AgentHost {
+    /**
+     * 「谁去跑阻塞 IO」由端上说：`:core` 的 commonMain 没有 `Dispatchers.IO`（wasm 目标更没有）。
+     * `:app` 与桌面传 `Dispatchers.IO`（与搬迁前同一个池），其余端用 [Dispatchers.Default]。
+     */
+    val io: CoroutineDispatcher get() = Dispatchers.Default
+
 
     /** 这一端**真会照着办**的那些档位（见 [AgentCapability]）。 */
     val honored: Set<AgentCapability> get() = emptySet()

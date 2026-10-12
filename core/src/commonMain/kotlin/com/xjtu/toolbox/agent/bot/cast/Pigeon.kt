@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent.bot.cast
 
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sin
@@ -102,7 +103,7 @@ object Pigeon : CastCharacter("pigeon", "咕") {
         val thrust = (if (hb < 0.22) mix(-9.0, 11.0, ss(hb / 0.22)) else mix(11.0, -9.0, (hb - 0.22) / 0.78)) * w
         val step = sin(now * Sketch.TAU / period) * w
         val pp = (tt % PECK) / PECK
-        val peck = think * abs(sin(pp * Math.PI)).pow(3)
+        val peck = think * abs(sin(pp * PI)).pow(3)
         // 咕——：胸鼓起来，深深鞠两个躬
         val coo = micro * window(tm, 0.0, 0.2, 1.3, 1.6)
         val bow = micro * (bump(tm / 0.7) + bump((tm - 0.75) / 0.7))
