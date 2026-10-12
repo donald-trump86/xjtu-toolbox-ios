@@ -137,16 +137,19 @@ serve 模式走的是**浏览器承载**，对应 `wasmJsMain` 那 18 个 actual
 数据层摘出（§5.1）+ 认证 UI 进 `:core`（§5.2）+ `:server` 定义并实现新契约（`:web` 的取数实现跟着改）
 + 窗口模式 + `serve` 模式（含默认安全口径与后台定时任务，见 D6）。
 **验收**：任何人在 Linux/Windows 上装上 → 登录自己的账号 → 只读主要屏可用（约 23~27 条路由）。
+> **验收记录：见 §12.1**（判据的「登录 + 屏」这一半已达成，比判据写的还多；「装上」那一半只兑现了 Linux 的出包）。
 
 ### Stage B · 写路径
 
 图书馆约座/换座/签到/取消、场馆预订/取消、付款码。
 **验收**：与 Android 的写能力等价（按钮出现、动作成功）。
+> **验收记录：见 §12.2**（三分项都已达成）。
 
 ### Stage C · 宿主机能族 → 真 40/40
 
 设置 / 多账号 / 下载管理 / 首页 / 通知。（小组件用通知替代。）
 **验收**：40 条路由在桌面都有真实实现（`NotPortedScreen` 归零）。
+> **验收记录：见 §12.3**（**未达成**：还差最后一条 `AppRoute.Agent`，`NotPortedScreen` 还没归零）。
 
 ### 6.4 关于"40/40"
 
@@ -354,3 +357,195 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 **这一轮没做的**：`Sites.kt` 里其余 18 个站点仍留在 `:app`（它们各自的 `*Login` + 功能包里的解析类要一起搬）；
 校园网判定（WebVPN 网关）在桌面端仍缺席 —— 故**校外直连不上**，属 §5.4；serve 模式、网络栈迁移、
 40/40 之外的清洁（理由同 §4/§8）。
+
+---
+
+## 12. Stage A / B / C 验收记录（2026-10-13 清点）
+
+> 这一节把 §6 的三条验收判据与仓库里的事实逐条对上。**本轮是纯文档轮次**：`docs/` 之外一行未改，
+> 开工前 `git status --porcelain` 为空，**没有重跑任何 gradle 门禁**。下面的数字因此分两类，读的时候别混：
+> ① **仓库里的实测产物** —— `build/test-results/**` 的 XML、`build/screenshots/*.png`、
+> `build/compose/binaries/**` 的文件：本轮只做 `ls` 与解析 XML，**不是本轮复现**；
+> ② **提交信息里记的数字** —— `git log -1 <hash> --format=%B`：只在 ① 对得上时才引用（对得上就两边都写）。
+> 本文档里出现的每个 hash 都核过是当前 `HEAD`（`97d1d476`）的祖先（`git merge-base --is-ancestor`）。
+
+### 12.1 Stage A · 只读主要屏可用 —— 已达成（「装上」那一半另有缺口，见末段）
+
+判据原文（§6 Stage A）：**任何人在 Linux/Windows 上装上 → 登录自己的账号 → 只读主要屏可用（约 23~27 条路由）**。
+
+| 判据 | 结果 | 怎么核的 |
+|---|---|---|
+| 登录自己的账号（不经过任何我方服务器） | ✓ | 窗口模式用 `:data` 的会话内核自己登（`DesktopAuth`）；`:desktop:test` 的 `DesktopAuthLibraryJvmTest`（**28** 个 `@Test`）钉住真登录（密码 RSA 加密提交 CAS）、错密码不落盘、冷启动从凭据文件静默恢复、会话失效自动重登重放、退出即清除 |
+| 取数不借 campus-api | ✓ | `:desktop` 的取数全是 `:data` 的 `*Api`/`*Source`；脚手架在 §11 那一步已拆，只剩离屏证据运行里那个 `DemoLibrarySource`（`desktop/src/test/…/DemoLibrarySource.kt`，只在 test 源集、不进包） |
+| 只读主要屏可用 | ✓ 远超判据 | 索引页那张「真能画的路由」表 **37** 条；Stage A 的中间态进度表 `DESKTOP_PENDING_ROUTES` **是空的**（它的 KDoc 里记着这份历史一共长出过 17 条，第 17 条考勤搬完后归零） |
+| 「约 23~27 条」这个数字 | 判据过时，不是没达成 | 那个数来自 §6.4 的推理（浏览器端卡在 campus-api 的能力上）；桌面自己直连，落点见下面那张路由账 |
+| Android 行为不变（C1） | 本轮未逐提交核 `:app` 的 diff | 各批搬迁提交自己核的（每批都写明 `:app` 侧只搬走 + 引用改名，且 `:app` 用例数只平移不减少）；本轮只核到 `app/build/test-results/testDebugUnitTest/` 的 XML：**429 通过 / 0 失败** |
+
+**路由账（三个数字口径不同，别混；每条都能用一条命令核出来）**：
+
+| 口径 | 数字 | 怎么核 |
+|---|---|---|
+| `AppRoute` 声明总数 | **43** | `core/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt` —— 40 个 `data object` + 3 个带参 `data class`（`Lms` / `Jiaocai1Reader` / `Browser`） |
+| 桌面主壳里出现过的 | **42** | `grep -o 'AppRoute\.[A-Za-z0-9_]*' desktop/src/main/kotlin/com/xjtu/toolbox/desktop/ToolboxDesktopApp.kt \| sort -u` —— 差额**只有 `AppRoute.Agent`** |
+| `DesktopPage` 的顶层分支 | **41** + 一条 `else -> NotPortedScreen` | 同一文件 `when (route)`（第 521 行起，`else` 在第 1160 行）；没有分支的两条是 `Agent` 与 `Browser` |
+| `DESKTOP_SUPPORTED_ROUTES`（真能画） | **37** | 同一文件那段列表（一行一个 `AppRoute to "中文名"`） |
+| `DESKTOP_PENDING_ROUTES`（屏在了、取数还在 `:app`） | **空** | 同一文件 `emptyList<Pair<AppRoute, String>>()` |
+| 提交信息里的「真数据路由」编号 | 到 **31** 为止 | `git log --oneline \| grep 真数据路由`：最大是 `70b98c9` 的「第 31 条真数据路由」（首页） |
+
+**证据图**：`desktop/build/screenshots/` 共 **39** 个 PNG（`ls | wc -l`），与 `RenderScreens.kt` 里 **39** 处 `shot(` 一一对应；**其中没有 `agent.png`**（`ls desktop/build/screenshots/agent.png` 报「No such file」）。
+
+**门禁数字（本机留下的实测文件）**：`:desktop:test` **76 通过 / 0 失败 / 0 跳过**（17 个 XML，`desktop/build/test-results/test/`，时间戳 2026-10-12 20:24）—— 与 `97d1d476` 提交信息里的「`:desktop:test` 76（`--rerun` 真跑）」对得上。
+
+⚠️ **「装上」这一半只有 Linux 兑现了出包**：`.deb` / app-image / `tar.gz` 本机真出过（字节数见 §13.1），
+但**真装一次、真桌面启动都还没验**（`docs/linux-delivery.md` §7 第 1/2/6/8 条）；
+Windows 的 `.msi` / `.exe` **没出过包**（只能在 Windows 上打，见 §13）。
+所以这一条判据是「登录 + 屏」这一半达成、「装上」这一半部分达成 —— 分开写，不合起来说成一句「达成」。
+
+### 12.2 Stage B · 写路径 —— 已达成（三分项逐条）
+
+判据原文（§6 Stage B）：图书馆约座/换座/签到/取消、场馆预订/取消、付款码；
+**验收：与 Android 的写能力等价（按钮出现、动作成功）**。
+
+| 写路径 | 落地提交 | 桌面这一端怎么通的 | 可核证据 |
+|---|---|---|---|
+| 图书馆（约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区） | `4abd1ae`（`:server` 的 `POST /api/library/action`，7 个动作码） | 桌面**不另写一份写实现**：`:core` 的 `LibraryScreen` + `:data` 的 `LibraryApi`（`bookSeat`/`swapSeat`/`executeAction`/`switchCampus`），由 `desktop/…/DesktopLibrarySource.kt` 装配；屏上还多一条只读端没有的能力 —— `reAuthenticate` 真能强制重认证（`ensureSite(..., userInitiated = true)`） | `:data:jvmTest` 的 `LibraryDataLayerJvmTest`（**10** 例，含「写：预约成功落在 my 页」「写：换座后按我的预约的实际座位号判定」「写：取消预约以我的预约消失判定」）与 `LibraryLoginSessionJvmTest`（**6** 例，含「写路径：预约、换座、取消都打在真会话上」）—— 两条都起本地假上游、走真会话；桌面自己那一层钉读路径与重认证（`DesktopAuthLibraryJvmTest`）；证据图 `library-after-login.png`（真登录后的座位图 + 当前预约 A01 + 平面图） |
+| 场馆（预订 / 取消，含滑块） | `45a0e50`（`:server` 的 `GET /api/venue/captcha` + `POST /api/venue/book` `/cancel`）；**桌面宿主与 `canBook=true` 是 `184bd527`** | `AppRoute.Venue` 分支：`AppVenueSource(site, canBook = true)` + `captchaHost = DesktopSlideCaptchaHost`（`desktop/src/main/kotlin/…/venue/DesktopSlideCaptchaHost.kt`，拖动编码 `encodeDesktopSlideResult` 在第 229 行）；`/api/venue/status` 的 `canBook:true` 如实 | `DesktopAuthLibraryJvmTest` 里那条「真登录之后：体育场馆走完 OAuth 与 CAS，读场馆列表时段，**并拿到滑块剧本下的成功订单**」（`captchaScript = true` → `captcha()` → `prepareOrder()` → 拖动编码 → `submitBooking()` → `booking.success` + `orderId` + `tobookCalls == 1`），外加单独一条「桌面滑块宿主：拖动编码合成为服务端协议，识别委托共享路径」；证据图 `venue.png` |
+| 付款码 | `006e33c` | 借校园卡那个会话（`AppRoute.PaymentCode.loginType = CAMPUS_CARD`）；码阵是新开的跨端缝（`:core` 出纯格子阵列，渲染走 Compose `Canvas`，Android/JVM 的 actual 是同一份 zxing） | `:desktop:test` 的 `DesktopAuthPaymentCodeJvmTest`（**2** 例：真登录取码取券 + 加餐券勾选真落盘）；同一条提交里用 zxing 的**低层解码器**把渲染出的码阵解回同一串数字（这就是「真出码」的判据）；证据图 `payment_code.png` |
+
+⚠️ **一处图注过时（如实记下，本轮不改代码）**：`RenderScreens.kt` 第 94 行与第 408 行的表注仍写着
+「这一端 `canBook = false`（滑块控件搬不到桌面）」—— 那是 `184bd527` **之前**的状态；
+`184bd527` 加了 `DesktopSlideCaptchaHost` 并切到 `canBook = true`，这两处注释没跟着改。
+**这是注释过时，不是行为不一致**（写路径由上面那两条用例钉住）。本轮只允许动 `docs/`，
+所以它记在这里，等下次动那个文件时一并改准。
+
+### 12.3 Stage C · 宿主机能族 → 40/40 —— **未达成**（还差 `AppRoute.Agent` 一条）
+
+判据原文（§6 Stage C）：设置 / 多账号 / 下载管理 / 首页 / 通知（小组件用通知替代）；
+**验收：40 条路由在桌面都有真实实现（`NotPortedScreen` 归零）**。
+
+**主体已落地**，逐条给提交与证据：
+
+| 宿主能力族 | 提交 | 证据 |
+|---|---|---|
+| 设置 | `d62a476` | `:core` 的 `SettingsScreen`/`SettingsStore`/`SettingsHost`；桌面偏好落 `secureKeyValueStore("app_settings")`（与 `:app` 同名文件）；`:desktop:test` 的 `DesktopSettingsJvmTest`；证据图 `settings.png`（含「深色模式当场生效」） |
+| 多账号 + WebVPN 转换器 | `e605bfc` | `:core` 的 `AccountManagerScreen` + `AccountsController` 缝；`AccountStore` 进 `:data`（同一个 `xjtu_accounts` 文件名与键）；桌面 `DesktopAccounts` 真切/增/删（增账号先探活再落库、失败回滚）；`:desktop:test` 的 `DesktopAccountsJvmTest`（**7** 例）与 `DesktopWebVpnCodecJvmTest`（**5** 例）；证据图 `accounts.png` / `webvpn_converter.png` |
+| 下载管理（媒体播放收成端口） | `c909381` | `:core` 的 `DownloadManager`/`DownloadManagerScreen` + 三个端口；桌面用 `:data:jvmMain` 的 `JvmDownloadEngine` 真下载真落盘，队列落 `DesktopDownloadTaskStore`（0600 JSON）；`:desktop:test` 的 `DesktopDownloadsJvmTest`；证据图 `download_manager.png`（先真下载再截图） |
+| 首页 + 主壳 | `ced0818`（屏与宿主槽位进 `:core`）+ `70b98c9`（桌面点亮，第 31 条真数据路由） | `:core` 的 `HomeScreen` + 桌面宿主面 `DesktopHomeScreen`/`DesktopHome.kt`；`:desktop:test` 的 `DesktopHomeJvmTest`（**3** 例）；证据图 `home.png`（窄窗）与 `main.png`（900×900 主壳） |
+| 付款码 | `006e33c` | 见 §12.2；证据图 `payment_code.png` |
+| 我的课表 | `204f290` | `:core` 的 `ScheduleScreen`/VM + 桌面 `DesktopScheduleHost`（课表族缓存与自建日程都按账号落 0600 键值文件）；`:desktop:test` 的 `DesktopScheduleJvmTest`（**3** 例）；证据图 `schedule.png` |
+| 教材查询 / 教材全文库 | `7d80438` / `881f5fd` | `:core` 的三栅合并页 `TextbookScreen` 与 `Jiaocai1ReaderScreen`；书架落 `DesktopJiaocai1ShelfStore`（0600 JSON）；证据图 `jiaocai.png` / `jiaocai1.png` / `jiaocai1-reader.png` |
+| 电子成绩单 | `cfbc5a7` | `:core` 的 `TranscriptScreen`/VM + `TranscriptSaveSink` 槽位（桌面写用户下载目录）；证据图 `transcript.png` |
+| 加餐券 | `ae3c26f` | `:core` 的 `CouponScreen`/VM；证据图 `coupon.png` |
+| 宿舍电费 | `99e8df3` | `:core` 的 `DormPowerScreen` + `DormPowerStore`（同名文件同键）；桌面没有内置浏览器 ⇒ `browser` 槽位交给系统浏览器；证据图 `dormpower.png` |
+| 考勤 | `d4f78d5` | `:core` 的 `AttendanceScreen`/VM；附件槽位在桌面是空表（没有 SAF）；证据图 `attendance.png` |
+| 思源学堂 | `62c709d` | `:core` 的 `LmsScreen` 族 + `LmsSource`/`LmsDownloadSink`/`LmsCacheStore` 三缝；桌面落盘 `DesktopLmsSaver`；证据图 `lms.png` |
+| 移动教务成绩 / 人脸考勤流水 / 社区 | `429b650` | 三条路由（前两条走 `DesktopSiteGate`；社区上游是 GitHub，不套 Gate）；证据图 `jwapp.png` / `iclassface.png` / `community.png` |
+| 反馈与建议 | `f1e7c3b` | 唯一一条没有校园会话的路由（上游是飞书开放平台）；`:core` 的 `FeedbackScreen` + `FeedbackStore` 本地账本；桌面 `DesktopFeedback` 在窗口起来之前注入凭据；证据图 `feedback.png` |
+| 校园公告（只搬数据半，不新增路由） | `0b80244` | `:core` 的 `BulletinRules`/`BulletinStore` + `:data` 的 `BulletinApi`；桌面侧已接上（首页顶部堆叠条 + 冷启动弹框，见 `ced0818` / `70b98c9`） |
+
+**两条不是「没搬」、而是「这一端没有等价载体 / 数据」**（落 `HostUnavailableScreen`，不是 `NotPortedScreen`，
+也不在 `DESKTOP_SUPPORTED_ROUTES` 里）：`AppRoute.GameMerge`（游戏本体是 `:app` 的 `assets/games/merge/`
+那套 HTML + JS，跑在 WebView 里 —— 桌面没有 WebView，也没有 JVM 上的 JS 引擎）与 `AppRoute.Match`
+（全程离线算本机缓存，而学工档案 / 校园卡消费 / 课表教材缓存那几件里还有仍是 `:app` 实现的）。
+
+#### 还差 `AppRoute.Agent` —— 已经动了两步，还差三步
+
+已落地（都在本分支上）：
+
+- **阶段 1** `bed793f6`：配置 / 多会话落盘 / 记忆 / 两条取数搬进 `:core` + `:data`（键值缝 + 新开的数据根目录缝 `dataFilesDir()`）；
+- **阶段 2 前半** `97d1d476`：调度循环 `AgentRunner`（`:app` 那 426 行 → `:core` 的 287 行）搬进 `:core`，两处接线收成缝 —— `AgentTransport`（发一次请求）与 `AgentTools`（工具表那三件事）。
+
+**还差的三步**（只写「差什么」，不预设切法）：
+
+| # | 还差什么 | 现在在哪（可核） | 怎么算做完 |
+|---|---|---|---|
+| 1 | **工具层切开**：`AgentTool.kt` 要按「纯逻辑 / 取数 / Android 专属」切开，并立 `AgentToolHost` 槽位与 honored 清单 | `app/src/main/java/com/xjtu/toolbox/agent/AgentTool.kt`，**2954** 行（`wc -l`）；`AgentToolRegistry` 现在 `implements` 了 `:core` 的 `AgentTools`，三件事各只多一个 `override` —— **缝已经在了，内容是本体** | 切完的纯逻辑与取数分别落 `:core` / `:data`，`:app` 只剩宿主实现 |
+| 2 | **屏搬 `:core`**：`AgentScreen` 一族与 `AgentViewModel` | `app/src/main/java/com/xjtu/toolbox/agent/` 现在还有 **19** 个顶层 `.kt` | 屏与 VM 在 `:core`，三端同一份 |
+| 3 | **桌面点亮**：`ToolboxDesktopApp.kt` 加 `AppRoute.Agent` 分支 + 桌面宿主（凭据 / 数据根目录 / 分享 / 语音…按能力补齐，缺的如实降级） | **不存在**：`grep -n Agent desktop/src/main/kotlin/com/xjtu/toolbox/desktop/ToolboxDesktopApp.kt` 无命中，`AppRoute.Agent` 现在落 `else -> NotPortedScreen` | 分支亮了 + `renderScreens` 出 **`agent.png`**（现在 `desktop/build/screenshots/` 里没有这一张）+ `:desktop:test` 里有钉它的用例 |
+
+**所以「`NotPortedScreen` 归零」此刻还没达成**，说清楚它现在还会被哪两条命中：
+
+- `Agent`（上面那三步）；
+- `Browser` —— 这一端没有内置浏览器，「外链」是在三处内联交给系统浏览器（`java.awt.Desktop.browse`），
+  但**直接**导航到 `AppRoute.Browser(...)` 仍会落到占位页（`DesktopTarget.App` → `DesktopPage` → `else`）。
+  要不要也给它单独一支（「把地址交给系统浏览器」的一屏）是**下一个决定**，不在本轮结论里。
+
+**明确不写的话**：不写「40/40 已完成」。§6.4 里那句「桌面的可达上限 **≈ 40**」是**估计**（原文用的就是「≈」），
+而今天的 `AppRoute` 表是 **43** 条声明 —— 两个数字口径不同，别拿 43 减 42 去推 40/40 的进度。
+`Agent` 一条到底之后，这一节会改成「验收通过」并给出新的数字；在那之前它保持「未达成」。
+
+---
+
+## 13. 三端交付面索引与未验证项汇总（2026-10-13 清点）
+
+> 三端 = **Android（`:app`）· Linux 桌面 · Windows 桌面**；外加 **serve 模式**（`:server` + `:web` wasm）。
+> 这一节只是**索引**：每一行指到它自己那份记录，未验证项不复述细节、更不美化。
+> Linux / Windows 两批交付的原文在 `docs/linux-delivery.md` 与 `docs/windows-delivery.md` ——
+> 本文档这一轮**一个字都没动那两个文件**（它们是那两批交付的事实记录）。
+
+### 13.1 交付面、产物与当前状态
+
+| 交付面 | 产物 / 入口 | 可核证据 | 状态 |
+|---|---|---|---|
+| **Android**（`:app`） | 签名 APK → GitHub Release（`main` 出 Latest 并同步 Gitee；`dev` 出 Pre-release、不同步 Gitee） | `.github/workflows/build.yml`（触发 `push: [main, dev]` + `workflow_dispatch`；出包 / Release / 同步 Gitee 的步骤都在该文件里）；`:app:testDebugUnitTest` **429 通过 / 0 失败**（`app/build/test-results/testDebugUnitTest/`） | 与三端重构无关，按 C1 口径行为不变；灰度与预览渠道见 `docs/preview-channel.md` |
+| **Linux 桌面** | `.deb` · app-image · `tar.gz` | `docs/linux-delivery.md`（`603ece98`）：本机真出过三样 —— `.deb` **111,170,448 B**、app-image **204,922,515 B（207 个文件）**、`tar.gz` **123,750,278 B**；本轮 `ls` 复核：三个文件仍在 `desktop/build/compose/binaries/main/{deb,app,tar}/`，字节数一致 | 出包已验证；**真装与真启动未验证** |
+| **Windows 桌面** | `.msi` / `.exe`（只能在 Windows 上打） | `docs/windows-delivery.md`（`b624008`）：DPAPI 保护器缝 + 假保护器单测、`targetFormats` 含 `Msi`/`Exe`、`.github/workflows/desktop-windows.yml`（`windows-latest`）、更新骨架 `DesktopUpdate`；本轮 `ls` 复核：`desktop/build/compose/binaries/main/` 下**没有** `msi`/`exe` 目录 | 配置与 CI 就绪；**打包与 DPAPI 真调用都没在本机验过** |
+| **serve 模式**（`:server` + `:web`） | 一个 JVM 进程：托管 wasm 产物 + `/api/*`（默认只监听 `127.0.0.1`，访问令牌换 `serve_token` cookie） | 契约真源是 `docs/api-contract.md`；`:server` 的端点已落地（§5.1 会话 / §5.2 P0 取数 / §5.3 需登录只读 / §5.3.1 与 §5.3.2 两条写路径）；`:server` 契约测试 **44 通过 / 0 失败**（`server/build/test-results/test/`，10 个 XML）；`:web` 的滑块宿主 `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSlideCaptchaHost.kt` | 覆盖范围**以契约 §5 为准**；**浏览器端到端没有可核记录**，且 §5 表里 P2 那三行仍未实现（见 13.2 第 ④ 组） |
+
+### 13.2 未验证项汇总（按交付面分组，逐条指向原文）
+
+**① Android** —— 本轮核账**没有**覆盖它：
+
+| # | 未验证的事 | 为什么 | 怎么才能验 |
+|---|---|---|---|
+| 1 | CI 的出包 / 发布链路（本文档只静态读了 `build.yml`，没有真跑） | 它是 `push: [main, dev]` 触发的，本地不可复现 | 推一次 `main` / `dev`，看 Release 与 Gitee 同步；口径见 `docs/preview-channel.md` |
+
+**② Linux 桌面** —— 原文：`docs/linux-delivery.md` §7（**14 条**）+ §8 的三道「本轮没跑」门禁：
+
+| # | 未验证的事（摘要，原文更细） | 怎么才能验 |
+|---|---|---|
+| 1 | **真桌面环境里启动**（app-image / `.deb`）：本机 `DISPLAY` 为空、也没装 Xvfb | 有桌面的机器（X11 与 Wayland 各一次），或 CI 里 `xvfb-run` 跑一次冷启动 |
+| 2 | `.deb` 真装一次（依赖解析、菜单项出现、卸载干净）；`tar.gz` 解压后真跑 | 一次性 Ubuntu 容器 / 虚拟机 |
+| 3 | 桌面项图标不是我们自己的（`linux.iconFile` 未设 ⇒ 实测用的是 Compose Desktop 默认图标，md5 与插件里那份一致） | 加 `desktop/icons/*.png` 并指过去，再出一遍 `.deb` |
+| 4 | 单文件 `.AppImage`（`TargetFormat.AppImage` 是 jpackage 的 app-image，不是单文件）、RPM、ARM64、非 Debian 系、`Depends` 跨发行版、`copyright` 里的 `License: Unknown` | 见原文逐条；都是「下一个决定」或加一条任务 |
+
+> 该文档 §8 还如实记着：那一轮**没跑** `:data:jvmTest` / `:core:jvmTest` / `:app:testDebugUnitTest`
+> （同一工作区里另有 run 在搬 Agent 域，跑出来的红绿指向它的在途代码，不是那一轮的改动）。
+
+**③ Windows 桌面** —— 原文：`docs/windows-delivery.md` §7（**9 条**）：
+
+| # | 未验证的事（摘要，原文更细） | 怎么才能验 |
+|---|---|---|
+| 1 | **DPAPI 的真实行为**（往返 / 篡改解不开 / 换用户解不开）：本机是 Linux，那条调用路只有 Windows 有 | CI 的 `desktop-windows.yml` → `:data:jvmTest --tests "com.xjtu.toolbox.platform.*"` —— **这条 CI 还没在 GitHub 上跑过** |
+| 2 | `:desktop:packageMsi` / `packageExe` 真出得来包（本机这两个任务是 `SKIPPED`，不是失败 —— 「命令绿了」什么都不代表） | 同一条 CI（出包 + artifact 上传，`if-no-files-found: error`）—— **还没跑过** |
+| 3 | `desktop/icons/windows.ico` 被 WiX 接受；WiX 自动下载在 CI 上通 | 同一条 CI |
+| 4 | per-user 安装 + 开始菜单 + 升级 UUID 的真实观感；未签名产物的 SmartScreen 行为 | 手动：一台真 Windows 装两版看是升级还是并存、双击看提示 |
+| 5 | 整套 `:desktop:test` 在 Windows 上是否全绿（**已知会红一条**：`DesktopAuthLibraryJvmTest` 断言凭据文件是 `0600`，Windows 没有这个概念） | 把那条用例改成按平台判，或只跑指定类（现在 workflow 就是这么做的） |
+| 6 | Windows 上会话 cookie / 站点快照 / 设置仍是明文文件（这一轮只保护了凭据那一份） | 把 `secureKeyValueStore` 的调用点逐个换成带保护器的版本（信封格式已就绪） |
+| 7 | 更新骨架的 UI 接线与发布通道（设置页那一栏现在给的是 `null`；CI 只出 artifact、不上传 Release） | 设置页那一轮 + 发版流程那一轮 |
+
+**④ serve 模式（`:server` + `:web`）**：
+
+| # | 未验证的事 | 为什么 | 怎么才能验 |
+|---|---|---|---|
+| 1 | **浏览器里的端到端**（真登录 + 真站点 + 真下单）没有可核记录 | 仓库里没有任何一条这样的记录；`:web` **没有测试源集**（`find web/src -name '*Test*.kt'` 为空），它的门禁只有编译（`core-gate.yml` 第 46 行 `:core:compileKotlinWasmJs :web:compileKotlinWasmJs`） | 人工跑一次 serve 模式（真浏览器 + 真账号），把结论记进契约或本文档 |
+| 2 | 契约里仍标 TODO 的端点：`/api/coupon/…` 与 `/api/payment-code`（P2，`:server` 里**没有**这两个端点）、`/api/v1/personal/me/user`（P2，来源待确认）、`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）、`library/seats?time`（上游无时间维）、`emptyroom/rooms` 的 `from/to`、`faculty` 的 `?filters=1`、`fitness/score` 的 `?year=all` | 拍板过但未做 | 各自那一轮（`docs/api-contract.md` §5.2 / §5.3 的 TODO 行） |
+| 3 | venue「去支付」那一跳在浏览器里不可达（支付页在 80 端口那台站点上，浏览器里没有场馆站的会话；`CampusVenueApi.paymentUrl` 如实返回空串） | 见契约 §5.3.2 末尾 | 契约给出支付入口（或让 `/api/venue/status` 的 `browserLoginUrl` 能被缓存）之后接上 |
+| 4 | 消费方 `school-courses` 的两档筛选不画（服务端报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张 id 表的端点 ⇒ 消费方报 `false`） | 见契约 §5.4 | 端点落地后把 `Campus*Api` 的 TODO 翻成 true（契约 §7：三处同改） |
+| 5 | 契约 §3 的默认安全口径（只听回环 / 令牌换 cookie / `--host 0.0.0.0` 的暴露形态）只做了静态核对 | `:server` 的测试起的是端口 `0` 的临时服务，验的是**形状**不是**部署形态**；本轮没起过真服务进程 | 起一次 `:server`，按契约 §3 逐条走一遍 |
+
+**⑤ 跨端一致性对照**：本轮**没有**做「同一个问题在三端是不是同一个答案」的对照 —— 那是 `:testkit`
+夹具契约测试的活，它现在钉的是两层：「同一份上游样本 → 数据层输出」与「同一份数据层 → HTTP 形状」
+（`docs/api-contract.md` §6 的原文）。这一节因此不声称任何跨端一致性超出那两层。
+
+### 13.3 仍然存疑 / 待核实的 TODO（本轮**不猜**）
+
+| # | 存疑的事 | 为什么存疑 | 待谁 / 怎么核 |
+|---|---|---|---|
+| 1 | `RenderScreens.kt` 第 94 / 408 行仍写 `canBook = false` | `184bd527` 之后没跟着改（§12.2 已记原委） | 下次动那个文件时改准（本轮只动 `docs/`） |
+| 2 | `AppRoute.Browser` 在桌面要不要单独给一支 | 直连它会落占位页；内联的那三处才走系统浏览器（§12.3） | 产品决定 |
+| 3 | `Agent` 三步的具体切法 | 本域还在搬；本文档只记「差什么」 | 那一轮的实现提交 |
+| 4 | §6.4 的「可达上限 ≈ 40」这个数目 | 它是**估计**（原文用「≈」），而今天 `AppRoute` 是 43 条声明 —— 口径不同 | 待用户确认要不要把 §6.4 重算一遍（本文档**不改** §6.4） |
+| 5 | serve 模式的浏览器端到端 | 无记录、`:web` 无测试源集（§13.2 第 ④ 组第 1 条） | 见那一行 |
+| 6 | `docs/api-contract.md` §5.1 的 TODO ①②③④（MFA 绑定手机号不投影、`attemptsLeft` 的第二份写法、轮询间隔） | 契约自己标着，本轮只对齐了「已落地 / 未实现」这一层 | `:web` 那个弹窗真开始画时 / 契约改形状时一起收 |
+| 7 | Linux / Windows 两份交付文档里的未验证项 | 它们是那两批交付的事实记录，本文档不改它们 | 各自的「下一个决定」或 CI 真跑（§13.2 第 ② / ③ 组） |
