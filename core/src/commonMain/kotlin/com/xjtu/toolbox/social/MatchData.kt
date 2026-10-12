@@ -1,12 +1,10 @@
 package com.xjtu.toolbox.social
 
-import android.content.Context
-import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.hello.HelloProfile
-import com.xjtu.toolbox.hello.HelloProfileStore
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
-import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.schedule.ScheduleCache
+import com.xjtu.toolbox.schedule.ScheduleCacheStore
 
 /**
  * 匹配交友的取数层。
@@ -17,6 +15,13 @@ import com.xjtu.toolbox.data.DataCache
  *
  * 全部读缓存意味着**离线可用**，也意味着数据可能有点旧。对"课表合不合得来"
  * 这种问题，上周的课表和今天的课表答案一样，不值得为它触发一次教务登录。
+ *
+ * ## 各端从哪读（见 [MatchHost]）
+ *
+ * 课表、考试、教材在课表族缓存里（与日程页**同一份**：`:app` 是 `DataCache` 的目录、
+ * 桌面是 0600 的键值文件）；学工档案与校园卡消费只有 `:app` 有，桌面端返回 null / 空表。
+ * 这份类原先带一个 `android.content.Context` 参数，搬进 `:core` 时换成了 [MatchHost]，
+ * 读的键、过的学期、算的裁剪一行未改。
  */
 object MatchData {
 
@@ -47,7 +52,8 @@ object MatchData {
         val diningHourCounts: Map<Int, Int> = emptyMap(),
         /** 常去的食堂，按次数降序。只有名字，没有金额。 */
         val canteens: List<String> = emptyList(),
-        val profile: HelloProfile? = null,
+        /** 学工系统档案里匹配用得上的那几项；这一端没有那份缓存时为 null。 */
+        val identity: MatchIdentity? = null,
     ) {
         /**
          * 有没有任何一维拿得出数据。
@@ -59,14 +65,17 @@ object MatchData {
         val hasAnything: Boolean
             get() = courses.isNotEmpty() || pastCourseCodes.isNotEmpty() ||
                 textbooks.isNotEmpty() || exams.isNotEmpty() ||
-                diningHourCounts.isNotEmpty() || canteens.isNotEmpty() || profile != null
+                diningHourCounts.isNotEmpty() || canteens.isNotEmpty() || identity != null
     }
 
     /**
      * @param term 要拿来比的学期；null 表示本学期。
+     *
+     * 同步的本地读（三处落盘都是阻塞式）。调用方负责扔到 [MatchHost.io] 上 ——
+     * `:core` 的 commonMain 里没有 `Dispatchers.IO`（见 [MatchHost.io]）。
      */
-    fun read(ctx: Context, term: String? = null): Local {
-        val dc = DataCache(ctx)
+    fun read(host: MatchHost, term: String? = null): Local {
+        val dc = host.cache(AccountContext.activeAccountId)
         val terms = ScheduleCache.readTermList(dc)
         // 本学期读「当前学期」，不读上次翻到的学期：看一眼去年的课表，这里就会把去年当成本学期
         val thisTerm = ScheduleCache.readCurrentTerm(dc)
@@ -103,6 +112,10 @@ object MatchData {
 
         val exams = current?.let { ScheduleCache.readExams(dc, it) }.orEmpty()
 
+        // 校园卡那份快照读一次、两处用（饭点与食堂）。搬迁前两处各自读一次同一份快照，
+        // 读出来的是同一个结果；这里只是不再读第二遍。
+        val transactions = runCatching { host.transactions() }.getOrDefault(emptyList())
+
         return Local(
             term = current,
             currentTerm = thisTerm,
@@ -113,13 +126,14 @@ object MatchData {
             pastTermCount = pastTerms,
             textbooks = textbooks,
             exams = exams,
-            diningHourCounts = runCatching { DiningHabit.readCachedHourCounts(ctx) }
+            diningHourCounts = runCatching { DiningHabit.hourCounts(transactions) }
                 .getOrDefault(emptyMap()),
-            canteens = runCatching { DiningHabit.readCachedCanteens(ctx) }
+            canteens = runCatching { DiningHabit.canteens(transactions) }
                 .getOrDefault(emptyList()),
-            profile = runCatching { HelloProfileStore.cached(ctx) }.getOrNull(),
+            identity = runCatching { host.identity() }.getOrNull(),
         )
     }
 
-    private fun readCourses(dc: DataCache, term: String): List<CourseItem> = ScheduleCache.readCourses(dc, term).orEmpty()
+    private fun readCourses(dc: ScheduleCacheStore, term: String): List<CourseItem> =
+        ScheduleCache.readCourses(dc, term).orEmpty()
 }

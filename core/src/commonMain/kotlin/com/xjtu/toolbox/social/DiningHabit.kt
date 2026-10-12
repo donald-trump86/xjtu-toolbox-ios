@@ -1,18 +1,23 @@
 package com.xjtu.toolbox.social
 
-import android.content.Context
-import com.xjtu.toolbox.card.CampusCardCache
+import com.xjtu.toolbox.card.Transaction
 
 /**
  * 从校园卡消费记录里推出「一般几点吃饭」「常去哪个食堂」。
  *
- * 只读已缓存的快照，不发任何请求：这个功能不值得为它触发一次校园卡登录。
- * 缓存是空的（没进过校园卡页）就返回空，界面会说明那一维用不了。
+ * 只读**已经落盘**的快照（由 [MatchHost.transactions] 给过来），不发任何请求：这个功能不值得
+ * 为它触发一次校园卡登录。快照是空的（没进过校园卡页）就返回空，界面会说明那一维用不了。
  *
  * 出去的只有时段和食堂名，**不含金额、不含商户全称、不含明细**——
  * 时段是"这个小时常去/不常去"一个比特，食堂是归并到楼号之后的名字
  * （「一食堂」而不是「一食堂三层清真档口 07 号窗」）。消费明细是敏感信息，
  * 不该因为一个社交小功能流出去。
+ *
+ * ## 搬迁记
+ *
+ * 原先在 `:app`，两个入口各带一个 `android.content.Context` 并自己 `CampusCardCache.load(ctx)`。
+ * 搬进 `:core` 时把「读哪儿」交给 [MatchHost]（桌面端没有那份缓存 ⇒ 空表 ⇒ 界面上那两维禁用），
+ * 三个纯函数一行未改（关键词表、归并正则、2 次以上的阈值都还是原来的）。
  */
 object DiningHabit {
 
@@ -28,9 +33,9 @@ object DiningHabit {
     private val CANTEEN_NAME = Regex("""[一-龥A-Za-z0-9]{0,4}(?:食堂|餐厅|美食城|餐饮中心)""")
 
     /** 小时 → 这个小时里的食堂消费笔数。 */
-    fun readCachedHourCounts(ctx: Context): Map<Int, Int> {
+    fun hourCounts(transactions: List<Transaction>): Map<Int, Int> {
         val counts = HashMap<Int, Int>()
-        forEachCanteenSpend(ctx) { t ->
+        forEachCanteenSpend(transactions) { t ->
             val hour = parseHour(t.time) ?: return@forEachCanteenSpend
             counts[hour] = (counts[hour] ?: 0) + 1
         }
@@ -38,9 +43,9 @@ object DiningHabit {
     }
 
     /** 常去的食堂，按去的次数降序。只留去过 2 次以上的——路过一次不算习惯。 */
-    fun readCachedCanteens(ctx: Context, limit: Int = 5): List<String> {
+    fun canteens(transactions: List<Transaction>, limit: Int = 5): List<String> {
         val counts = HashMap<String, Int>()
-        forEachCanteenSpend(ctx) { t ->
+        forEachCanteenSpend(transactions) { t ->
             val name = canteenName(t.merchant) ?: canteenName(t.description)
             ?: return@forEachCanteenSpend
             counts[name] = (counts[name] ?: 0) + 1
@@ -57,11 +62,10 @@ object DiningHabit {
         CANTEEN_NAME.find(raw)?.value?.trim()?.takeIf { it.length >= 2 }
 
     private inline fun forEachCanteenSpend(
-        ctx: Context,
-        body: (com.xjtu.toolbox.card.Transaction) -> Unit,
+        transactions: List<Transaction>,
+        body: (Transaction) -> Unit,
     ) {
-        val snap = CampusCardCache.load(ctx) ?: return
-        for (t in snap.transactions) {
+        for (t in transactions) {
             // 只看支出。充值和补助不是吃饭。
             if (t.amount >= 0) continue
             if (CANTEEN_HINTS.none { t.merchant.contains(it) || t.description.contains(it) }) continue

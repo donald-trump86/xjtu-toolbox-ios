@@ -1,9 +1,13 @@
 package com.xjtu.toolbox.social
 
-import java.io.ByteArrayOutputStream
-import java.time.LocalDate
-import java.util.zip.Deflater
-import java.util.zip.Inflater
+import com.xjtu.toolbox.platform.base64Available
+import com.xjtu.toolbox.platform.base64UrlDecode
+import com.xjtu.toolbox.platform.base64UrlEncode
+import com.xjtu.toolbox.platform.deflateAvailable
+import com.xjtu.toolbox.platform.deflateBytes
+import com.xjtu.toolbox.platform.inflateBytes
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.daysUntil
 
 /**
  * 匹配交友：把自己的作息压成一段分享码，跟朋友交换后在本地算契合度。
@@ -33,10 +37,21 @@ import java.util.zip.Inflater
  * 没读到课表时照样塞一张全空的网格出去，对方算出来是"共同空闲 100%"——
  * 一个纯属虚构的满分。现在两个条件都要满足，见 [build]。
  *
- * ## 这个对象不碰 Android
+ * ## 这个对象不碰 Android（也不碰 JVM）
  *
- * 编解码走 `java.util.Base64`（minSdk 31 远高于它要求的 26）而不是 `android.util.Base64`，
- * 取数交给 [MatchData]，打分逻辑因此能在普通 JVM 单元测试里跑，见 `MatchProfileTest`。
+ * 它原先在 `:app`：编解码直接用 `java.util.zip` 的 deflate 与 `java.util.Base64`，
+ * 日期用 `java.time`。搬进 `:core` 的 commonMain 之后（要编到 wasmJs）三处都换掉了：
+ * - deflate / inflate → `:core` 的平台缝 `platform/Deflate.kt`（Android 与 jvm 是**原来那两份**
+ *   实现，逐字相同；wasmJs 如实没有）；
+ * - URL-safe Base64 → `platform/Base64Url.kt`（同上）；
+ * - `java.time.LocalDate` → `kotlinx-datetime` 的 `LocalDate`（`:core` 早就在用它，
+ *   差异只有 `monthValue`→`monthNumber`、`ChronoUnit.DAYS.between`→`daysUntil`，都同义）。
+ *
+ * 取数交给 [MatchData]（读哪种缓存由 [MatchHost] 说），打分逻辑因此仍能在普通 JVM
+ * 单元测试里跑，见 `:app` 的 `MatchProfileTest`（它一条断言都没改）。
+ *
+ * [codecAvailable] 是「这一端能不能出码」的判据：今天只有 wasmJs 是 false，
+ * 那里 [encode] 只能给空串，屏据该字段**如实说这一端生成不了分享码**。
  */
 object MatchProfile {
 
@@ -70,6 +85,26 @@ object MatchProfile {
 
     /** 解压上限。分享码来自别人，别让一段几百字节的输入膨胀成几十兆。 */
     private const val MAX_INFLATED = 256 * 1024
+
+    /**
+     * 这个长度以内的码，隔一臂远随手一扫就出。
+     *
+     * 与 `:app` 的 `QrBitmap.COMFORTABLE` **同值**（那个对象留在 `:app`：屏与 `OnlineLobby`
+     * 都在用它出位图）。搬进 `:core` 的这一份是给**分享码**用的长度预算：二维码只在
+     * [CODE_MAX_SCANNABLE] 以内才画，超过就让用户复制文字。
+     */
+    const val CODE_COMFORTABLE = 1200
+
+    /** 再长就得凑近、对准。超过这个值不如别给二维码，省得用户在那对半天。 */
+    const val CODE_MAX_SCANNABLE = 1800
+
+    /**
+     * 这一端会不会出分享码：要 deflate 与 Base64 两件都在（见两个平台缝的 KDoc）。
+     *
+     * 今天三端里只有 wasmJs 是 false（那里两件都没有）。屏据它**如实说明**，
+     * 而不是把 [encode] 的空串当成"算出错了"。
+     */
+    val codecAvailable: Boolean get() = deflateAvailable && base64Available
 
     val DAY_NAMES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -215,21 +250,23 @@ object MatchProfile {
         // 一张全空网格 / 一串全 0 的饭点，对方那边看不出是"没有"还是"全天有空"。
         val hasSchedule = courses.any { it.dayOfWeek in 1..DAYS }
         val hasBuildings = buildingList.isNotEmpty()
-        val diningBits = String(CharArray(24) { h ->
+        // wasmJs 上 `String(CharArray)` 是**错误**（弃用升级），所以走 `concatToString()`；
+        // JVM 上两者同一结果。
+        val diningBits = CharArray(24) { h ->
             // 只保留"经常"去的时段：偶尔一次不代表作息。阈值取该小时消费数 ≥ 2。
             if ((local.diningHourCounts[h] ?: 0) >= 2) '1' else '0'
-        })
+        }.concatToString()
 
         return Profile(
             nickname = clean(nickname).take(12),
-            busyGrid = if (dims.schedule && hasSchedule) String(grid) else "",
+            busyGrid = if (dims.schedule && hasSchedule) grid.concatToString() else "",
             courses = if (dims.sameCourses) {
                 courses.mapNotNull { c ->
                     val code = clean(c.courseCode)
                     if (code.isEmpty()) null else SharedCourse(code, clean(c.courseName).take(14))
                 }.distinctBy { it.code }.sortedBy { it.code }
             } else emptyList(),
-            buildingGrid = if (dims.buildings && hasBuildings) String(buildingCells) else "",
+            buildingGrid = if (dims.buildings && hasBuildings) buildingCells.concatToString() else "",
             buildings = if (dims.buildings && hasBuildings) buildingList.toList() else emptyList(),
             teachers = if (dims.teachers) {
                 courses.mapNotNull { clean(it.teacher).takeIf { t -> t.length in 2..12 } }.toSet()
@@ -256,14 +293,14 @@ object MatchProfile {
                 dietTags.map { clean(it) }.filter { it.isNotEmpty() }.toSet()
             } else emptySet(),
             // 学号本身不进码：数字相邻只说明报到顺序。进去的是它派生出的有含义的那面。
-            grade = if (dims.identity) local.profile?.grade ?: 0 else 0,
-            profession = if (dims.identity) clean(local.profile?.professionName.orEmpty()) else "",
-            department = if (dims.identity) clean(local.profile?.departmentName.orEmpty()) else "",
-            academy = if (dims.identity) clean(local.profile?.academyName.orEmpty()) else "",
-            campus = if (dims.identity) clean(local.profile?.campusName.orEmpty()) else "",
-            className = if (dims.identity) clean(local.profile?.className.orEmpty()) else "",
+            grade = if (dims.identity) local.identity?.grade ?: 0 else 0,
+            profession = if (dims.identity) clean(local.identity?.professionName.orEmpty()) else "",
+            department = if (dims.identity) clean(local.identity?.departmentName.orEmpty()) else "",
+            academy = if (dims.identity) clean(local.identity?.academyName.orEmpty()) else "",
+            campus = if (dims.identity) clean(local.identity?.campusName.orEmpty()) else "",
+            className = if (dims.identity) clean(local.identity?.className.orEmpty()) else "",
             province = if (dims.identity) {
-                local.profile?.sno?.let { com.xjtu.toolbox.account.ProvinceCode.of(it) }.orEmpty()
+                local.identity?.sno?.let { com.xjtu.toolbox.account.ProvinceCode.of(it) }.orEmpty()
             } else "",
         )
     }
@@ -282,7 +319,12 @@ object MatchProfile {
     // deflate 后 Base64（URL-safe、无填充）。压缩是必要的：两张 77 位网格加上课程、
     // 老师、考试、教材，明文有好几千字符，粘不进聊天框。
 
+    /**
+     * @return 这一端没有 deflate / Base64 时（[codecAvailable] 为 false，今天只有 wasmJs）
+     *   返回**空串**；屏据 [codecAvailable] 如实说明，不把空串当成"算出错了"。
+     */
     fun encode(p: Profile): String {
+        if (!codecAvailable) return ""
         val raw = listOf(
             VERSION.toString(),
             p.nickname,
@@ -305,15 +347,16 @@ object MatchProfile {
             p.className,
             p.province,
         ).joinToString("|")
-        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(deflate(raw))
+        val packed = deflate(raw) ?: return ""
+        return base64UrlEncode(packed)
     }
 
     /** 解不出就返回 null，由调用方提示"这个码不对"，不要抛给用户一个异常。 */
     fun decode(code: String): Profile? = try {
         // 聊天软件会给长串自动折行，粘回来带换行和空格。先全部去掉再解。
         val compact = code.filterNot { it.isWhitespace() }
-        val parts = inflate(java.util.Base64.getUrlDecoder().decode(compact)).split("|")
-        if (parts.size < 20 || parts[0].toIntOrNull() != VERSION) {
+        val parts = base64UrlDecode(compact)?.let(::inflate)?.split("|")
+        if (parts == null || parts.size < 20 || parts[0].toIntOrNull() != VERSION) {
             null
         } else {
             val buildings = parts[5].split(",").filter { it.isNotBlank() }
@@ -360,35 +403,12 @@ object MatchProfile {
             if (entry.isBlank()) null else map(entry.split("~"))
         }
 
-    private fun deflate(raw: String): ByteArray {
-        val deflater = Deflater(Deflater.BEST_COMPRESSION)
-        deflater.setInput(raw.toByteArray(Charsets.UTF_8))
-        deflater.finish()
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(4096)
-        // 循环写：一门课的课名就有十几字节，几十门课早就超过任何"够用"的固定缓冲区，
-        // 单次 deflate 写不完会静默截断，生成一段解不开的码。
-        while (!deflater.finished()) out.write(buf, 0, deflater.deflate(buf))
-        deflater.end()
-        return out.toByteArray()
-    }
+    /** 与搬迁前 `MatchProfile.deflate` 同一件事，缓冲区那一半现在在平台侧（见 `platform/Deflate.kt`）。 */
+    private fun deflate(raw: String): ByteArray? = deflateBytes(raw.encodeToByteArray())
 
-    private fun inflate(bytes: ByteArray): String {
-        val inflater = Inflater()
-        inflater.setInput(bytes)
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(4096)
-        try {
-            while (!inflater.finished() && out.size() <= MAX_INFLATED) {
-                val n = inflater.inflate(buf)
-                if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
-                out.write(buf, 0, n)
-            }
-        } finally {
-            inflater.end()
-        }
-        return out.toString(Charsets.UTF_8.name())
-    }
+    /** 解压 + UTF-8 解码；上限就是 [MAX_INFLATED]（`platform/Deflate.kt` 里那条循环判据）。 */
+    private fun inflate(bytes: ByteArray): String? =
+        inflateBytes(bytes, MAX_INFLATED)?.decodeToString()
 
     // ── 结果 ────────────────────────────────────────────────
 
@@ -476,7 +496,7 @@ object MatchProfile {
         val facets = buildList {
             if (bothHaveGrid) {
                 val sameBuilding = sameBuildingCells(mine, theirs)
-                val cells = String(CharArray(CELLS) { i ->
+                val cells = CharArray(CELLS) { i ->
                     val mineFree = mine.busyGrid[i] == '0'
                     val theirsFree = theirs.busyGrid[i] == '0'
                     when {
@@ -485,7 +505,7 @@ object MatchProfile {
                         sameBuilding != null && sameBuilding[i] -> Cell.SAME_BUILDING
                         else -> Cell.BOTH_BUSY
                     }
-                })
+                }.concatToString()
                 overlapGrid = cells
                 blocks = freeBlocks(cells)
                 meetings = encounters(mine, theirs)
@@ -750,7 +770,8 @@ object MatchProfile {
     private fun lastExamNote(mine: Profile, theirs: Profile, them: String): String? {
         val a = mine.exams.mapNotNull { parseDate(it.date) }.maxOrNull() ?: return null
         val b = theirs.exams.mapNotNull { parseDate(it.date) }.maxOrNull() ?: return null
-        val gap = java.time.temporal.ChronoUnit.DAYS.between(a, b).toInt()
+        // 搬迁前是 `ChronoUnit.DAYS.between(a, b)`；`daysUntil` 是同一个含头不含尾的天数。
+        val gap = a.daysUntil(b)
         return when {
             gap == 0 -> "同一天考完，${prettyDate(a.toString())}一起放假"
             gap > 0 -> "你早 $gap 天考完，${prettyDate(a.toString())}就走人"
@@ -761,7 +782,7 @@ object MatchProfile {
     private fun parseDate(s: String): LocalDate? = runCatching { LocalDate.parse(s.trim()) }.getOrNull()
 
     private fun prettyDate(s: String): String =
-        parseDate(s)?.let { "${it.monthValue} 月 ${it.dayOfMonth} 日" } ?: s
+        parseDate(s)?.let { "${it.monthNumber} 月 ${it.dayOfMonth} 日" } ?: s
 
     /** 一周的课按上午（1-4）、下午（5-8）、晚上（9-11）分三堆。 */
     private fun dayParts(grid: String): IntArray {

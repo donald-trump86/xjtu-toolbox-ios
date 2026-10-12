@@ -1,15 +1,10 @@
-@file:OptIn(ExperimentalLayoutApi::class)
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.xjtu.toolbox.social
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.ImageDecoder
 import com.xjtu.toolbox.platform.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
+import com.xjtu.toolbox.platform.CodeMatrix
+import com.xjtu.toolbox.platform.qrCodeModules
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,19 +12,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -56,20 +50,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import com.xjtu.toolbox.qrlogin.QrScannerView
-import androidx.compose.foundation.layout.fillMaxHeight
+import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.util.QrBitmap
 import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,10 +94,26 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 结果分两块：上面一个分数回答"约不约得上"，下面一串**交集**回答"我俩有什么共同点"。
  * 后者才是好玩的地方——同一栋楼擦肩而过、同一场考试、同一个老师、同一本教材，
  * 都是本机缓存里本来就有、只是从没被拿出来对过的东西。
+ *
+ * ## 搬进 `:core` 之后变的三处（都是「宿主能力」那一类，不是业务）
+ *
+ * | 搬迁前（`:app`） | 这里 |
+ * |---|---|
+ * | `MatchData.read(context, term)` / `DiningHabit` / `HelloProfileStore` | [MatchHost]（课表族缓存 / 校园卡流水 / 学工档案三件由端上给；桌面端后两件如实没有） |
+ * | `QrBitmap.generate` + `Image(asImageBitmap)` | `:core` 的码阵缝 [qrCodeModules] + [CodeMatrixView]（与付款码**同一份画法**，白边与格子尺寸逐像素同源） |
+ * | 相机取景（`QrScannerView`）与「从相册选图」（`ImageDecoder` + `QrBitmap.read`） | [MatchScanner]（Android 那两份实现在 `:app` 的适配里**原样**；桌面没有相机 ⇒ 不传，那两颗按钮一个字都不画） |
+ *
+ * 画法与文案与搬迁前一行未改（除了上面那三处），`Dispatchers.IO` 换成 [MatchHost.io]。
+ *
+ * @param host 这一端有什么（见 [MatchHost]）
+ * @param scanner 扫码那一档；`null` = 这一端没有相机 / 相册（桌面）⇒ 只留「粘一段文字」那条路
  */
 @Composable
-fun MatchScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
+fun MatchScreen(
+    host: MatchHost,
+    onBack: () -> Unit,
+    scanner: MatchScanner? = null,
+) {
     val clipboard = LocalClipboardManager.current
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
@@ -123,7 +128,6 @@ fun MatchScreen(onBack: () -> Unit) {
     var loadError by remember { mutableStateOf<String?>(null) }
 
     var showShareSettings by remember { mutableStateOf(false) }
-    var scanning by remember { mutableStateOf(false) }
     var theirCode by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<MatchProfile.Result?>(null) }
     var theirName by remember { mutableStateOf("") }
@@ -137,17 +141,17 @@ fun MatchScreen(onBack: () -> Unit) {
     // 用户看到的是一块空白加一条进度条——这正是「怎么选都是空的」那个现象。
     // 拿来比的学期：null = 本学期。换学期时整份本地数据重读（课、考试、教材都跟着学期走）
     var pickedTerm by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(pickedTerm) {
-        val read = withContext(Dispatchers.IO) { runCatching { MatchData.read(context, pickedTerm) } }
+    LaunchedEffect(host, pickedTerm) {
+        val read = withContext(host.io) { runCatching { MatchData.read(host, pickedTerm) } }
         read.getOrNull()?.let { local = it }
         loadError = read.exceptionOrNull()?.let {
             "读本地缓存时出错了，可以先去日程页刷新一次再回来"
         }
         loading = false
     }
-    LaunchedEffect(local.profile?.name) {
+    LaunchedEffect(local.identity?.name) {
         if (!nicknameEdited) {
-            local.profile?.name?.takeIf { it.isNotBlank() }?.let { nickname = it }
+            local.identity?.name?.takeIf { it.isNotBlank() }?.let { nickname = it }
         }
     }
 
@@ -182,39 +186,20 @@ fun MatchScreen(onBack: () -> Unit) {
         }
     }
 
-    // 对方不在跟前时，让他把码截图发过来，这边从相册选一张就行——
+    // 对方不在跟前时，让他把码截图发过来，这边选一张图就行——
     // 比让用户去别的 App 长按识别、再复制一大段文字回来靠谱得多。
+    // 「怎么拿到码」这两条（相机 / 相册）都在端上，见 [MatchScanner]。
     val scope = rememberCoroutineScope()
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val scanned = withContext(Dispatchers.IO) {
-                runCatching {
-                    val source = ImageDecoder.createSource(context.contentResolver, uri)
-                    // getPixels 读不了硬件位图，解码时就得要一张软件位图。
-                    // 顺手按长边缩一次：相册里的截图动辄四千像素宽，整张解又慢又不准。
-                    val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                        val edge = maxOf(info.size.width, info.size.height)
-                        if (edge > 1600) {
-                            val ratio = 1600f / edge
-                            decoder.setTargetSize(
-                                (info.size.width * ratio).toInt().coerceAtLeast(1),
-                                (info.size.height * ratio).toInt().coerceAtLeast(1),
-                            )
-                        }
-                    }
-                    QrBitmap.read(bitmap).also { bitmap.recycle() }
-                }.getOrNull()
+    fun applyScan(outcome: MatchScanOutcome) {
+        when {
+            outcome.code.isNotEmpty() -> {
+                theirCode = outcome.code
+                match(outcome.code)
             }
-            if (scanned == null) {
-                decodeError = "图里没找到二维码。换一张完整点、清楚点的截图试试。"
+            // 取消（两个都空）什么都不说，与搬迁前「相册返回 null 直接 return」同一条口径。
+            outcome.reason.isNotEmpty() -> {
+                decodeError = outcome.reason
                 result = null
-            } else {
-                theirCode = scanned
-                match(scanned)
             }
         }
     }
@@ -324,14 +309,9 @@ fun MatchScreen(onBack: () -> Unit) {
                                 code = theirCode,
                                 onCode = { theirCode = it; decodeError = null },
                                 error = decodeError,
-                                onScan = { scanning = true },
-                                onPickImage = {
-                                    picker.launch(
-                                        PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
-                                },
+                                // 没有相机那一档时不画那两颗按钮（点了只会失败），见 [MatchScanner]。
+                                onScan = scanner?.let { { scope.launch { applyScan(it.scan()) } } },
+                                onPickImage = scanner?.let { { scope.launch { applyScan(it.fromImage()) } } },
                                 onCompute = { match(theirCode) },
                             )
                         }
@@ -381,17 +361,6 @@ fun MatchScreen(onBack: () -> Unit) {
                 }
             }
         }
-
-        if (scanning) {
-            ScannerOverlay(
-                onResult = { scanned ->
-                    scanning = false
-                    theirCode = scanned
-                    match(scanned)
-                },
-                onClose = { scanning = false },
-            )
-        }
     }
 }
 
@@ -407,7 +376,9 @@ fun MatchScreen(onBack: () -> Unit) {
  */
 private sealed interface QrState {
     data object Loading : QrState
-    data class Ready(val bitmap: Bitmap) : QrState
+
+    /** [CodeMatrix] 就是格阵本身（画法见 [CodeMatrixView]）——搬迁前这里是一张 `Bitmap`。 */
+    data class Ready(val matrix: CodeMatrix) : QrState
     /** [reason] 直接显示给用户，得是一句能照着做的话。 */
     data class Failed(val reason: String) : QrState
 }
@@ -415,7 +386,7 @@ private sealed interface QrState {
 /**
  * 我的码：一张二维码 + 一段文字兜底。
  *
- * 二维码只在扫得动的长度里给。密到 [QrBitmap.MAX_SCANNABLE] 以上的码摆出来，
+ * 二维码只在扫得动的长度里给。密到 [MatchProfile.CODE_MAX_SCANNABLE] 以上的码摆出来，
  * 只会让两个人举着手机对半天——那时候不如直说"少开几项，或者复制文字"。
  */
 @Composable
@@ -430,19 +401,27 @@ private fun MyCodeCard(
         // 不显式写一次的话，新码没画出来之前显示的还是上一张旧码。
         value = QrState.Loading
         value = when {
+            // 这一端没有 deflate / Base64（wasmJs）：这**不是**"出错了"，是这一端做不到。
+            // 说清是哪一件缺了，而不是让人反复退出重进一个永远好不了的状态。
+            !MatchProfile.codecAvailable -> QrState.Failed(
+                "这一端还没有分享码要用的压缩（deflate）与 Base64，生成不了码。" +
+                    "Android 与桌面已经能用；Web 端要等这两件接上" +
+                    "（见 :core 的 platform/Deflate.kt 与 platform/Base64Url.kt 里的 TODO）。"
+            )
+
+            // 正常不会走到：encode 至少会带版本号。但空串喂给 zxing 是直接抛异常，
+            // 与其让它炸在协程里变成永远的加载态，不如在这说清楚。
             code.isEmpty() ->
-                // 正常不会走到：encode 至少会带版本号。但空串喂给 zxing 是直接抛异常，
-                // 与其让它炸在协程里变成永远的加载态，不如在这说清楚。
                 QrState.Failed("没能生成分享码。退出去重进一次试试。")
 
-            code.length > QrBitmap.MAX_SCANNABLE ->
+            code.length > MatchProfile.CODE_MAX_SCANNABLE ->
                 QrState.Failed(
                     "开的项太多，${code.length} 字的码密到扫不出来了" +
-                        "（扫得动的上限约 ${QrBitmap.MAX_SCANNABLE} 字）。" +
+                        "（扫得动的上限约 ${MatchProfile.CODE_MAX_SCANNABLE} 字）。" +
                         "点「挑选」关掉几项，或者把下面的文字直接发给对方。"
                 )
 
-            else -> withContext(Dispatchers.Default) { QrBitmap.generate(code, 720) }
+            else -> withContext(Dispatchers.Default) { qrCodeModules(code) }
                 ?.let { QrState.Ready(it) }
                 ?: QrState.Failed(
                     "这段 ${code.length} 字的码画不成二维码。点「挑选」关掉几项再试，" +
@@ -461,20 +440,17 @@ private fun MyCodeCard(
 
             is QrState.Ready -> {
                 Box(Modifier.fillMaxWidth(), Alignment.Center) {
-                    Image(
-                        bitmap = s.bitmap.asImageBitmap(),
-                        contentDescription = "我的匹配交友二维码",
-                        modifier = Modifier
-                            .size(232.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            // 二维码得是深色印在浅色上才扫得出，这一块不跟随深色主题。
-                            .background(Color.White)
-                            .padding(10.dp),
+                    // 与付款码同一份画法、同一个静默区（1 个模块，与搬迁前 `QrBitmap` 的
+                    // `MARGIN=1` 同宽）；`CodeMatrixView` 自己铺白底，所以不再补背景色。
+                    CodeMatrixView(
+                        matrix = s.matrix,
+                        quietZoneModules = 1,
+                        modifier = Modifier.size(232.dp).clip(RoundedCornerShape(12.dp)),
                     )
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    if (code.length <= QrBitmap.COMFORTABLE) "让对方用「扫一扫」扫这张"
+                    if (code.length <= MatchProfile.CODE_COMFORTABLE) "让对方用「扫一扫」扫这张"
                     else "开的项多，码有点密，扫的时候凑近点",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -514,16 +490,22 @@ private fun MyCodeCard(
                 Text(
                     // 维度越多码越长。与其等用户粘到一半发现聊天框塞不下，不如把长度摆在这，
                     // 顺带把上限写出来——改维度时能直接看见离上限还有多远。
-                    "码长 ${code.length} / 上限 ${QrBitmap.MAX_SCANNABLE} 字",
+                    "码长 ${code.length} / 上限 ${MatchProfile.CODE_MAX_SCANNABLE} 字",
                     style = MiuixTheme.textStyles.footnote2,
-                    color = if (code.length > QrBitmap.COMFORTABLE) MiuixTheme.colorScheme.error
+                    color = if (code.length > MatchProfile.CODE_COMFORTABLE) MiuixTheme.colorScheme.error
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
             Text("挑选 ›", style = MiuixTheme.textStyles.body2, color = primary)
         }
         Spacer(Modifier.height(8.dp))
-        TextButton(text = "复制文字", onClick = onCopy, modifier = Modifier.fillMaxWidth())
+        // 这一端出不了码时复制出来是空串（wasmJs）⇒ 那一颗就禁用，别让人复制一段空文本再去问为什么。
+        TextButton(
+            text = "复制文字",
+            onClick = onCopy,
+            enabled = code.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -532,30 +514,47 @@ private fun TheirCodeCard(
     code: String,
     onCode: (String) -> Unit,
     error: String?,
-    onScan: () -> Unit,
-    onPickImage: () -> Unit,
+    /** `null` = 这一端没有相机 / 相册（桌面）⇒ 取码那两颗按钮不画。 */
+    onScan: (() -> Unit)?,
+    onPickImage: (() -> Unit)?,
     onCompute: () -> Unit,
 ) {
     SectionCard("对方的码") {
-        TextButton(
-            text = "扫一扫",
-            onClick = onScan,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.textButtonColorsPrimary(),
-        )
-        Spacer(Modifier.height(8.dp))
-        TextButton(text = "从相册选图", onClick = onPickImage, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(14.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            HorizontalDivider(Modifier.weight(1f), color = MiuixTheme.colorScheme.dividerLine)
+        if (onScan != null) {
+            TextButton(
+                text = "扫一扫",
+                onClick = onScan,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        if (onPickImage != null) {
+            TextButton(text = "从相册选图", onClick = onPickImage, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(14.dp))
+        }
+        if (onScan == null && onPickImage == null) {
+            // 如实说明：这一端没有相机，也没有相册（桌面）。**不画**两颗点了只会失败的按钮，
+            // 但也不能让人以为"这功能只能粘文字"是这个页面本来的样子。
             Text(
-                "  也可以粘一段文字  ",
-                style = MiuixTheme.textStyles.footnote2,
+                "这一端没有相机（也没有相册），扫不了码 —— 拿对方发来的那段文字码，粘到下面就行。" +
+                    "Android 上那两条路都在。",
+                style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-            HorizontalDivider(Modifier.weight(1f), color = MiuixTheme.colorScheme.dividerLine)
+            Spacer(Modifier.height(14.dp))
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HorizontalDivider(Modifier.weight(1f), color = MiuixTheme.colorScheme.dividerLine)
+                Text(
+                    "  也可以粘一段文字  ",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                HorizontalDivider(Modifier.weight(1f), color = MiuixTheme.colorScheme.dividerLine)
+            }
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(10.dp))
         TextField(
             value = code,
             onValueChange = onCode,
@@ -573,51 +572,6 @@ private fun TheirCodeCard(
             modifier = Modifier.fillMaxWidth(),
             enabled = code.isNotBlank(),
         )
-    }
-}
-
-/** 全屏取景。相机权限就地要，不必为一次扫码把用户丢去系统设置再走回来。 */
-@Composable
-private fun ScannerOverlay(onResult: (String) -> Unit, onClose: () -> Unit) {
-    val context = LocalContext.current
-    var granted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted = it }
-    LaunchedEffect(Unit) { if (!granted) launcher.launch(Manifest.permission.CAMERA) }
-    BackHandler(onBack = onClose)
-
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (granted) {
-            QrScannerView(Modifier.fillMaxSize(), onResult = onResult)
-        }
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                if (granted) "对准对方屏幕上的二维码" else "得先允许用一下相机",
-                style = MiuixTheme.textStyles.body2,
-                color = Color.White,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(12.dp))
-            if (!granted) {
-                TextButton(
-                    text = "允许使用相机",
-                    onClick = { launcher.launch(Manifest.permission.CAMERA) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-            TextButton(text = "取消", onClick = onClose, modifier = Modifier.fillMaxWidth())
-        }
     }
 }
 
@@ -648,6 +602,9 @@ private fun ShareSettingsDialog(
     val hasBuildings = hasSchedule && local.courses.any { MatchProfile.buildingOf(it.location) != null }
     val hasTeachers = local.courses.any { it.teacher.isNotBlank() }
     val noSchedule = "还没读到课表，去日程页转一圈就有了"
+    // 那两维的数据源只有 Android 有（学工档案 / 校园卡消费）⇒ 桌面上的说法与"没逛过那个页面"不同。
+    val noDining = "还没读到消费记录，去校园卡页看一眼"
+    val noIdentity = "学籍信息还没同步，联网后稍等再来"
 
     BackHandler(onBack = onDismiss)
     OverlayDialog(
@@ -728,13 +685,13 @@ private fun ShareSettingsDialog(
                 GroupLabel("吃")
                 DimRow(
                     "常在几点吃饭",
-                    if (local.diningHourCounts.isEmpty()) "还没读到消费记录，去校园卡页看一眼"
+                    if (local.diningHourCounts.isEmpty()) noDining
                     else "只有钟点，没有金额和商户",
                     dims.diningHours, local.diningHourCounts.isNotEmpty(),
                 ) { onDims(dims.copy(diningHours = it)) }
                 DimRow(
                     "常去哪个食堂",
-                    if (local.canteens.isEmpty()) "还没读到消费记录，去校园卡页看一眼"
+                    if (local.canteens.isEmpty()) noDining
                     else "只到食堂，不到窗口：${local.canteens.joinToString("、")}",
                     dims.canteens, local.canteens.isNotEmpty(),
                 ) { onDims(dims.copy(canteens = it)) }
@@ -755,9 +712,9 @@ private fun ShareSettingsDialog(
                 GroupLabel("人")
                 DimRow(
                     "年级 专业 校区 生源地",
-                    if (local.profile == null) "学籍信息还没同步，联网后稍等再来"
+                    if (local.identity == null) noIdentity
                     else "不带学号，只有年级、专业、书院、校区和生源地省份",
-                    dims.identity, local.profile != null,
+                    dims.identity, local.identity != null,
                 ) { onDims(dims.copy(identity = it)) }
             }
             Spacer(Modifier.height(16.dp))
