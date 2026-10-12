@@ -409,7 +409,9 @@ class AgentViewModel : ViewModel() {
                     config.searchEngine
                 ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
-                val runner = AgentRunner(registry)
+                // 循环与「发一次请求」现在是两件事，见 `:core` 的 [AgentRunner] / [AgentTransport]：
+                // Android 这一侧就传 `:data` 那份 okhttp SSE 传输（与搬迁前是同一份实现）。
+                val runner = AgentRunner(registry, SseAgentTransport())
 
                 // 系统提示**一段对话只生成一次**：对话里还没有它（新对话，或老数据缺了）才生成，
                 // 之后原样复用。名字、偏好、画像中途变了，都从下一个新对话起生效——

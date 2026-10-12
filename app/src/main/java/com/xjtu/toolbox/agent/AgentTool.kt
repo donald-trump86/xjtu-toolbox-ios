@@ -105,13 +105,16 @@ class AgentToolRegistry(
     private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO,
     /** 记住的用户偏好（[AgentMemory]）：宿主可以换一份落盘实现，见那个类的 KDoc。 */
     private val memory: AgentMemory = AgentMemory(),
-) {
+) : AgentTools {
+    // 跨模块：[AgentTools] 是 `:core` 的调度循环（[AgentRunner]）要的三件事（工具清单 / 限流分组键 /
+    // 执行一次调用），下面那三个成员同名同形状，各只多一个 `override` —— 循环搬进 `:core` 之后
+    // 那一侧不再认识本类。`memoryBlock()` 不在这三个里：它是系统提示那一侧要的，调用方是 ViewModel。
 
     /**
      * 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。
      * 返回 null 表示纯本地工具（算术、设闹钟、记偏好等），不需要间隔。
      */
-    fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
+    override fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
 
     /** 记住的用户偏好，拼进系统提示。走注册表是因为 ViewModel 手上没有 Context。 */
     fun memoryBlock(): String = memory.promptBlock()
@@ -400,7 +403,7 @@ class AgentToolRegistry(
     // OpenAI function calling 格式的工具描述。
     // 用 JSON 构建器生成（自动转义），description 里有引号也不会截断整串。
     // 新增/修改工具：只需在 buildToolDefinitions() 里加一行 tool(...)。
-    val toolDefinitions: String = buildToolDefinitions()
+    override val toolDefinitions: String = buildToolDefinitions()
 
     private fun buildToolDefinitions(): String {
         val arr = mutableListOf<JsonObject>()
@@ -618,7 +621,7 @@ class AgentToolRegistry(
     private fun JsonObject.int(key: String): Int? = this[key].safeStringOrNull()?.let { it.toIntOrNull() ?: it.toDoubleOrNull()?.toInt() }
     private fun JsonObject.bool(key: String): Boolean? = this[key].safeStringOrNull()?.let { it.equals("true", ignoreCase = true) }
 
-    suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
+    override suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
 
         val args = runCatching { AppJson.parseToJsonElement(argsJson).jsonObject }.getOrDefault(JsonObject(emptyMap()))
 

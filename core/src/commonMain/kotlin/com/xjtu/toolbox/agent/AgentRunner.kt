@@ -1,59 +1,42 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.error.SessionExpiredFailure
+import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.stringValue
+import kotlin.time.Clock
+import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import com.xjtu.toolbox.util.stringValue
-import com.xjtu.toolbox.util.intValue
-import com.xjtu.toolbox.util.longValue
-import com.xjtu.toolbox.util.isNull
-import com.xjtu.toolbox.util.isObject
-import com.xjtu.toolbox.util.obj
-import com.xjtu.toolbox.util.arr
-import com.xjtu.toolbox.util.AppJson
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
-import com.xjtu.toolbox.network.HttpClients
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
 /**
  * OpenAI-compatible function calling 调度循环。
  *
  * 安全限制：
  * - 每个问题最多 [TOOL_CALL_FUSE] 次工具调用，到了就不再给工具，逼模型直接作答
- * - 两次工具调用之间强制等待 1s，防止对学校服务器连续请求
- * - Auth 异常（AuthExpiredException）直接上抛，不让 LLM 自行重试
+ * - 同一站点的两次工具调用之间隔开 800ms（`SAME_SITE_MIN_INTERVAL_MS`），不同站点互不影响
+ * - 会话失效异常（[SessionExpiredFailure]）直接上抛，不让 LLM 自行重试
  *
  * 多轮会话：调用方负责维护 messages（含 system prompt），run() 在原数组上追加
  * assistant/tool 消息，返回后 messages 即为完整历史，可供下一轮复用。
+ *
+ * 跨模块：这一份在 `:core` 的 commonMain（三端同一份循环）。它曾经在 `:app`，搬动的只有两处接线：
+ * 「发一次请求」收成 [AgentTransport] 缝（原来这里是 `HttpClients.base` 的 okhttp 调用），
+ * 「工具表」收成 [AgentTools]（原来写死 `AgentToolRegistry`）。**循环内部一行未改**：
+ * 请求体的字段、`length` 续写、熔断、限流分组、工具结果的原子提交、截断策略全是原样。
  */
-class AgentRunner(private val tools: AgentToolRegistry) {
-
+class AgentRunner(
+    private val tools: AgentTools,
+    private val transport: AgentTransport,
+) {
     companion object {
-        // 共享连接池：每次 sendMessage 重用同一 OkHttpClient，避免泄漏
-        private val httpClient = HttpClients.base.newBuilder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)   // 流式期间连接需保持更久
-            .build()
-
         /** 同一站点两次工具调用的最小间隔。不同站点互不影响。 */
         private const val SAME_SITE_MIN_INTERVAL_MS = 800L
 
@@ -65,7 +48,11 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         private const val SEARCH_TOOL_RESULT_CHARS = 8000
         private const val FETCH_TOOL_RESULT_CHARS = 12_000
 
-        internal fun toolResultCap(toolName: String): Int = when (toolName) {
+        /**
+         * 跨模块可见性：原来是 `internal`，`:app` 的 `AgentWebTest` 那 4 条用例
+         *（结果截断 / 保险丝提示）还在按原样调它 —— 搬到 `:core` 之后 `internal` 就看不见了。
+         */
+        fun toolResultCap(toolName: String): Int = when (toolName) {
             "web_fetch" -> FETCH_TOOL_RESULT_CHARS
             "web_search", "search_school_courses" -> SEARCH_TOOL_RESULT_CHARS
             else -> DEFAULT_TOOL_RESULT_CHARS
@@ -76,7 +63,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
          * 以前按字数从中间砍一刀，常把一行（一门课、一条流水）劈成两半，模型也不知道少了多少条。
          * 只有一行却超长（网页正文）时退回按字截。
          */
-        internal fun capToolResult(result: String, toolName: String = ""): String {
+        fun capToolResult(result: String, toolName: String = ""): String {
             val maxChars = toolResultCap(toolName)
             if (result.length <= maxChars) return result
             val lines = result.split('\n')
@@ -111,40 +98,19 @@ class AgentRunner(private val tools: AgentToolRegistry) {
          * 该查几次由模型自己判断；这道只防它陷进死循环（反复调同一个失败的工具），
          * 白烧用户的 API 额度。正常问题碰不到。
          */
-        internal const val TOOL_CALL_FUSE = 20
+        const val TOOL_CALL_FUSE = 20
 
-        /** 按 DeepSeek 错误码表转成能照着办的中文；400/422 等参数类错误保留服务端原文，便于排查。 */
-        internal fun httpErrorText(code: Int, serverMessage: String): String = when (code) {
-            401 -> "API Key 无效，请到屁岱设置里检查。"
-            402 -> "AI 服务商账户余额不足，请先充值。"
-            429 -> "请求太频繁，请稍后再试。"
-            500, 502, 503 -> "AI 服务商暂时繁忙（HTTP $code），请稍后再试。"
-            else -> "LLM 请求失败：$serverMessage"
-        }
+        // HTTP 错误码的文案搬到了 [agentHttpErrorText]（它跟着 [AgentTransport] 缝走：
+        // 非 2xx 是传输层抛的，桌面与 Android 的那句话必须同源）。
 
         /** 只在熔断那一刻告诉模型，平时不提次数，免得它束手束脚。 */
-        internal fun remainingToolHint(used: Int): String? =
+        fun remainingToolHint(used: Int): String? =
             if (used >= TOOL_CALL_FUSE) "\n（工具次数已用尽）" else null
     }
 
     /** 站点 -> 上次调用时刻，用于按站点限流。 */
     private val lastCallAt = mutableMapOf<String, Long>()
 
-    /** 流式累积一个 tool_call（OpenAI 把 id/name/arguments 分片下发，按 index 聚合）。 */
-    private class ToolCallAcc(var id: String = "", var name: String = "") {
-        val args = StringBuilder()
-        val arguments: String get() = args.toString()
-    }
-
-    private class StreamResult(
-        val content: String,
-        val reasoningContent: String,
-        val toolCalls: List<ToolCallAcc>,
-        val finishReason: String,
-        val totalTokens: Long?
-    )
-
-    private val json = "application/json; charset=utf-8".toMediaType()
 
     /**
      * 执行一次用户消息的 agent 循环。
@@ -192,9 +158,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 }
             }
 
-            val sr = withContext(Dispatchers.IO) {
-                streamOnce(reqBody, config, onDelta, onReasoningDelta)
-            }
+            val sr = transport.stream(config, reqBody, onDelta, onReasoningDelta)
             sr.totalTokens?.let(onUsage)
 
             // 思考模式下更常见的是思维链先用完了输出上限（默认 64K），不一定是上下文满了
@@ -252,8 +216,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             }
 
             // 原子提交：先把所有 tool 结果算好，再「assistant(tool_calls) + 全部 tool」一起入历史。
-            // 若中途被取消/抛 AuthExpired，则什么都不写——历史不会留下"有 tool_calls 却没 tool 回应"的残体，
-            // 避免后续请求永久报 "must be followed by tool messages"。
+            // 若中途被取消/抛会话失效，则什么都不写——历史不会留下"有 tool_calls 却没 tool 回应"的残体，
             val toolResults = ArrayList<JsonObject>(sr.toolCalls.size)
             for (tc in sr.toolCalls) {
                 onToolCall(tc.name)
@@ -264,11 +227,11 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 // 失败退避覆盖，这里只需防"同一站点被连续猛打"。
                 tools.rateLimitKeyOf(tc.name)?.let { site ->
                     val last = lastCallAt[site]
-                    val now = System.currentTimeMillis()
+                    val now = Clock.System.now().toEpochMilliseconds()
                     if (last != null && now - last < SAME_SITE_MIN_INTERVAL_MS) {
                         delay(SAME_SITE_MIN_INTERVAL_MS - (now - last))
                     }
-                    lastCallAt[site] = System.currentTimeMillis()
+                    lastCallAt[site] = Clock.System.now().toEpochMilliseconds()
                 }
                 val toolResult = runCatching { tools.execute(tc.name, tc.arguments) }
                 val result: String
@@ -280,7 +243,8 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     val e = toolResult.exceptionOrNull()
                     // 用户点了停止：取消不是工具出错，不能记成一次失败塞进历史，原样往上抛
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    if (e is com.xjtu.toolbox.auth.AuthExpiredException) throw e
+                    // `:app` 的 AuthExpiredException / `:data` 的 SessionExpiredException 都实现它
+                    if (e is SessionExpiredFailure) throw e
                     result = "工具调用出错：${e?.message ?: "未知异常"}"
                     toolErrorMsg = e?.message ?: "未知异常"
                 }
@@ -298,111 +262,6 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             }
             messages.add(assistantMsg)
             toolResults.forEach { messages.add(it) }
-        }
-    }
-
-    /**
-     * 发起一次流式（SSE）请求并增量回调正文，同时聚合 tool_calls。
-     * 协程被取消（用户点"停止"）时 [ensureActive] 抛出，连接随 use 关闭。
-     */
-    private suspend fun streamOnce(
-        reqBody: JsonObject,
-        config: AgentConfig,
-        onDelta: suspend (String) -> Unit,
-        onReasoningDelta: suspend (String) -> Unit
-    ): StreamResult = coroutineScope {
-        val call = httpClient.newCall(
-            Request.Builder()
-                .url("${config.effectiveBaseUrl}/chat/completions")
-                .header("Authorization", "Bearer ${config.apiKey}")
-                .header("Content-Type", "application/json")
-                .header("Accept", "text/event-stream")
-                .post(reqBody.toString().toRequestBody(json))
-                .build()
-        )
-        val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
-            try {
-                awaitCancellation()
-            } finally {
-                call.cancel()
-            }
-        }
-        val resp = try {
-            call.execute()
-        } catch (e: java.io.IOException) {
-            currentCoroutineContext().ensureActive()
-            throw e
-        }
-
-        try {
-            resp.use {
-                if (!resp.isSuccessful) {
-                    val errBody = resp.body?.string().orEmpty()
-                    val errMsg = runCatching {
-                        AppJson.parseToJsonElement(errBody).jsonObject
-                            .obj("error")?.get("message")?.stringValue
-                    }.getOrNull() ?: "HTTP ${resp.code}"
-                    throw RuntimeException(httpErrorText(resp.code, errMsg))
-                }
-                val source = resp.body?.source() ?: throw RuntimeException("LLM 响应为空")
-                val contentSb = StringBuilder()
-                val reasoningSb = StringBuilder()
-                val toolMap = sortedMapOf<Int, ToolCallAcc>()
-                var finishReason = "stop"
-                var totalTokens: Long? = null
-
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val line = try {
-                        source.readUtf8Line()
-                    } catch (e: java.io.IOException) {
-                        currentCoroutineContext().ensureActive()
-                        throw e
-                    } ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.substring(5).trim()
-                    if (data == "[DONE]") break
-                    val chunk = runCatching { AppJson.parseToJsonElement(data).jsonObject }.getOrNull() ?: continue
-                    chunk.get("usage")?.takeIf { !it.isNull && it.isObject }?.jsonObject
-                        ?.get("total_tokens")
-                        ?.takeIf { !it.isNull }?.longValue?.let { totalTokens = it }
-                    val choices = chunk.arr("choices") ?: continue
-                    if (choices.size == 0) continue
-                    val choice = choices[0].jsonObject
-                    choice.get("finish_reason")?.takeIf { !it.isNull }?.stringValue?.let { finishReason = it }
-                    val delta = choice.obj("delta") ?: continue
-
-                    delta.get("reasoning_content")?.takeIf { !it.isNull }?.stringValue?.let {
-                        reasoningSb.append(it)
-                        withContext(Dispatchers.Main.immediate) { onReasoningDelta(it) }
-                    }
-                    delta.get("content")?.takeIf { !it.isNull }?.stringValue?.let { frag ->
-                        if (frag.isNotEmpty()) {
-                            contentSb.append(frag)
-                            withContext(Dispatchers.Main.immediate) { onDelta(frag) }
-                        }
-                    }
-                    delta.get("tool_calls")?.takeIf { !it.isNull }?.jsonArray?.forEach { el ->
-                        val o = el.jsonObject
-                        val idx = o.get("index")?.takeIf { !it.isNull }?.intValue ?: 0
-                        val acc = toolMap.getOrPut(idx) { ToolCallAcc() }
-                        o.get("id")?.takeIf { !it.isNull }?.stringValue?.let { acc.id = it }
-                        o.obj("function")?.let { f ->
-                            f.get("name")?.takeIf { !it.isNull }?.stringValue?.let { acc.name = it }
-                            f.get("arguments")?.takeIf { !it.isNull }?.stringValue?.let { acc.args.append(it) }
-                        }
-                    }
-                }
-                return@coroutineScope StreamResult(
-                    contentSb.toString(),
-                    reasoningSb.toString(),
-                    toolMap.values.filter { it.name.isNotBlank() },
-                    finishReason,
-                    totalTokens
-                )
-            }
-        } finally {
-            cancellationWatcher.cancel()
         }
     }
 
