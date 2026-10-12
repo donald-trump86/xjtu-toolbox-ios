@@ -4,12 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
+import kotlinx.datetime.LocalDate
 
 class ScheduleExportTest {
 
     /** 开学日期给的是周三：导出要按所在周的周一算，不能从周三起算。 */
-    private val start = LocalDate.of(2026, 9, 16)
+    private val start = LocalDate(2026, 9, 16)
 
     private val course = CourseItem(
         courseName = "高等数学", teacher = "张三", location = "主楼A-101", weekBits = "11",

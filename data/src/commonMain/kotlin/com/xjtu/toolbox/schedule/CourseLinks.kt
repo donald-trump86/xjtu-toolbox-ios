@@ -19,56 +19,25 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "CourseLinks"
 
 /**
- * 把教材、思源学堂、考勤挂回一门课上。
- *
+ * 把思源学堂、考勤挂回一门课上。
  * 只管解析，不管展示——两套日程布局共用同一份结果。每一项独立可失败，调用方按项渲染。
  * 所有登录都走 `silent = true`：点开课程详情不该让用户收到短信验证码。
  *
  * ## 为什么搬进 `:data`
  *
  * 它要的每一样都在这一层：会话内核（`SessionManager` / `ensureSite`）、考勤取数与落盘
- * （`AttendanceApi` / `AttendanceRecordStore`）、教材（`TextbookItem` 来自 `:core`）。
- * 搬动只换了两处：`android.util.Log` → `:core` 的 `Log`；`attachContext(Context)` →
- * [attachStorage]（原来那个 `Context` 唯一的用途就是「宿主落盘接上了没有」这个判断）。
+ * （`AttendanceApi` / `AttendanceRecordStore`）。搬动只换了两处：`android.util.Log` →
+ * `:core` 的 `Log`；`attachContext(Context)` → [attachStorage]（原来那个 `Context` 唯一的
+ * 用途就是「宿主落盘接上了没有」这个判断）。
+ *
+ * ## 教材那半按能力切走了
+ *
+ * `textbooksFor` 是**纯匹配**（吃一份教材表 + 课名/课程号，不碰会话、网络、落盘）
+ * ⇒ 它留在 `:core` 的 [TextbookLinks]，屏三端同一份判据。这里只管要会话的那两项。
+ * 名字归一化（`normalizedCourseName`，两个系统对齐课名用）也跟着过去了 —— 它是那一族的
+ * 公共工具，`lmsCourseFor` 直接用它。
  */
 object CourseLinks {
-
-    // ── 教材 ──────────────────────────────────────────────
-
-    /**
-     * 找这门课的教材。
-     *
-     * 课程号优先：它是教务系统里的主键，两边一致就是同一门课，不用跟课程名的各种
-     * 写法（「大学物理」/「大学物理（一）」/「大学物理I」）较劲。只有拿不到课程号、
-     * 或者报表里那一列是空的，才退回按名字模糊匹配。
-     *
-     * @param courseCode 课表侧的课程号，空串表示不可用
-     */
-    fun textbooksFor(
-        courseName: String,
-        all: List<TextbookItem>,
-        courseCode: String = "",
-    ): List<TextbookItem> {
-        val code = courseCode.trim()
-        if (code.isNotEmpty()) {
-            // 课程号常带班号后缀（`MATH100101-05`），先精确、再取主段。
-            val byCode = all.filter { it.courseCode.trim().equals(code, ignoreCase = true) }
-                .ifEmpty {
-                    val stem = code.substringBefore('-').trim()
-                    if (stem.length < 4) emptyList()
-                    else all.filter { it.courseCode.trim().substringBefore('-').equals(stem, ignoreCase = true) }
-                }
-            if (byCode.isNotEmpty()) return byCode.filter { it.hasSubstantiveTextbook }
-        }
-        val target = courseName.normalizedCourseName()
-        if (target.isEmpty()) return emptyList()
-        val exact = all.filter { it.courseName.normalizedCourseName() == target }
-        if (exact.isNotEmpty()) return exact.filter { it.hasSubstantiveTextbook }
-        return all.filter {
-            val n = it.courseName.normalizedCourseName()
-            n.isNotEmpty() && (n.contains(target) || target.contains(n))
-        }.filter { it.hasSubstantiveTextbook }
-    }
 
     /**
      * 这门课在思源学堂对应哪门。
@@ -125,15 +94,16 @@ object CourseLinks {
      */
     class AttendanceIndex(
         private val byKey: Map<SlotKey, AttendanceWaterRecord>,
-    ) {
-        fun statusOf(week: Int, dayOfWeek: Int, startSection: Int): WaterType? =
+    ) : AttendanceMarks {
+
+        override fun statusOf(week: Int, dayOfWeek: Int, startSection: Int): WaterType? =
             statusRecordOf(week, dayOfWeek, startSection)?.status
 
         fun statusRecordOf(week: Int, dayOfWeek: Int, startSection: Int): AttendanceWaterRecord? =
             byKey[SlotKey(week, dayOfWeek, startSection)]
 
         /** 指定周次的那一次考勤。没有记录 = 还没上，或这门课不考勤。 */
-        fun recordOn(course: CourseItem, week: Int): AttendanceWaterRecord? =
+        override fun recordOn(course: CourseItem, week: Int): AttendanceWaterRecord? =
             statusRecordOf(week, course.dayOfWeek, course.startSection)
 
         val isEmpty: Boolean get() = byKey.isEmpty()
@@ -419,8 +389,3 @@ object CourseLinks {
         LocalDate.parse(take(10)).dayOfWeek.value
     }.getOrNull()
 }
-
-/** 去掉空白和结尾括号后缀，让两个系统里同一门课的名字能对上。 */
-internal fun String.normalizedCourseName(): String =
-    trim().replace(Regex("[\\s　]"), "")
-        .replace(Regex("[（(][^）)]*[）)]$"), "")

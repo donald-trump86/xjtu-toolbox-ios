@@ -3,13 +3,13 @@ package com.xjtu.toolbox.schedule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import java.time.LocalDate
+import kotlinx.datetime.LocalDate
 
 class HolidayFilterTest {
 
     /** 2026 秋季学期，9 月 14 日（周一）开学；9 月 25 日周五是中秋，落在第 2 周。 */
-    private val start = LocalDate.of(2026, 9, 14)
-    private val holidays = mapOf(LocalDate.of(2026, 9, 25) to "中秋节")
+    private val start = LocalDate(2026, 9, 14)
+    private val holidays = mapOf(LocalDate(2026, 9, 25) to "中秋节")
 
     private fun course(code: String, weeks: String) = CourseItem(
         courseName = "x", teacher = "", location = "", weekBits = weeks,
@@ -30,7 +30,9 @@ class HolidayFilterTest {
     /** 屁岱在中秋那周加的一次性日程：以前被滤掉，表现为「出现半秒就消失」。 */
     @Test
     fun `自建日程落在假日也不滤`() {
-        val custom = CustomCourseEntity(
+        // 造数据从 `CustomCourseEntity`（Room 实体，留在 `:app`）换成 `CustomCourse`
+        // —— 两张的字段一个不差，`toCourseItem()` 的映射也逐字相同。
+        val custom = CustomCourse(
             id = 7, courseName = "实验", weekBits = "01", dayOfWeek = 5,
             startSection = 7, endSection = 8, termCode = "2026-2027-1",
         ).toCourseItem()

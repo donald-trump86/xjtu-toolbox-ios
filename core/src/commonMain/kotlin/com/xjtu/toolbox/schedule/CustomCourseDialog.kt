@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.formatTwoDigits
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -53,13 +54,13 @@ data class CustomCourseDraft(
 @Composable
 fun CustomCourseDialog(
     show: MutableState<Boolean> = mutableStateOf(true),
-    existing: CustomCourseEntity? = null,
+    existing: CustomCourse? = null,
     termCode: String,
     totalWeeks: Int = 20,
     draft: CustomCourseDraft = CustomCourseDraft(),
     onAutoSave: ((CustomCourseDraft) -> Unit)? = null,
-    onSave: (CustomCourseEntity) -> Unit,
-    onDelete: ((CustomCourseEntity) -> Unit)? = null,
+    onSave: (CustomCourse) -> Unit,
+    onDelete: ((CustomCourse) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val isEdit = existing != null
@@ -235,9 +236,10 @@ fun CustomCourseDialog(
             SectionHeader(
                 title = "时间",
                 trailing = if (isTimeValid) {
-                    "%02d:%02d – %02d:%02d · %s".format(
-                        startHour, startMinute, endHour, safeEndMinute, formatDuration(durationMinutes)
-                    )
+                    listOf(
+                        formatTwoDigits(startHour), formatTwoDigits(startMinute),
+                        formatTwoDigits(endHour), formatTwoDigits(safeEndMinute),
+                    ).let { (sh, sm, eh, em) -> "$sh:$sm – $eh:$em · ${formatDuration(durationMinutes)}" }
                 } else "结束需晚于开始",
                 trailingColor = if (isTimeValid) MiuixTheme.colorScheme.onSurfaceVariantSummary
                 else MiuixTheme.colorScheme.error
@@ -327,7 +329,7 @@ fun CustomCourseDialog(
                 val endScale = XjtuTime.sectionScaleOf(endTotalMinutes)
                 val startSection = floor(startScale).toInt().coerceIn(1, MAX_SECTIONS)
                 val endSection = (ceil(endScale).toInt() - 1).coerceIn(startSection, MAX_SECTIONS)
-                val entity = (existing ?: CustomCourseEntity(
+                val entity = (existing ?: CustomCourse(
                     courseName = "", teacher = "", location = "", weekBits = "",
                     dayOfWeek = 1, startSection = 1, endSection = 1, termCode = termCode
                 )).copy(
@@ -429,7 +431,7 @@ private fun TimeColumn(
             WheelNumberPicker(
                 value = hour,
                 valueRange = hourRange,
-                formatter = { "%02d".format(it) },
+                formatter = { formatTwoDigits(it) },
                 onValueChange = onHour,
                 modifier = Modifier.weight(1f)
             )
@@ -443,7 +445,7 @@ private fun TimeColumn(
             WheelNumberPicker(
                 value = minute,
                 valueRange = minuteRange,
-                formatter = { "%02d".format(it) },
+                formatter = { formatTwoDigits(it) },
                 onValueChange = onMinute,
                 modifier = Modifier.weight(1f)
             )

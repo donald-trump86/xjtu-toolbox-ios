@@ -1,24 +1,25 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.AppJson
-import java.time.LocalDate
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.LocalDate
 
 /**
  * 课表 / 考试 / 教材 / 学期的本地缓存，键名集中在这里。
  * 学期内的数据按 90 天过期：永不过期会让上学期的课表在开学后一直留着。
- *
- * 从 `:app` 的 `schedule/ScheduleCache.kt` 搬进 `:data`（同一个包、同一个名字，`:app` 的调用点
- * 一行未改）。搬动只碰了两处：
- *  1. 存储从具体的 `DataCache` 换成 `:core` 的 [ScheduleCacheStore] 缝（原始 JSON + TTL）。
+ * 从 `:app` 的 `schedule/ScheduleCache.kt` 一路搬到这里（`:data` 中转过一次），同一个包、同一个
+ * 名字。搬动只碰了两处：
+ *  1. 存储从具体的 `DataCache` 换成 [ScheduleCacheStore] 缝（原始 JSON + TTL）。
  *     `:app` 的 `DataCache` 直接实现那条缝，所以目录名、文件名、账号后缀、原子写入全是原来那份；
- *     桌面端给的是键值文件那一份。序列化仍走 `:core` 的 `AppJson`（与 `DataCache.read/write`
- *     用的同一个 `Json` 实例）⇒ 老缓存逐字节可读。
- *  2. [TermWeeks] 那边收 `kotlinx.datetime.LocalDate`，本文件对外仍收 `java.time.LocalDate`
- *     （`:app` 全是这个类型）：跨过去的两处用文件底部那两个逐字段转换，口径与 `:app` 的
- *     `TimeBridge` 逐字相同。
+ *     桌面端给的是键值文件那一份（[KeyValueScheduleCacheStore]）。序列化仍走 `AppJson`
+ *     （与 `DataCache.read/write` 用的同一个 `Json` 实例）⇒ 老缓存逐字节可读。
+ *  2. 日期类型 `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（屏与 ViewModel 是本轮进
+ *     `:core` 的，`TermWeeks` 早就只认后者）。存进 `start_date_<学期>` 的仍是 ISO 文本
+ *     ⇒ **老缓存逐字节读得回来**；仍用 `java.time` 的那几个 `:app` 调用点过 `TimeBridge`
  */
 object ScheduleCache {
-    private const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
+    /** 学期内数据的 TTL（90 天）。`:app` 的 `DataCache.TERM_TTL_MS` 与它同值，屏搬过来之后就只认这一份。 */
+    const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
     private const val FOREVER = Long.MAX_VALUE
 
     /**
@@ -143,9 +144,9 @@ object ScheduleCache {
             val newBits = StringBuilder(course.weekBits)
             for (i in newBits.indices) {
                 if (newBits[i] == '1') {
-                    val courseDate = javaDate(TermWeeks.dateOf(kxDate(startOfTerm), i + 1, course.dayOfWeek))
+                    val courseDate = TermWeeks.dateOf(startOfTerm, i + 1, course.dayOfWeek)
                     if (holidayDates.containsKey(courseDate)) {
-                        newBits.setCharAt(i, '0')
+                        newBits[i] = '0'
                         changed = true
                     }
                 }
@@ -162,9 +163,9 @@ object ScheduleCache {
      * 按学期自己的起止判断有没有结束（多留一周缓冲：最后一周还可能补录考勤、传回放）。
      * 不依赖「当前学期是哪个」：冷启动时它会被正在画的学期覆盖。
      */
-    fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = LocalDate.now()): Boolean {
+    fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = todayInSystemZone()): Boolean {
         if (startOfTerm == null || weeks <= 0) return false
-        return TermWeeks.weekOf(kxDate(startOfTerm), kxDate(today)) > weeks + 1
+        return TermWeeks.weekOf(startOfTerm, today) > weeks + 1
     }
 
     /** 已结束且本地该有的都有：封存后不再为它发请求。 */

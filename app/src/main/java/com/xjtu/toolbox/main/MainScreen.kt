@@ -837,10 +837,15 @@ private fun CoursesTab(
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit,
 ) {
+    // 日程页的宿主面（本地落盘 / 教务会话 / 分享面板 / 考勤与思源那几档）—— 屏在 `:core`，
+    // 这一端只把它认得的那些能力接上去。见 `AppScheduleHost` 那张表。
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scheduleHost = remember(loginState) {
+        com.xjtu.toolbox.schedule.AppScheduleHost(context, loginState)
+    }
     Box(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         ScheduleScreen(
-            site = loginState.sessionManager?.getSiteOrNull("jwxt"),
-            studentId = loginState.activeUsername,
+            host = scheduleHost,
             onBack = {},
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,

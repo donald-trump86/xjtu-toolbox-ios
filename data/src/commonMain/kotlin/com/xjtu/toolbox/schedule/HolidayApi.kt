@@ -14,9 +14,9 @@ import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.util.todayInSystemZone
 import okhttp3.Request
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import kotlinx.datetime.LocalDate
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "HolidayApi"
@@ -26,11 +26,15 @@ private const val CACHE_KEY = "holiday_dates"
  * 全国节假日（免费公开接口：主源 shuyz 的 holidayAPI.json，后备 NateScarlet/holiday-cn）。
  * 课表拿它把「放假那天的课」隐掉（`ScheduleCache.filterByHolidays`）。
  *
- * 从 `:app` 的 `schedule/HolidayApi.kt` 搬进 `:data`，只改了两处：
+ * 从 `:app` 的 `schedule/HolidayApi.kt` 搬进 `:data`（`:core` 的日程页与它都要用），改了四处：
  *  1. `android.util.Log` → `:core` 的 `Log`（既有先例）；
  *  2. 参数从 `Context?` 换成 [ScheduleCacheStore]? —— 它要的只是那份 JSON 落盘缓存。
  *     `:app` 传的就是原来那个 `DataCache`（键 `holiday_dates` 与存进去的 JSON 逐字未动），
- *     桌面端传键值文件那一份。
+ *     桌面端传键值文件那一份；
+ *  3. 日期类型 `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（屏与 VM 进了 `:core`）；
+ *     解析从 `DateTimeFormatter` 换成 `LocalDate.parse`（ISO，两边对 `yyyy-MM-dd` 同口径），
+ *     `toString()` 仍是 ISO ⇒ **老缓存逐字节读得回来**；
+ *  4. `LocalDate.now()` → [todayInSystemZone]（`:core` 的「本机时区的今天」，同一个系统默认时区）。
  */
 object HolidayApi {
     private val client = HttpClients.base.newBuilder()
@@ -75,7 +79,6 @@ object HolidayApi {
             }
             val root = jsonStr.safeParseJsonObject()
             val years = root.requireObj("Years")
-            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
             
             years.keys.forEach { yearStr ->
                 val yearArray = years.requireArr(yearStr)
@@ -84,13 +87,13 @@ object HolidayApi {
                     val name = obj.get("Name").stringValue
                     val startStr = obj.get("StartDate").stringValue
                     val endStr = obj.get("EndDate").stringValue
-                    val startDate = LocalDate.parse(startStr, formatter)
-                    val endDate = LocalDate.parse(endStr, formatter)
+                    val startDate = LocalDate.parse(startStr)
+                    val endDate = LocalDate.parse(endStr)
                     
                     var curr = startDate
-                    while (!curr.isAfter(endDate)) {
+                    while (curr <= endDate) {
                         holidays[curr] = name
-                        curr = curr.plusDays(1)
+                        curr = civilFromEpochDay(curr.toEpochDays().toLong() + 1)
                     }
                 }
             }
@@ -99,9 +102,8 @@ object HolidayApi {
             Log.w(TAG, "Primary holiday API failed, trying fallback...", e)
             try {
                 // 后备接口：holiday-cn
-                val currentYear = LocalDate.now().year
+                val currentYear = todayInSystemZone().year
                 val yearsToFetch = listOf(currentYear, currentYear + 1)
-                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
                 
                 for (y in yearsToFetch) {
                     try {
@@ -119,7 +121,7 @@ object HolidayApi {
                                 val dateStr = dObj.get("date").stringValue
                                 val nameObj = dObj.get("name")
                                 val name = if (nameObj != null && !nameObj.isNull) nameObj.stringValue else "节假日"
-                                holidays[LocalDate.parse(dateStr, formatter)] = name
+                                holidays[LocalDate.parse(dateStr)] = name
                             }
                         }
                     } catch (innerE: Exception) {
@@ -155,9 +157,8 @@ object HolidayApi {
     private fun parseCachedHolidays(json: String): Map<LocalDate, String>? {
         return try {
             val root = json.safeParseJsonObject()
-            val formatter = DateTimeFormatter.ISO_LOCAL_DATE
             root.entries.associate { (date, name) ->
-                LocalDate.parse(date, formatter) to name.stringValue
+                LocalDate.parse(date) to name.stringValue
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse cached holidays", e)

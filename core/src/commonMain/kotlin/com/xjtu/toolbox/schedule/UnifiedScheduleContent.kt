@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.toKx
-import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.LaunchedEffect
@@ -49,13 +47,16 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import java.time.Duration
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
+import com.xjtu.toolbox.util.formatTwoDigits
+import com.xjtu.toolbox.util.nowInSystemZone
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Instant
 
 /**
  * 日程页三级里的「今日」与「学期」两级（「日程」那一级是周视图网格，直接在
@@ -88,9 +89,9 @@ fun TodayTimeline(
     todayHomework: List<LmsDue> = emptyList(),
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
-    val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthValue) }
+    val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
     val entries = remember(courses, exams, today, todayHomework) {
-        val dow = today.dayOfWeek.value
+        val dow = today.dayOfWeek.ordinal + 1
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
             val (start, end) = c.clockMinutes(isSummer)
             TimelineEntry(
@@ -104,7 +105,7 @@ fun TodayTimeline(
             )
         }
         val fromExams = exams
-            .filter { ExamCountdown.parseDate(it.examDate) == today.toKx() }
+            .filter { ExamCountdown.parseDate(it.examDate) == today }
             .map { e ->
                 TimelineEntry(
                     // 考试时间是 "14:30-16:30" 这类文本，解析不出就排到最后，
@@ -125,14 +126,14 @@ fun TodayTimeline(
             .filter { !it.submitted }
             .mapNotNull { hw ->
                 val deadline = runCatching { Instant.parse(hw.deadline) }.getOrNull() ?: return@mapNotNull null
-                val zoned = deadline.atZone(ZoneId.systemDefault())
-                if (zoned.toLocalDate() != today) return@mapNotNull null
+                val zoned = deadline.toLocalDateTime(TimeZone.currentSystemDefault())
+                if (zoned.date != today) return@mapNotNull null
                 TimelineEntry(
                     startMinute = zoned.hour * 60 + zoned.minute,
                     endMinute = 0,
                     title = "[${hw.courseName}] ${hw.title}",
                     place = "",
-                    detail = "%02d:%02d 截止".format(zoned.hour, zoned.minute),
+                    detail = "${formatTwoDigits(zoned.hour)}:${formatTwoDigits(zoned.minute)} 截止",
                     kind = EntryKind.HOMEWORK,
                     course = null,
                 )
@@ -160,10 +161,10 @@ fun TodayTimeline(
     }
 
     // 每到整分钟走一次：正在上的课的进度、过去的课变淡都跟着它，不用重进页面才更新
-    val nowMinute by androidx.compose.runtime.produceState(LocalTime.now().toMinuteOfDay()) {
+    val nowMinute by androidx.compose.runtime.produceState(nowInSystemZone().time.toMinuteOfDay()) {
         while (true) {
-            kotlinx.coroutines.delay((60 - LocalTime.now().second) * 1000L)
-            value = LocalTime.now().toMinuteOfDay()
+            kotlinx.coroutines.delay((60 - nowInSystemZone().time.second) * 1000L)
+            value = nowInSystemZone().time.toMinuteOfDay()
         }
     }
     LazyColumn(
@@ -361,44 +362,44 @@ data class UpcomingItem(
 fun buildUpcoming(
     exams: List<ExamItem>,
     homework: List<LmsDue>,
-    now: LocalDateTime = LocalDateTime.now(),
+    now: LocalDateTime = nowInSystemZone(),
 ): List<UpcomingItem> {
-    val today = now.toLocalDate()
-    val zone = ZoneId.systemDefault()
+    val today = now.date
+    val zone = TimeZone.currentSystemDefault()
     val examItems = exams
-        .filter { ExamCountdown.phaseOf(it, now.toKx()) == ExamCountdown.ExamPhase.SOON }
+        .filter { ExamCountdown.phaseOf(it, now) == ExamCountdown.ExamPhase.SOON }
         .mapNotNull { e ->
             val date = ExamCountdown.parseDate(e.examDate) ?: return@mapNotNull null
-            val days = (date.toEpochDays() - today.toKx().toEpochDays()).toInt()
+            val days = (date.toEpochDays() - today.toEpochDays()).toInt()
             val time = ExamCountdown.startTimeOf(e)
             val dow = DOW_NAMES.getOrElse(date.dayOfWeek.ordinal + 1) { "" }
-            val whenText = "周$dow" + (time?.let { " %02d:%02d".format(it.hour, it.minute) } ?: "")
+            val whenText = "周$dow" + (time?.let { " ${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" } ?: "")
             val subtitle = listOfNotNull(whenText, e.location.takeIf { it.isNotBlank() }).joinToString(" · ")
             UpcomingItem(
                 kind = UpcomingKind.EXAM,
                 title = e.courseName,
                 subtitle = "还有 $days 天 · $subtitle",
-                // `ExamCountdown` 已经改说 kotlinx-datetime（它进了 :core），而这里还是 java.time；
-                // 时刻只精确到分钟（正则也只抓 hh:mm），所以按 hour/minute 重建即可 —— 逐位等价。
-                at = date.toJavaTime()
-                    .atTime(time?.let { java.time.LocalTime.of(it.hour, it.minute) } ?: java.time.LocalTime.MAX)
-                    .atZone(zone)
-                    .toInstant(),
+                // 考完时刻只精确到分钟（`ExamCountdown.startTimeOf` 正则也只抓 hh:mm），
+                // 拿不到时刻的排到当天最后一刻（原来是 `LocalTime.MAX`，口径不变）。
+                at = LocalDateTime(
+                    date.year, date.monthNumber, date.dayOfMonth,
+                    time?.hour ?: 23, time?.minute ?: 59, 59,
+                ).toInstant(zone),
             )
         }
-    val nowInstant = now.atZone(zone).toInstant()
-    val horizon = nowInstant.plus(Duration.ofDays(7))
+    val nowInstant = now.toInstant(zone)
+    val horizon = nowInstant + 7.days
     val homeworkItems = homework
         .filter { !it.submitted }
         .mapNotNull { hw ->
             val deadline = runCatching { Instant.parse(hw.deadline) }.getOrNull() ?: return@mapNotNull null
-            if (deadline.isBefore(nowInstant) || deadline.isAfter(horizon)) return@mapNotNull null
+            if (deadline < nowInstant || deadline > horizon) return@mapNotNull null
             // 今天截止的已经作为时间轴条目出现，这里不重复。
-            if (deadline.atZone(zone).toLocalDate() == today) return@mapNotNull null
+            if (deadline.toLocalDateTime(zone).date == today) return@mapNotNull null
             UpcomingItem(
                 kind = UpcomingKind.HOMEWORK,
                 title = "[${hw.courseName}] ${hw.title}",
-                subtitle = "还${remaining(nowInstant.toKx(), deadline.toKx())}",
+                subtitle = "还${remaining(nowInstant, deadline)}",
                 at = deadline,
             )
         }
@@ -500,7 +501,7 @@ fun SemesterCourseList(
         items(merged) { row ->
             val course = row.course
             val books = remember(course.courseName, course.courseCode, textbooks) {
-                CourseLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
+                TextbookLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
             }
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -593,7 +594,7 @@ private fun SectionLabel(text: String) {
 
 private fun LocalTime.toMinuteOfDay() = hour * 60 + minute
 
-private fun formatMinute(m: Int) = "%02d:%02d".format(m / 60, m % 60)
+private fun formatMinute(m: Int) = "${formatTwoDigits(m / 60)}:${formatTwoDigits(m % 60)}"
 
 /** 考试时间是 "14:30-16:30" / "14:30~16:30" 这类文本，取开头的时刻。 */
 private fun parseExamStart(raw: String): Int? =
@@ -610,10 +611,10 @@ internal data class FocusCourse(val course: CourseItem, val ongoing: Boolean)
  * 否则右栏说「正在上」、左栏却已经把它压暗了。
  */
 internal fun focusCourseOf(weekCourses: List<CourseItem>, today: LocalDate, now: LocalTime): FocusCourse? {
-    val isSummer = XjtuTime.isSummerTime(today.monthValue)
+    val isSummer = XjtuTime.isSummerTime(today.monthNumber)
     val nowMinute = now.toMinuteOfDay()
     val todays = weekCourses
-        .filter { it.dayOfWeek == today.dayOfWeek.value }
+        .filter { it.dayOfWeek == today.dayOfWeek.ordinal + 1 }
         .map { c -> c.clockMinutes(isSummer).let { (start, end) -> Triple(c, start, end) } }
         .sortedBy { it.second }
     todays.firstOrNull { nowMinute in it.second until it.third }?.let { return FocusCourse(it.first, ongoing = true) }
@@ -626,7 +627,7 @@ internal fun focusCourseOf(weekCourses: List<CourseItem>, today: LocalDate, now:
  */
 @Composable
 internal fun WeekGlance(courses: List<CourseItem>, today: LocalDate) {
-    val todayDow = today.dayOfWeek.value
+    val todayDow = today.dayOfWeek.ordinal + 1
     val perDay = remember(courses) { (1..7).map { d -> courses.count { it.dayOfWeek == d } } }
     val remaining = perDay.withIndex().filter { it.index + 1 > todayDow }.sumOf { it.value }
     val busiest = perDay.withIndex().maxByOrNull { it.value }?.takeIf { it.value > 0 }

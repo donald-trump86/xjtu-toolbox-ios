@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 import kotlin.coroutines.resume
 import com.xjtu.toolbox.network.APP_UA
@@ -25,6 +26,7 @@ import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.appCampusCardStore
 import com.xjtu.toolbox.card.CampusCardApi
 import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
@@ -873,7 +875,9 @@ class AgentToolRegistry(
      */
     private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache)
 
-    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)
+    // 开学日期在 :core 那边改说 kotlinx-datetime（`ScheduleCache` 进了 `:core`），
+    // 这里仍在 java.time 口径上算天数差与周次，过一道 `TimeBridge`。
+    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)?.toJavaTime()
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
@@ -1116,8 +1120,11 @@ class AgentToolRegistry(
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
         // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
+        // 节假日表也跟着改说 kotlinx 日期了（HolidayApi 在 :data，屏与 VM 在 :core），
+        // 这一处仍按 java.time 取键 —— 逐字段转一次，只有几十个日期。
         val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(context)) }
             .getOrDefault(emptyMap())
+            .mapKeys { it.key.toJavaTime() }
 
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }

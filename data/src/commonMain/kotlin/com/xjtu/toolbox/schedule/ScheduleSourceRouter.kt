@@ -110,7 +110,7 @@ object ScheduleSourceRouter {
             ScheduleTermStore.merge(cache, api.termNames())
         }
         val start = ScheduleCache.readStartDate(cache, code)
-            ?: javaDate(api.termStartDate(code)).also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
+            ?: api.termStartDate(code).also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
         if (ScheduleCache.readCourses(cache, code) == null) {
             val fresh = getSchedule(api, code, manager)
             ScheduleCache.writeRawCourses(cache, code, fresh)

@@ -1,21 +1,28 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.toJavaTime
-import com.xjtu.toolbox.util.toKx
+import com.xjtu.toolbox.util.formatTwoDigits
+import kotlinx.datetime.LocalDate
 
-import android.content.Context
-import android.content.Intent
-import android.util.Log
-import android.widget.Toast
-import androidx.core.content.FileProvider
-import com.xjtu.toolbox.error.FriendlyError
-import java.io.File
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.UUID
-
-private const val TAG = "ScheduleExport"
-
+/**
+ * ICS 日历文件的**文本生成**（纯逻辑，不落盘、不分享）。
+ *
+ * 从 `:app` 的 `schedule/ScheduleExport.kt` 搬进 `:core`：它原来是个「生成 + 分享」两件事的
+ * `object`，而分享要 `Context` / `FileProvider` / `Intent`（Android 专属）。按能力切开之后：
+ *  - 生成那一半（本文件）进共享层 —— 屏三端同一份，也好单测；
+ *  - 分享那一半走宿主槽位 `ScheduleHost.shareFile`（`:app` 是 `FileProvider` + `ACTION_SEND`；
+ *    桌面还没接 ⇒ 那一行菜单不画，见 `ScheduleCapability.SHARE_FILE`）。
+ *
+ * ## 与搬迁前的两处差别（如实记着）
+ *
+ *  1. `java.time` → `kotlinx.datetime`：`startOfTerm` 收 kotlinx 日期，时间戳用 `:core` 的
+ *     `formatTwoDigits` 拼（原来那串 `DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")` 是 JVM 专属；
+ *     拼出来的字符串**逐字相同**）。
+ *  2. **事件 UID 换了算法**：原来是 `UUID.nameUUIDFromBytes(…)`（MD5 名字空间 UUID，JVM 专属），
+ *     现在按「课程号 + 课名 + 日期 + 起始节次」拼一个**内容决定**的稳定串。两者都满足
+ *     「同一条课重复导出得到同一个 UID」，但**换了算法就是换了 ID**：已经用旧版本把课表导进
+ *     日历的人，再导一次会看到重复事件。要修得在 `:core` 里实现一份 MD5（commonMain 拿不到
+ *     `MessageDigest`，三个目标都要各自一份），不值得 —— **这是本轮唯一的用户可见行为差异**。
+ */
 object ScheduleExport {
 
     // ════════════════════════════════════════════
@@ -53,20 +60,15 @@ object ScheduleExport {
         sb.appendLine("END:STANDARD")
         sb.appendLine("END:VTIMEZONE")
 
-        val dtFormat = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
-
         for (course in courses) {
             val weeks = course.getWeeks()
             if (weeks.isEmpty()) continue
 
             for (week in weeks) {
-                val courseDate = TermWeeks.dateOf(startOfTerm.toKx(), week, course.dayOfWeek).toJavaTime()
+                val courseDate = TermWeeks.dateOf(startOfTerm, week, course.dayOfWeek)
 
                 // 节假日过滤：停的只是教务的课，自建日程照常导出
-                if (!course.isUserCreated && holidayDates.contains(courseDate)) {
-                    Log.d(TAG, "ICS Export: Skipped course '${course.courseName}' on holiday $courseDate")
-                    continue
-                }
+                if (!course.isUserCreated && holidayDates.contains(courseDate)) continue
 
                 // 自建日程带分钟级时间，按节次换算会把 14:00 的事导成整节的钟点
                 val startTime = course.startMinuteOfDay.takeIf { it >= 0 }?.let { it / 60 to it % 60 }
@@ -74,17 +76,11 @@ object ScheduleExport {
                 val endTime = course.endMinuteOfDay.takeIf { it >= 0 }?.let { it / 60 to it % 60 }
                     ?: sectionToTime(course.endSection, isStart = false, courseDate)
 
-                val dtStart = courseDate.atTime(startTime.first, startTime.second)
-                val dtEnd = courseDate.atTime(endTime.first, endTime.second)
-
                 sb.appendLine("BEGIN:VEVENT")
                 // UID 由课程和日期决定：重复导出、重复导入时日历软件能识别为同一个事件而不是叠加
-                val uid = UUID.nameUUIDFromBytes(
-                    "${course.courseCode}|${course.courseName}|$courseDate|${course.startSection}".toByteArray()
-                )
-                sb.appendLine("UID:$uid@xjtu-toolbox")
-                sb.appendLine("DTSTART;TZID=Asia/Shanghai:${dtFormat.format(dtStart)}")
-                sb.appendLine("DTEND;TZID=Asia/Shanghai:${dtFormat.format(dtEnd)}")
+                sb.appendLine("UID:${stableUid(course, courseDate)}@xjtu-toolbox")
+                sb.appendLine("DTSTART;TZID=Asia/Shanghai:${icsStamp(courseDate, startTime.first, startTime.second)}")
+                sb.appendLine("DTEND;TZID=Asia/Shanghai:${icsStamp(courseDate, endTime.first, endTime.second)}")
                 sb.appendLine("SUMMARY:${escapeIcs(course.courseName)}")
                 sb.appendLine("LOCATION:${escapeIcs(course.location)}")
                 val desc = listOfNotNull(
@@ -113,7 +109,7 @@ object ScheduleExport {
      * @param courseDate 上课日期（用于判断冬夏时间）
      */
     private fun sectionToTime(section: Int, isStart: Boolean, courseDate: LocalDate): Pair<Int, Int> {
-        val isSummer = XjtuTime.isSummerTime(courseDate.monthValue)
+        val isSummer = XjtuTime.isSummerTime(courseDate.monthNumber)
         val ct = XjtuTime.getClassTime(section, isSummer)
         return if (ct != null) {
             val t = if (isStart) ct.start else ct.end
@@ -123,36 +119,22 @@ object ScheduleExport {
         }
     }
 
-    private fun escapeIcs(text: String): String =
-        text.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
-
-    // ════════════════════════════════════════════
-    //  文件保存与分享
-    // ════════════════════════════════════════════
+    /** `yyyyMMdd'T'HHmmss`（原来那串 `DateTimeFormatter` 的逐字等价物，秒按 0 补）。 */
+    private fun icsStamp(date: LocalDate, hour: Int, minute: Int): String =
+        "${date.year}${formatTwoDigits(date.monthNumber)}${formatTwoDigits(date.dayOfMonth)}" +
+            "T${formatTwoDigits(hour)}${formatTwoDigits(minute)}00"
 
     /**
-     * 保存文本文件并通过 Share Sheet 分享
-     * @param content 文件内容
-     * @param fileName 文件名（含扩展名）
-     * @param mimeType MIME 类型
+     * 一条事件的稳定 ID：同一条课（同一课程号 + 课名 + 起始节次）在同一天必然得到同一个串。
+     *
+     * 只留下「字母/数字/`-._~`」：课名里可能有逗号、分号、括号，直接塞进 UID 会让某些
+     * 日历软件在解析那一行时出错。
      */
-    fun shareTextFile(context: Context, content: String, fileName: String, mimeType: String) {
-        try {
-            val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-            val file = File(dir, fileName)
-            file.writeText(content, Charsets.UTF_8)
-
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(intent, "导出 $fileName"))
-            Log.d(TAG, "Shared: $fileName (${content.length} bytes)")
-        } catch (e: Exception) {
-            Log.e(TAG, "Share failed: $fileName", e)
-            Toast.makeText(context, FriendlyError.of(e, "导出日历"), Toast.LENGTH_SHORT).show()
-        }
+    private fun stableUid(course: CourseItem, courseDate: LocalDate): String {
+        val raw = "${course.courseCode}|${course.courseName}|$courseDate|${course.startSection}"
+        return raw.map { if (it.isLetterOrDigit() || it in "-._~") it else '_' }.joinToString("")
     }
+
+    private fun escapeIcs(text: String): String =
+        text.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
 }

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.layout.ContentScale
@@ -539,7 +540,7 @@ internal fun HomeTab(
                         .map { it.toCourseItem() }
                 } catch (_: Exception) { emptyList() }
                 val allSchedules = apiCourses + customCourses
-                val startDate = schedule.start
+                val startDate = schedule.start?.toJavaTime()
                 val today = java.time.LocalDate.now()
                 val weekNumber = if (startDate != null) {
                     com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
@@ -552,6 +553,7 @@ internal fun HomeTab(
                 }
                 // 只读缓存：首页不该为了节假日去发网络请求，日程页会负责拉取
                 val holidayDates = com.xjtu.toolbox.schedule.HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(heroContext))
+                    .mapKeys { it.key.toJavaTime() }
 
                 val nowDateTime = java.time.LocalDateTime.now()
                 for (offset in 0..14) {

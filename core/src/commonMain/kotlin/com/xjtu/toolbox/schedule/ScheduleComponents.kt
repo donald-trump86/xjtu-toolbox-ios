@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.formatTwoDigits
+import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.LocalDate
+
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -75,8 +80,8 @@ fun ScheduleGrid(
     allCourseNames: List<String>,
     showWeeks: Boolean = false,
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
-    weekDates: List<java.time.LocalDate>? = null,
-    holidayNames: Map<java.time.LocalDate, String> = emptyMap(),
+    weekDates: List<LocalDate>? = null,
+    holidayNames: Map<LocalDate, String> = emptyMap(),
     enableCompression: Boolean = false,  // 没课的节次是否压扁（0.56 高）
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 顶部留白，放在纵向滚动里面：顶栏是玻璃时，星期头和网格要能从它下面滚过去。 */
@@ -95,13 +100,13 @@ fun ScheduleGrid(
     // 左轴标哪一套作息：默认跟这一周自己的令时；这一周跨了令时切换（5/1 起夏秋、10/1 起冬春）就按
     // "今天"所在令时标，另一套时间不同的节次在下面补一行。课块各按自己那天的作息对齐（见 WeekGridLayout）。
     val todaySummer = XjtuTime.isSummerTime()
-    val weekSeasons = weekDates?.map { XjtuTime.isSummerTime(it.monthValue) }?.distinct()
+    val weekSeasons = weekDates?.map { XjtuTime.isSummerTime(it.monthNumber) }?.distinct()
     val mixedWeek = (weekSeasons?.size ?: 1) > 1
     val axisSummer = if (mixedWeek) todaySummer else (weekSeasons?.firstOrNull() ?: todaySummer)
 
     val layout = remember(slots, weekDates, axisSummer) {
         layoutWeekGrid(slots) { day ->
-            weekDates?.getOrNull(day - 1)?.let { XjtuTime.isSummerTime(it.monthValue) } ?: axisSummer
+            weekDates?.getOrNull(day - 1)?.let { XjtuTime.isSummerTime(it.monthNumber) } ?: axisSummer
         }
     }
     val rows = layout.rows
@@ -157,8 +162,8 @@ fun ScheduleGrid(
 
     // 当前时间线位置计算（仅在当前周激活）
     val timeLineInfo = if (isCurrentWeek) {
-        val now = java.time.LocalTime.now()
-        val todayDow = java.time.LocalDate.now().dayOfWeek.value  // 1=Mon...7=Sun
+        val now = nowInSystemZone().time
+        val todayDow = todayInSystemZone().dayOfWeek.ordinal + 1  // 1=Mon...7=Sun
         Pair(todayDow, layout.positionOf(now.hour * 60 + now.minute, todaySummer))
     } else null
     Column(
@@ -174,7 +179,7 @@ fun ScheduleGrid(
                 Text("", fontSize = 9.sp)
             }
             DAY_HEADERS.forEachIndexed { idx, day ->
-                val todayDow = java.time.LocalDate.now().dayOfWeek.value
+                val todayDow = todayInSystemZone().dayOfWeek.ordinal + 1
                 val isToday = isCurrentWeek && (idx + 1) == todayDow
                 val date = weekDates?.getOrNull(idx)
                 val holidayName = if (date != null) holidayNames[date] else null
@@ -200,7 +205,7 @@ fun ScheduleGrid(
                         )
                     } else if (date != null) {
                         Text(
-                            "${date.monthValue}月${date.dayOfMonth}日",
+                            "${date.monthNumber}月${date.dayOfMonth}日",
                             fontSize = 8.sp,
                             color = if (isToday) MiuixTheme.colorScheme.primary
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -400,7 +405,8 @@ private fun formatWeekInfo(slot: ScheduleSlot, showWeeks: Boolean): String {
     return if (weeks.isEmpty()) "" else TermWeeks.formatRanges(weeks) + "周"
 }
 
-private fun formatMinuteOfDay(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
+private fun formatMinuteOfDay(minute: Int): String =
+    "${formatTwoDigits(minute / 60)}:${formatTwoDigits(minute % 60)}"
 
 // ── 冲突课程翻页卡片 ──
 

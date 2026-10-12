@@ -41,13 +41,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.attendance.WaterType
-import com.xjtu.toolbox.data.CredentialStore
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.time.LocalDate
+import kotlinx.datetime.LocalDate
 import com.xjtu.toolbox.nav.AppRoute
 
 /** 一次具体的上课：哪一天、第几周。 */
@@ -63,6 +61,8 @@ data class Occurrence(val date: LocalDate, val week: Int)
  */
 @Composable
 fun CourseLinkSections(
+    /** 宿主槽位：思源学堂入口与考勤那两档都从它来（教材匹配是纯逻辑，不占槽位）。 */
+    host: ScheduleHost,
     course: CourseItem,
     textbooks: List<TextbookItem>,
     /**
@@ -82,16 +82,13 @@ fun CourseLinkSections(
     // 自定义日程没有课程号、也不在教务的教材/考勤里，整块跳过。
     if (course.courseType == "日程") return
 
-    val loginState = LocalAppLoginState.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val manager = loginState.sessionManager
 
     LaunchedEffect(course.courseName) {
         if (textbooks.isEmpty()) onRequestTextbooks()
     }
 
     val mine = remember(course.courseName, textbooks) {
-        CourseLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
+        TextbookLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
     }
 
     // 教材不再自动去全文库找对应的书：全文库把 ISBN 和索书号检索都下线了
@@ -100,8 +97,7 @@ fun CourseLinkSections(
     // 认错版本就是给人翻开另一本书。要读全文请走首页的「教材全文」自行检索。
 
     // 考勤跟角标共用开关：要单独登录一次考勤站点，没开的人不该为点开一门课付这个代价。
-    val store = remember { CredentialStore(context) }
-    val attendanceEnabled = remember { store.scheduleAttendanceBadge }
+    val attendanceEnabled = ScheduleCapability.ATTENDANCE in host.honored && host.attendanceBadgeEnabled
     var record by remember(course.courseCode, occurrence?.week) {
         mutableStateOf<com.xjtu.toolbox.attendance.AttendanceWaterRecord?>(null)
     }
@@ -109,9 +105,11 @@ fun CourseLinkSections(
         val week = occurrence?.week ?: return@LaunchedEffect
         if (!attendanceEnabled) return@LaunchedEffect
         // 用户点开了详情正在等，豁免站点级失败冷却。
-        record = CourseLinks.attendanceIndex(
-            manager, loginState.accountType, termCode, userInitiated = true,
-        )?.recordOn(course, week)
+        // 详情面板说不出「哪些学期已结束」（那是周视图按学期起止算的），传空表 = 不新增封存标记，
+        // 与搬迁前一致（原来这一处也只是直接读那层已有的封存集合）。
+        record = host.courseLinks
+            ?.attendanceMarks(termCode, finishedTerms = emptyList(), userInitiated = true)
+            ?.recordOn(course, week)
     }
 
     // ── 思源学堂：这门课的活动、作业、课件都在那边 ──
@@ -120,7 +118,7 @@ fun CourseLinkSections(
         mutableStateOf<com.xjtu.toolbox.lms.LmsCourseSummary?>(null)
     }
     LaunchedEffect(course.courseCode, course.courseName) {
-        lmsCourse = CourseLinks.lmsCourseFor(manager, course)
+        lmsCourse = if (ScheduleCapability.LMS_LINK in host.honored) host.courseLinks?.lmsCourseFor(course) else null
     }
 
     val hasBook = mine.isNotEmpty()

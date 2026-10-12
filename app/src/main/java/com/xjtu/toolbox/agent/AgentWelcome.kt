@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.ui.components.pressScale
 import android.content.Context
@@ -109,10 +110,10 @@ internal object WelcomeFactsLoader {
     fun load(ctx: Context, now: LocalDateTime = LocalDateTime.now()): WelcomeFacts = runCatching {
         val today = now.toLocalDate()
         val cache = DataCache(ctx)
-        val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx))
+        val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx)).mapKeys { it.key.toJavaTime() }
         val schedule = ScheduleCache.readCurrentTermSchedule(cache)
         val courses: List<CourseItem> = schedule?.courses.orEmpty()
-        val start = schedule?.start
+        val start = schedule?.start?.toJavaTime()
         fun on(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
             val week = TermWeeks.weekOf(start.toKx(), date.toKx())
