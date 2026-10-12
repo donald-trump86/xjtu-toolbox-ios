@@ -279,7 +279,7 @@ fun ScheduleScreen(
                             scope.launch {
                                 android.widget.Toast.makeText(context, "正在导出日历…", android.widget.Toast.LENGTH_SHORT).show()
                                 try {
-                                    val holidays = HolidayApi.getHolidayDates(context).keys
+                                    val holidays = HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(context)).keys
                                     val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, holidays)
                                     ScheduleExport.shareTextFile(context, ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
                                 } catch (e: Exception) {
@@ -898,8 +898,8 @@ private fun ScheduleTabContent(
         // 告诉 CourseLinks 这个学期结没结束——那一层没有教务会话，自己判断不了。
         // 用学期自己的起止判断而不是跟 currentTermCode 比：后者在冷启动阶段会被
         // paintCache 覆盖成正在画的学期。
-        CourseLinks.attachContext(
-            ctx,
+        CourseLinks.attachStorage(
+            true,
             listOfNotNull(
                 selectedTermCode.takeIf {
                     ScheduleCache.isFinishedByDate(startOfTerm, totalWeeks)

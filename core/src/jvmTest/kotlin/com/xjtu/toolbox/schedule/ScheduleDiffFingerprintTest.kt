@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.schedule
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 /**
  * [ScheduleDiff.groupFingerprint]：同一节课因临时换教室被数据源拆成几条时，快照要把它们合成

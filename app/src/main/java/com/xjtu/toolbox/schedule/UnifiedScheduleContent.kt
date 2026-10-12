@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.toKx
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.LaunchedEffect
@@ -103,7 +104,7 @@ fun TodayTimeline(
             )
         }
         val fromExams = exams
-            .filter { ExamCountdown.parseDate(it.examDate) == today }
+            .filter { ExamCountdown.parseDate(it.examDate) == today.toKx() }
             .map { e ->
                 TimelineEntry(
                     // 考试时间是 "14:30-16:30" 这类文本，解析不出就排到最后，
@@ -365,19 +366,24 @@ fun buildUpcoming(
     val today = now.toLocalDate()
     val zone = ZoneId.systemDefault()
     val examItems = exams
-        .filter { ExamCountdown.phaseOf(it, now) == ExamCountdown.ExamPhase.SOON }
+        .filter { ExamCountdown.phaseOf(it, now.toKx()) == ExamCountdown.ExamPhase.SOON }
         .mapNotNull { e ->
             val date = ExamCountdown.parseDate(e.examDate) ?: return@mapNotNull null
-            val days = ChronoUnit.DAYS.between(today, date).toInt()
+            val days = (date.toEpochDays() - today.toKx().toEpochDays()).toInt()
             val time = ExamCountdown.startTimeOf(e)
-            val dow = DOW_NAMES.getOrElse(date.dayOfWeek.value) { "" }
+            val dow = DOW_NAMES.getOrElse(date.dayOfWeek.ordinal + 1) { "" }
             val whenText = "周$dow" + (time?.let { " %02d:%02d".format(it.hour, it.minute) } ?: "")
             val subtitle = listOfNotNull(whenText, e.location.takeIf { it.isNotBlank() }).joinToString(" · ")
             UpcomingItem(
                 kind = UpcomingKind.EXAM,
                 title = e.courseName,
                 subtitle = "还有 $days 天 · $subtitle",
-                at = date.atTime(time ?: java.time.LocalTime.MAX).atZone(zone).toInstant(),
+                // `ExamCountdown` 已经改说 kotlinx-datetime（它进了 :core），而这里还是 java.time；
+                // 时刻只精确到分钟（正则也只抓 hh:mm），所以按 hour/minute 重建即可 —— 逐位等价。
+                at = date.toJavaTime()
+                    .atTime(time?.let { java.time.LocalTime.of(it.hour, it.minute) } ?: java.time.LocalTime.MAX)
+                    .atZone(zone)
+                    .toInstant(),
             )
         }
     val nowInstant = now.atZone(zone).toInstant()

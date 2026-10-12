@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.schedule
 
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.attendance.AttendanceRecordStore
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
@@ -23,6 +23,13 @@ private const val TAG = "CourseLinks"
  *
  * 只管解析，不管展示——两套日程布局共用同一份结果。每一项独立可失败，调用方按项渲染。
  * 所有登录都走 `silent = true`：点开课程详情不该让用户收到短信验证码。
+ *
+ * ## 为什么搬进 `:data`
+ *
+ * 它要的每一样都在这一层：会话内核（`SessionManager` / `ensureSite`）、考勤取数与落盘
+ * （`AttendanceApi` / `AttendanceRecordStore`）、教材（`TextbookItem` 来自 `:core`）。
+ * 搬动只换了两处：`android.util.Log` → `:core` 的 `Log`；`attachContext(Context)` →
+ * [attachStorage]（原来那个 `Context` 唯一的用途就是「宿主落盘接上了没有」这个判断）。
  */
 object CourseLinks {
 
@@ -174,8 +181,8 @@ object CourseLinks {
         // 考勤页和课表角标共用同一份——原来两边各拉各的、各存各的。
         val pg = accountType == AccountType.POSTGRADUATE
         // `AttendanceRecordStore` 搬进 `:data` 后不再收 Context（落盘走 :core 键值缝，同名同键）；
-        // 原来「没挂过 context 就不读缓存」的闸门照旧保留（日程页 `attachContext` 在首次调用前设好）。
-        val shard = if (appContext != null) AttendanceRecordStore.load(pg, termCode, c.accountId) else null
+        // 原来「没挂过宿主落盘就不读缓存」的闸门照旧保留（日程页 `attachStorage` 在首次调用前设好）。
+        val shard = if (storageAttached) AttendanceRecordStore.load(pg, termCode, c.accountId) else null
         val plan = AttendanceRecordStore.planFor(
             shard = shard,
             sealedTerm = sealedTerms.contains(termCode),
@@ -194,11 +201,16 @@ object CourseLinks {
      */
     private val sealedTerms: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
-    /** 落盘缓存要 Context；由日程页在首次调用前设好。 */
-    private var appContext: android.content.Context? = null
+    /** 宿主落盘接上了没有：课表角标读考勤记录、以及取到之后回写，都以它为闸门。 */
+    private var storageAttached = false
 
-    fun attachContext(ctx: android.content.Context, finishedTerms: Collection<String>) {
-        appContext = ctx.applicationContext
+    /**
+     * 由日程页在首次调用前设好。
+     *
+     * @param enabled 宿主有可写的落盘（`:app` 与桌面端都是 true；离屏证据之类没有落盘的场景传 false）
+     */
+    fun attachStorage(enabled: Boolean, finishedTerms: Collection<String>) {
+        storageAttached = enabled
         sealedTerms.addAll(finishedTerms)
     }
 
@@ -280,7 +292,7 @@ object CourseLinks {
                     Log.d(TAG, "attendance: account switched mid-fetch, discard")
                     return@runCatching null
                 }
-                if (appContext != null) {
+                if (storageAttached) {
                     val now = System.currentTimeMillis()
                     AttendanceRecordStore.save(
                         accountType == AccountType.POSTGRADUATE,

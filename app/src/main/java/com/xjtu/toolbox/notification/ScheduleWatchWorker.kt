@@ -14,6 +14,7 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleDiff
+import com.xjtu.toolbox.schedule.scheduleDiffStore
 import com.xjtu.toolbox.schedule.ScheduleSourceRouter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -66,16 +67,15 @@ class ScheduleWatchWorker(
      */
     private suspend fun checkScheduleChange(context: Context, api: JwxtScheduleApi, term: String) {
         val courses = ScheduleSourceRouter.getSchedule(
-            context = context,
             jwxt = api,
             termCode = term,
             manager = HeadlessSessions.manager(),
         )
         if (courses.isEmpty()) return
-        val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return
+        val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(scheduleDiffStore(), term, courses, ScheduleSourceRouter.servedSource().key)) ?: return
         com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(summary))
         if (!ReminderNotifier.notifyScheduleChange(context, summary)) {
-            ScheduleDiff.setPending(context, summary)
+            ScheduleDiff.setPending(scheduleDiffStore(), summary)
         }
     }
 

@@ -1,12 +1,12 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.schedule.ExamCountdown.ExamPhase
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
 
 /**
  * 考试状态的契约单测（plan2 第 0 步）。日程页、屁岱气泡、今日栏都按这里的规则判断，
@@ -14,7 +14,7 @@ import java.time.LocalTime
  */
 class ExamCountdownTest {
 
-    private val today: LocalDate = LocalDate.of(2027, 1, 10)
+    private val today: LocalDate = LocalDate(2027, 1, 10)
 
     private fun exam(date: String, time: String = "14:30-16:30", name: String = "高等数学") =
         ExamItem(
@@ -26,7 +26,7 @@ class ExamCountdownTest {
             seatNumber = "12",
         )
 
-    private fun at(h: Int, m: Int = 0): LocalDateTime = today.atTime(h, m)
+    private fun at(h: Int, m: Int = 0): LocalDateTime = LocalDateTime(today, LocalTime(h, m))
 
     @Test
     fun 日期已过的是已结束() {
@@ -70,11 +70,11 @@ class ExamCountdownTest {
     @Test
     fun 时间段的各种连接符都认() {
         for (t in listOf("14:30-16:30", "14:30~16:30", "14：30—16：30", "14:30至16:30")) {
-            assertEquals(t, LocalTime.of(16, 30), ExamCountdown.endTimeOf(exam("2027-01-10", time = t)))
-            assertEquals(t, LocalTime.of(14, 30), ExamCountdown.startTimeOf(exam("2027-01-10", time = t)))
+            assertEquals(LocalTime(16, 30), ExamCountdown.endTimeOf(exam("2027-01-10", time = t)), "结束时刻：$t")
+            assertEquals(LocalTime(14, 30), ExamCountdown.startTimeOf(exam("2027-01-10", time = t)), "开考时刻：$t")
         }
         // 只写了一个时间：有开考时刻，没有结束时刻（不猜考多久）。
-        assertEquals(LocalTime.of(9, 0), ExamCountdown.startTimeOf(exam("2027-01-10", time = "9:00")))
+        assertEquals(LocalTime(9, 0), ExamCountdown.startTimeOf(exam("2027-01-10", time = "9:00")))
         assertNull(ExamCountdown.endTimeOf(exam("2027-01-10", time = "9:00")))
     }
 
@@ -99,6 +99,6 @@ class ExamCountdownTest {
     fun 按别的日期查时按那天零点算() {
         // 旧入口传的不是今天：那天的考试一场都还没考。
         val e = exam("2027-01-20", time = "08:30-10:30")
-        assertEquals(0, ExamCountdown.next(listOf(e), LocalDate.of(2027, 1, 20))?.daysLeft)
+        assertEquals(0, ExamCountdown.next(listOf(e), LocalDate(2027, 1, 20))?.daysLeft)
     }
 }

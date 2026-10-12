@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.schedule
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
-import java.time.LocalDate
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
 
 /**
  * 考试列表排序的契约单测（plan2 §1.3④）：未结束的按时间正序在前、日期待定的排最后，
@@ -10,8 +12,8 @@ import java.time.LocalDate
  */
 class ExamListTest {
 
-    private val today: LocalDate = LocalDate.of(2027, 1, 10)
-    private fun at(h: Int) = today.atTime(h, 0)
+    private val today: LocalDate = LocalDate(2027, 1, 10)
+    private fun at(h: Int) = LocalDateTime(today, LocalTime(h, 0))
 
     private fun exam(date: String, name: String, time: String = "14:30-16:30") =
         ExamItem(

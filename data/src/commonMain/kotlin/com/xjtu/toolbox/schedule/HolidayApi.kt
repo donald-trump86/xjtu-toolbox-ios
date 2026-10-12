@@ -9,10 +9,8 @@ import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.obj
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.network.HttpClients
-import android.content.Context
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonObject
-import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,6 +22,16 @@ import java.util.concurrent.TimeUnit
 private const val TAG = "HolidayApi"
 private const val CACHE_KEY = "holiday_dates"
 
+/**
+ * 全国节假日（免费公开接口：主源 shuyz 的 holidayAPI.json，后备 NateScarlet/holiday-cn）。
+ * 课表拿它把「放假那天的课」隐掉（`ScheduleCache.filterByHolidays`）。
+ *
+ * 从 `:app` 的 `schedule/HolidayApi.kt` 搬进 `:data`，只改了两处：
+ *  1. `android.util.Log` → `:core` 的 `Log`（既有先例）；
+ *  2. 参数从 `Context?` 换成 [ScheduleCacheStore]? —— 它要的只是那份 JSON 落盘缓存。
+ *     `:app` 传的就是原来那个 `DataCache`（键 `holiday_dates` 与存进去的 JSON 逐字未动），
+ *     桌面端传键值文件那一份。
+ */
 object HolidayApi {
     private val client = HttpClients.base.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -34,10 +42,9 @@ object HolidayApi {
     private var cachedHolidays: Map<LocalDate, String>? = null
 
     /** 只读内存/磁盘，不访问网络。课表首屏不能被节假日接口拖住。 */
-    fun peekCached(context: Context? = null): Map<LocalDate, String> {
+    fun peekCached(cache: ScheduleCacheStore? = null): Map<LocalDate, String> {
         cachedHolidays?.let { return it }
-        val cache = context?.applicationContext?.let { DataCache(it) }
-        cache?.get(CACHE_KEY, Long.MAX_VALUE)?.let { cachedJson ->
+        cache?.readJson(CACHE_KEY, Long.MAX_VALUE)?.let { cachedJson ->
             parseCachedHolidays(cachedJson)?.let { holidays ->
                 cachedHolidays = holidays
                 Log.d(TAG, "Loaded holidays from disk cache: ${holidays.size} days")
@@ -48,14 +55,13 @@ object HolidayApi {
     }
 
     suspend fun getHolidayDates(
-        context: Context? = null,
+        cache: ScheduleCacheStore? = null,
         forceRefresh: Boolean = false
     ): Map<LocalDate, String> = withContext(Dispatchers.IO) {
         if (!forceRefresh) {
-            val cached = peekCached(context)
+            val cached = peekCached(cache)
             if (cached.isNotEmpty()) return@withContext cached
         }
-        val cache = context?.applicationContext?.let { DataCache(it) }
         val holidays = mutableMapOf<LocalDate, String>()
         
         try {
@@ -128,7 +134,7 @@ object HolidayApi {
         
         if (holidays.isNotEmpty()) {
             cachedHolidays = holidays
-            cache?.put(CACHE_KEY, serializeHolidays(holidays))
+            cache?.writeJson(CACHE_KEY, serializeHolidays(holidays))
             return@withContext holidays
         }
 
@@ -136,7 +142,7 @@ object HolidayApi {
             Log.d(TAG, "Using in-memory holiday cache after refresh failure: ${it.size} days")
             return@withContext it
         }
-        cache?.get(CACHE_KEY, Long.MAX_VALUE)?.let { cachedJson ->
+        cache?.readJson(CACHE_KEY, Long.MAX_VALUE)?.let { cachedJson ->
             parseCachedHolidays(cachedJson)?.let { cached ->
                 cachedHolidays = cached
                 Log.d(TAG, "Using disk holiday cache after refresh failure: ${cached.size} days")

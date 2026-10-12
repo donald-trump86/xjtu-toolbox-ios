@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.AppJson
-import kotlinx.datetime.LocalDate as KxLocalDate
 import java.time.LocalDate
 
 /**
@@ -144,7 +143,7 @@ object ScheduleCache {
             val newBits = StringBuilder(course.weekBits)
             for (i in newBits.indices) {
                 if (newBits[i] == '1') {
-                    val courseDate = TermWeeks.dateOf(startOfTerm.toKx(), i + 1, course.dayOfWeek).toJavaTime()
+                    val courseDate = javaDate(TermWeeks.dateOf(kxDate(startOfTerm), i + 1, course.dayOfWeek))
                     if (holidayDates.containsKey(courseDate)) {
                         newBits.setCharAt(i, '0')
                         changed = true
@@ -165,7 +164,7 @@ object ScheduleCache {
      */
     fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = LocalDate.now()): Boolean {
         if (startOfTerm == null || weeks <= 0) return false
-        return TermWeeks.weekOf(startOfTerm.toKx(), today.toKx()) > weeks + 1
+        return TermWeeks.weekOf(kxDate(startOfTerm), kxDate(today)) > weeks + 1
     }
 
     /** 已结束且本地该有的都有：封存后不再为它发请求。 */
@@ -176,15 +175,3 @@ object ScheduleCache {
         return isFinishedByDate(start, totalWeeks(cache, term, courses))
     }
 }
-
-/**
- * `java.time.LocalDate` → `kotlinx.datetime.LocalDate`，逐字段搬。
- *
- * 与 `:app` 的 `util/TimeBridge.kt` 那两条**同一个写法**（那边是 `internal`，跨不了模块边界）；
- * 这是 `:data` 里第二份（第一份在 `notification/NotificationApi.kt` 底部），
- * 也是那批「搬一个文件就多一条边界转换」的其中之一 —— 等 `:app` 的 java.time 全换完，
- * 这几条会一起消失。
- */
-private fun LocalDate.toKx(): KxLocalDate = KxLocalDate(year, monthValue, dayOfMonth)
-
-private fun KxLocalDate.toJavaTime(): LocalDate = LocalDate.of(year, month.ordinal + 1, day)

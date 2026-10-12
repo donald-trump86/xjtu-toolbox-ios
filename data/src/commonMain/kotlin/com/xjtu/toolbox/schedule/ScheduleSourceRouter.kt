@@ -1,9 +1,10 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.toJavaTime
 import kotlinx.serialization.json.decodeFromJsonElement
-import android.content.Context
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonArray
@@ -13,8 +14,6 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
-import com.xjtu.toolbox.data.CredentialStore
-import com.xjtu.toolbox.data.DataCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,16 +30,20 @@ private const val TAG = "ScheduleSource"
  * 由 [fromKey] 落回默认源。
  */
 enum class ScheduleSource(val key: String, val label: String, val summary: String) {
-    JWXT(CredentialStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，含调停课"),
-    ATTENDANCE(CredentialStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "本科、研究生课程合并，只有当前学期");
+    JWXT(SettingsStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，含调停课"),
+    ATTENDANCE(SettingsStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "本科、研究生课程合并，只有当前学期");
 
     companion object {
         val DEFAULT = JWXT
 
         fun fromKey(key: String?): ScheduleSource = entries.firstOrNull { it.key == key } ?: DEFAULT
 
-        fun of(context: Context): ScheduleSource =
-            fromKey(CredentialStore(context).scheduleSource)
+        /**
+         * 用户在设置里选的那一个。读的就是 `:core` 的 `SettingsStore`（文件 `app_settings`、
+         * 键 `schedule_source`，与 `CredentialStore.scheduleSource` **同一个来源**）⇒
+         * 搬迁前传 `Context` 只是为了让 `CredentialStore` 找到那个文件，参数因此去掉了。
+         */
+        fun of(): ScheduleSource = fromKey(SettingsStore().scheduleSource)
     }
 }
 
@@ -57,14 +60,13 @@ enum class ScheduleSource(val key: String, val label: String, val summary: Strin
 object ScheduleSourceRouter {
 
     suspend fun getSchedule(
-        context: Context,
-        jwxt: JwxtScheduleApi,
+        jwxt: JwxtScheduleSource,
         termCode: String,
         manager: SessionManager?,
         userInitiated: Boolean = false,
     ): List<CourseItem> {
-        val source = ScheduleSource.of(context)
-        if (source == ScheduleSource.JWXT || manager == null) return jwxtSchedule(context, jwxt, termCode)
+        val source = ScheduleSource.of()
+        if (source == ScheduleSource.JWXT || manager == null) return jwxtSchedule(jwxt, termCode)
 
         val alternative = try {
             withContext(Dispatchers.IO) {
@@ -83,9 +85,9 @@ object ScheduleSourceRouter {
         // 空列表也算没取到：整学期一节课都没有几乎只会是查错了学期，
         // 而教务对同一个学期真没课时也返回空，退过去不会把有课变成没课。
         val usable = alternative?.takeIf { it.courses.isNotEmpty() }
-        if (usable == null) return jwxtSchedule(context, jwxt, termCode)
-        remember(context, source)
-        rememberChanges(context, termCode, usable.changes)
+        if (usable == null) return jwxtSchedule(jwxt, termCode)
+        remember(source)
+        rememberChanges(termCode, usable.changes)
         return usable.courses
     }
 
@@ -94,9 +96,8 @@ object ScheduleSourceRouter {
      * 首页、屁岱、匹配交友不能等用户进日程页才有。教材要学号，[studentId] 为空就不补。
      */
     suspend fun ensureCached(
-        context: Context,
-        cache: DataCache,
-        api: JwxtScheduleApi,
+        cache: ScheduleCacheStore,
+        api: JwxtScheduleSource,
         manager: SessionManager?,
         term: String? = null,
         studentId: String? = null,
@@ -109,12 +110,12 @@ object ScheduleSourceRouter {
             ScheduleTermStore.merge(cache, api.termNames())
         }
         val start = ScheduleCache.readStartDate(cache, code)
-            ?: api.termStartDate(code).toJavaTime().also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
+            ?: javaDate(api.termStartDate(code)).also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
         if (ScheduleCache.readCourses(cache, code) == null) {
-            val fresh = getSchedule(context, api, code, manager)
+            val fresh = getSchedule(api, code, manager)
             ScheduleCache.writeRawCourses(cache, code, fresh)
             // 和日程页一样剔除节假日，否则它下次落地会误报「日程有更新」
-            ScheduleCache.writeOptimizedCourses(cache, code, ScheduleCache.filterByHolidays(fresh, start, HolidayApi.peekCached(context)))
+            ScheduleCache.writeOptimizedCourses(cache, code, ScheduleCache.filterByHolidays(fresh, start, HolidayApi.peekCached(cache)))
         }
         // 考试、教材是附带的：拉不到不影响课表
         if (ScheduleCache.readExams(cache, code) == null) {
@@ -126,13 +127,12 @@ object ScheduleSourceRouter {
     }
 
     private suspend fun jwxtSchedule(
-        context: Context,
-        jwxt: JwxtScheduleApi,
+        jwxt: JwxtScheduleSource,
         termCode: String,
     ): List<CourseItem> {
         val result = withContext(Dispatchers.IO) { jwxt.schedule(termCode) }
-        remember(context, ScheduleSource.JWXT)
-        rememberChanges(context, termCode, result.changes)
+        remember(ScheduleSource.JWXT)
+        rememberChanges(termCode, result.changes)
         return result.courses
     }
 
@@ -142,16 +142,21 @@ object ScheduleSourceRouter {
      * 与用户在设置里选的那个未必相同：选了考勤但这次退回了教务，数据形状就是教务的。
      * [ScheduleDiff] 按这个值分开存快照，否则退回的那一次会把每门课都报成"变了"。
      */
-    fun servedSource(context: Context): ScheduleSource =
-        ScheduleSource.fromKey(prefs(context, PREFS_SERVED).getString(KEY_SERVED, null))
+    fun servedSource(): ScheduleSource =
+        ScheduleSource.fromKey(prefs(PREFS_SERVED).getString(KEY_SERVED))
 
-    private fun remember(context: Context, source: ScheduleSource) {
-        prefs(context, PREFS_SERVED).edit().putString(KEY_SERVED, source.key).apply()
+    private fun remember(source: ScheduleSource) {
+        prefs(PREFS_SERVED).putString(KEY_SERVED, source.key)
     }
 
-    /** 这两份记录随账号走：换账号后别拿上一个人的来源和调课理由去比。 */
-    private fun prefs(context: Context, name: String) =
-        context.applicationContext.getSharedPreferences(name + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
+    /**
+     * 这两份记录随账号走：换账号后别拿上一个人的来源和调课理由去比。
+     *
+     * 从 `SharedPreferences` 换成 `:core` 的 [KeyValueStore] 缝：Android 那份就是**同一个文件、
+     * 同一批键**（`schedule_source<suffix>` / `schedule_changes<suffix>`），换账号后照样各读各的。
+     */
+    private fun prefs(name: String): KeyValueStore =
+        keyValueStore(name + AccountContext.safeSuffix())
 
     private const val PREFS_SERVED = "schedule_source"
     private const val KEY_SERVED = "served"
@@ -160,26 +165,25 @@ object ScheduleSourceRouter {
      * 这学期最近一次拉到的调课/停课/补课记录。只有教务给；别的源服务时写空表，
      * 免得拿上一份记录去对不相干的课表。
      */
-    fun changeEvents(context: Context, termCode: String): List<ScheduleChangeEvent> {
+    fun changeEvents(termCode: String): List<ScheduleChangeEvent> {
         if (termCode.isBlank()) return emptyList()
-        val json = prefs(context, PREFS_CHANGES).getString(termCode, null) ?: return emptyList()
+        val json = prefs(PREFS_CHANGES).getString(termCode) ?: return emptyList()
         // 逐条解码：缺了 kind 的条目单独丢掉，不连累整份
         return runCatching { AppJson.parseToJsonElement(json).jsonArray }.getOrNull().orEmpty()
             .mapNotNull { runCatching { AppJson.decodeFromJsonElement<ScheduleChangeEvent>(it) }.getOrNull() }
     }
 
-    private fun rememberChanges(context: Context, termCode: String, events: List<ScheduleChangeEvent>) {
+    private fun rememberChanges(termCode: String, events: List<ScheduleChangeEvent>) {
         if (termCode.isBlank()) return
-        val edit = prefs(context, PREFS_CHANGES).edit()
-        if (events.isEmpty()) edit.remove(termCode) else edit.putString(termCode, AppJson.encodeToString(events))
-        edit.apply()
+        val prefs = prefs(PREFS_CHANGES)
+        if (events.isEmpty()) prefs.remove(termCode) else prefs.putString(termCode, AppJson.encodeToString(events))
     }
     private const val PREFS_CHANGES = "schedule_changes"
 
     /**
      * 考勤课表源：读考勤门户的本研合并课表（见 [KqPortal]），本科、研究生两侧的课拼在一起。
      * 门户只给当前学期，对不上就走教务。设置里的键值沿用旧版考勤的 "bkkq"，
-     * 见 [CredentialStore.SCHEDULE_SOURCE_ATTENDANCE]。
+     * 见 `SettingsStore.SCHEDULE_SOURCE_ATTENDANCE`。
      *
      * 先登考勤站点：门户会话要靠它刚建立的统一认证登录态免密换来，校外还要它的 WebVPN 网关会话。
      */

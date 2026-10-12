@@ -1063,7 +1063,7 @@ class AgentToolRegistry(
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
             com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                context, dataCache, JwxtScheduleApi(site), loginState.sessionManager, term,
+                dataCache, JwxtScheduleApi(site), loginState.sessionManager, term,
             )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1116,7 +1116,7 @@ class AgentToolRegistry(
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
         // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
-        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
+        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(context)) }
             .getOrDefault(emptyMap())
 
         if (dateStr != null) {
@@ -1190,7 +1190,7 @@ class AgentToolRegistry(
      */
     private fun scheduleChangeNote(termCode: String, courses: List<CourseItem>): String? {
         val codes = courses.map { it.courseCode }.toSet()
-        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
+        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(termCode)
             .filter { it.courseCode.isBlank() || it.courseCode in codes }
             .takeLast(3)
         if (relevant.isEmpty()) return null

@@ -102,6 +102,8 @@ import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.ScheduleDiff
+import com.xjtu.toolbox.schedule.cachedNextExam
+import com.xjtu.toolbox.schedule.scheduleDiffStore
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.ui.WindowSize
 import com.xjtu.toolbox.ui.components.LocalPageVisible
@@ -257,7 +259,7 @@ internal fun MainScreen(
             try {
                 val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
                 com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                    context, cache, com.xjtu.toolbox.schedule.JwxtScheduleApi(site), manager,
+                    cache, com.xjtu.toolbox.schedule.JwxtScheduleApi(site), manager,
                     studentId = loginState.activeUsername,
                 )
                 HomeSignals.scheduleVersion++
@@ -782,7 +784,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
             val unseenNotice = HomeStats.unseenNoticeTitle(context)
             val unseenNoticeLink = HomeStats.unseenNoticeLink(context)
             val libraryTodo = HomeSignals.libraryUrgentAction
-            val nextExam = withContext(Dispatchers.IO) { ExamCountdown.fromCache(context) }
+            val nextExam = withContext(Dispatchers.IO) { cachedNextExam(com.xjtu.toolbox.data.DataCache(context)) }
             val msg = ProactiveRules.pick(
                 ctx = context,
                 balance = balance,
@@ -809,7 +811,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
                 when (msg.id) {
                     "grade" -> HomeStats.setPendingNewScores(context, 0)
                     "notice" -> HomeStats.clearUnseenNotice(context)
-                    "schedule_change" -> ScheduleDiff.setPending(context, null)
+                    "schedule_change" -> ScheduleDiff.setPending(scheduleDiffStore(), null)
                     "attendance" -> HomeSignals.attendanceAlert = null
                     "coupon" -> HomeSignals.couponAlert = null
                     "dorm_power" -> HomeSignals.dormPowerAlert = null

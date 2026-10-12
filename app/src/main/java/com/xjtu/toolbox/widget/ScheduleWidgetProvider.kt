@@ -104,14 +104,14 @@ object ScheduleWidgetUpdater {
      * 第一次刷新小组件都有 ANR 风险。缓存为空就先按"无节假日"渲染，后台拉到后再刷一次。
      */
     private fun widgetHolidays(context: Context): Map<LocalDate, String> {
-        val cached = com.xjtu.toolbox.schedule.HolidayApi.peekCached(context)
+        val cached = com.xjtu.toolbox.schedule.HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(context))
         if (cached.isNotEmpty()) return cached
         if (holidayFetchInFlight.compareAndSet(false, true)) {
             val app = context.applicationContext
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 try {
                     val fetched = runCatching {
-                        com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(app)
+                        com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(app))
                     }.getOrDefault(emptyMap())
                     // 拉不到就别刷新，否则每次刷新又触发一次拉取，形成循环
                     if (fetched.isNotEmpty()) requestUpdate(app, resetToToday = false)

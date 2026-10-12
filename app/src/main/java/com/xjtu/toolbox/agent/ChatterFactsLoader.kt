@@ -18,7 +18,7 @@ internal object ChatterFactsLoader {
 
     fun load(ctx: Context, today: LocalDate = LocalDate.now()): ChatterFacts = runCatching {
         val cache = DataCache(ctx)
-        val holidays = HolidayApi.peekCached(ctx)
+        val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx))
         val nextHoliday = nextHoliday(holidays, today)
 
         val schedule = ScheduleCache.readCurrentTermSchedule(cache)

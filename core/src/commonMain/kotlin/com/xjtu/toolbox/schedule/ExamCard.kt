@@ -17,17 +17,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.schedule.ExamCountdown.ExamPhase
 import com.xjtu.toolbox.ui.components.ExpiredStyle
+import com.xjtu.toolbox.util.formatTwoDigits
+import com.xjtu.toolbox.util.nowInSystemZone
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.time.LocalDateTime
-import java.time.temporal.ChronoUnit
+import kotlinx.datetime.LocalDateTime
 
 /**
  * 一张考试卡片，按 [ExamCountdown.ExamPhase] 决定底色、强调色、状态标签和座位号角标，
  * 见 plan2 §1.3 的对照表。
+ *
+ * 从 `:app` 的 `schedule/ExamCard.kt` 搬进 commonMain（`java.time` → `kotlinx.datetime`，
+ * `%02d` → `formatTwoDigits`），画法与文案一行未改。
  *
  * 取代旧版的两份实现：学期栏的 `ExamRowCard`（一律红色、排序也没管已结束）和
  * 经典布局的 `ExamCard`（有状态判断但没人跟学期栏共用），统一成这一份，
@@ -36,7 +40,7 @@ import java.time.temporal.ChronoUnit
 @Composable
 internal fun ExamCard(
     exam: ExamItem,
-    now: LocalDateTime = LocalDateTime.now(),
+    now: LocalDateTime = nowInSystemZone(),
     modifier: Modifier = Modifier,
     /**
      * 排在一张分组卡里面（「已考完的考试」展开以后）：不画自己的卡片底色和圆角，
@@ -60,10 +64,10 @@ internal fun ExamCard(
         ExamPhase.UNDATED -> scheme.onSurfaceVariantSummary
     }
     val daysLeft = ExamCountdown.parseDate(exam.examDate)
-        ?.let { ChronoUnit.DAYS.between(now.toLocalDate(), it).toInt() }
+        ?.let { (it.toEpochDays() - now.date.toEpochDays()).toInt() }
     val label = when (phase) {
         ExamPhase.TODAY -> ExamCountdown.startTimeOf(exam)
-            ?.let { "今天 %02d:%02d".format(it.hour, it.minute) } ?: "今天"
+            ?.let { "今天 ${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" } ?: "今天"
         ExamPhase.SOON -> if (daysLeft == 1) "明天" else "还有 ${daysLeft ?: 0} 天"
         ExamPhase.LATER -> "${daysLeft ?: 0} 天后"
         ExamPhase.ENDED -> "已结束"

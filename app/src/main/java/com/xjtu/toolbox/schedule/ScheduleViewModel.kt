@@ -2,6 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.schedule.scheduleDiffStore
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.derivedStateOf
@@ -170,8 +171,8 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         loadInitialData()
         viewModelScope.launch {
             // 先只读缓存上屏，再联网刷新
-            withContext(Dispatchers.IO) { HolidayApi.peekCached(context) }.takeIf { it.isNotEmpty() }?.let { holidayDates = it }
-            try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
+            withContext(Dispatchers.IO) { HolidayApi.peekCached(dataCache) }.takeIf { it.isNotEmpty() }?.let { holidayDates = it }
+            try { holidayDates = HolidayApi.getHolidayDates(dataCache) } catch (_: Exception) {}
             homeworkDue = withContext(Dispatchers.IO) { runCatching { LmsDueStore.load(context, account) }.getOrDefault(emptyList()) }
         }
     }
@@ -289,7 +290,6 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     /** 课表走用户选的来源；历史学期和非教务源取不到时退回教务，见 ScheduleSourceRouter。 */
     private suspend fun fetchSchedule(scheduleApi: JwxtScheduleApi, term: String, userInitiated: Boolean = false): List<CourseItem> =
         ScheduleSourceRouter.getSchedule(
-            context = context,
             jwxt = scheduleApi,
             termCode = term,
             manager = login.sessionManager,
@@ -434,7 +434,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         /** 网络课表落地的唯一入口：缓存、首页信号、变更检测都在这里。 */
         fun paintCourses(termCode: String, freshCourses: List<CourseItem>, startDate: LocalDate?) {
             ensureSameAccount()
-            val holidays = holidayDates.ifEmpty { HolidayApi.peekCached(context) }
+            val holidays = holidayDates.ifEmpty { HolidayApi.peekCached(dataCache) }
             if (holidays.isNotEmpty()) holidayDates = holidays
             val optimized = ScheduleCache.filterByHolidays(freshCourses, startDate, holidays)
             // 比对象不比 JSON 文本：新旧版本写出的格式不同，逐字比较会误报「日程有更新」
@@ -452,8 +452,8 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             HomeSignals.scheduleVersion++
             if (contentChanged && cachedOptimized != null) send(ScheduleEvent.Message("日程有更新"))
             // 用未过滤节假日的课表比，否则放假会被误判成「课被取消了」
-            ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, termCode, freshCourses))?.let { msg ->
-                ScheduleDiff.setPending(context, msg)
+            ScheduleDiff.summarize(ScheduleDiff.diffAndStore(scheduleDiffStore(), termCode, freshCourses, ScheduleSourceRouter.servedSource().key))?.let { msg ->
+                ScheduleDiff.setPending(scheduleDiffStore(), msg)
                 com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(msg))
                 send(ScheduleEvent.Message(msg, long = true))
             }
@@ -750,7 +750,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                 val freshCourses = fetchSchedule(api, term, userInitiated = true)
                 exams = api.examSchedule(term)
                 val freshStartDate = try { api.termStartDate(term).toJavaTime() } catch (_: Exception) { null }
-                val freshHolidays = try { HolidayApi.getHolidayDates(context, forceRefresh = true) } catch (_: Exception) { emptyMap() }
+                val freshHolidays = try { HolidayApi.getHolidayDates(dataCache, forceRefresh = true) } catch (_: Exception) { emptyMap() }
                 holidayDates = freshHolidays
                 courses = ScheduleCache.filterByHolidays(freshCourses, freshStartDate, freshHolidays)
                 // 考试不分当前 / 历史一律落盘：否则这学期看过的考试等它封存后就再也拿不到

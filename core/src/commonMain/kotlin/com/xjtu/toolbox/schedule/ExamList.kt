@@ -23,10 +23,14 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.time.LocalDate
-import java.time.LocalDateTime
+import com.xjtu.toolbox.util.nowInSystemZone
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
 
 /**
+ * 从 `:app` 的 `schedule/ExamList.kt` 搬进 commonMain（`java.time` → `kotlinx.datetime`），
+ * 排序与去重口径一行未改。
+ *
  * 排好序的考试列表：未结束的在前（正序，日期待定的排最后），已结束的单独收着，
  * 供调用方做成「已结束 N 场 ▾」的折叠行。见 plan2 §1.3④。
  */
@@ -40,12 +44,14 @@ data class ExamListData(val active: List<ExamItem>, val ended: List<ExamItem>) {
  * - 未结束（TODAY/SOON/LATER）按日期正序，UNDATED 排在它们后面；
  * - 已结束单独放一边，按日期倒序——最近考完的排最上面。
  */
-fun sortExamsForList(exams: List<ExamItem>, now: LocalDateTime = LocalDateTime.now()): ExamListData {
+fun sortExamsForList(exams: List<ExamItem>, now: LocalDateTime = nowInSystemZone()): ExamListData {
     val distinct = exams.distinctBy { "${it.courseName}_${it.examDate}_${it.examTime}" }
     val phased = distinct.map { it to ExamCountdown.phaseOf(it, now) }
     val ended = phased.filter { it.second == ExamCountdown.ExamPhase.ENDED }
         .map { it.first }
-        .sortedByDescending { ExamCountdown.parseDate(it.examDate) ?: LocalDate.MIN }
+        // `?: LocalDate(1, 1, 1)` 是 `java.time.LocalDate.MIN` 的跨端替身（kotlinx 那个是 internal）。
+        // 这一支其实到不了：能判成 `ENDED` 的场次，日期必然解析得出来。
+        .sortedByDescending { ExamCountdown.parseDate(it.examDate) ?: LocalDate(1, 1, 1) }
     val dated = phased
         .filter { it.second != ExamCountdown.ExamPhase.ENDED && it.second != ExamCountdown.ExamPhase.UNDATED }
         .map { it.first }
@@ -64,7 +70,7 @@ fun LazyListScope.examListItems(
     data: ExamListData,
     endedExpanded: Boolean,
     onToggleEnded: () -> Unit,
-    now: LocalDateTime = LocalDateTime.now(),
+    now: LocalDateTime = nowInSystemZone(),
 ) {
     items(data.active, key = { "exam_active_${it.courseName}_${it.examDate}_${it.examTime}" }) { exam ->
         ExamCard(exam, now)

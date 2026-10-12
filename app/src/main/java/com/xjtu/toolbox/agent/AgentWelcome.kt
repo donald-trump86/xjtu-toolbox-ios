@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamCountdown
+import com.xjtu.toolbox.schedule.cachedNextExam
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.TermWeeks
@@ -108,7 +109,7 @@ internal object WelcomeFactsLoader {
     fun load(ctx: Context, now: LocalDateTime = LocalDateTime.now()): WelcomeFacts = runCatching {
         val today = now.toLocalDate()
         val cache = DataCache(ctx)
-        val holidays = HolidayApi.peekCached(ctx)
+        val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx))
         val schedule = ScheduleCache.readCurrentTermSchedule(cache)
         val courses: List<CourseItem> = schedule?.courses.orEmpty()
         val start = schedule?.start
@@ -131,7 +132,7 @@ internal object WelcomeFactsLoader {
             nextToday = upcoming.firstOrNull(),
             todayLeft = upcoming.size,
             tomorrow = on(today.plusDays(1)),
-            exam = ExamCountdown.fromCache(ctx),
+            exam = cachedNextExam(com.xjtu.toolbox.data.DataCache(ctx)),
             balance = prefs.getFloat("card_balance_cache", -1f),
             todaySpend = prefs.getFloat("card_today_spend_cache", -1f),
         )
