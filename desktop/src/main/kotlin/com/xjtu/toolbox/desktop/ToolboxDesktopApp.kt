@@ -325,8 +325,10 @@ internal val DESKTOP_TABS = listOf(
  * 不同 ⇒ 也是由源自己 ensure，见那一段的注释）、
  * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  *
- * 两条**不需要校园会话、但也不需要取数**的：WebVPN 转换器（本机算的字符串互转，见 `:core` 的
- * `WebVpnCodec` 缝）与账号管理（多账号：看/切/增/删，动作本体是 `:desktop` 的 `DesktopAccounts`）。
+ * 三条**不需要校园会话、但也不需要取数**的：WebVPN 转换器（本机算的字符串互转，见 `:core` 的
+ * `WebVpnCodec` 缝）、账号管理（多账号：看/切/增/删，动作本体是 `:desktop` 的 `DesktopAccounts`），
+ * 以及内置浏览器（`AppRoute.Browser`：桌面没有内嵌浏览器这一层 ⇒ 这一端的等价物是**外链中转页**，
+ * 只做那条路由真交出去的那件事 —— 把地址交给系统浏览器，见 `DesktopBrowser.kt`）。
  *
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  *
@@ -413,6 +415,13 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // 本机算的字符串互转。名字照 `:app` 服务表里的叫法（「WebVPN」/「校外访问转换」），
     // 索引页这一栏用屏自己的标题（WebVPN）。
     AppRoute.WebVpnConverter to "WebVPN 转换器",
+
+    // 内置浏览器（`AppRoute.Browser`）：与上面那条同型 —— **不取数、也不需要校园会话**，一条请求都不发。
+    // 名字照 `:app` 那一屏自己的标题（`BrowserScreen` 的 `pageTitle` 初值就是「浏览器」）；这一端的
+    // 等价物是外链中转页（`DesktopBrowser.kt`：目标网址 + 交给系统浏览器 + 复制）。
+    // 带参形状：`Browser` 是 data class ⇒ 这里必须写 `()`（裸写 `AppRoute.Browser` 编不过，
+    // 与上面那批 `AppRoute.Lms()` 同型）。
+    AppRoute.Browser() to "浏览器",
 
     // 账号管理（多账号，第 29 条真数据路由）：**不需要校园会话就能进**（进去是为了看/换/增/删），
     // 但它每一个动作都要会话内核：切账号 = 换绑 backends、新增 = 先探活登录再落库。
@@ -1127,6 +1136,20 @@ private fun DesktopPage(
             codec = WebVpnUtil,
             onBack = back,
             onOpenWithWebVpn = { url -> openInBrowser(url) },
+        )
+
+        // 内置浏览器（`AppRoute.Browser`）：这一屏在 `:app` 是 WebView 里的内置浏览器（顶栏地址栏 /
+        // 前进后退 / 往 WebView 里注 App 已登好的校园会话 / `then=` 那一跳 / 夜间模式），桌面端没有
+        // WebView 这一层 ⇒ 这一端的等价物是**外链中转页**（`DesktopBrowser.kt`）：把地址交给系统
+        // 浏览器，本窗只给去向（与上面那条「用 WebVPN 打开」、以及 `DesktopPayPage` 同一套口径）。
+        //
+        // 消息收纳与公告里的外链**不走这条路由**：那几处是 `onOpenUrl` 槽位，直接把 url 交给系统
+        // 浏览器（与 `:app` 同一条口径）。这一支是深链（`?route=browser?url=…`）与索引页点进来的那一屏。
+        is AppRoute.Browser -> DesktopBrowserScreen(
+            url = route.url,
+            then = route.then,
+            codec = WebVpnUtil,
+            onNavigate = onNavigate,
         )
         AppRoute.GameXiangqi -> XiangqiScreen(onBack = back)
 

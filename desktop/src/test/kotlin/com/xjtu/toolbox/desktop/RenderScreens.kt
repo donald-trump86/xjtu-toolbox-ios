@@ -101,6 +101,7 @@ import kotlinx.datetime.LocalDate
  * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
  * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
  * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
+ * | `browser.png` | 内置浏览器的**桌面等价物**：外链中转页（真路由：外壳 → `AppRoute.Browser("https://notice.example.invalid/…")` → 本端 `DesktopBrowser.kt`） | 这条路由的屏在 `:app` 是 `browser/BrowserScreen.kt`（629 行的 WebView + 自己的顶栏地址栏 / 前进后退 / 复制 / 「在外部浏览器打开」 + 往 WebView 里注 App 的校园会话 + `then=` 那一跳 + 夜间模式）；桌面端没有 WebView 这一层 ⇒ 这一端只做那条路由**真交出去**的那件事：把地址交给系统浏览器，本窗只给去向（与 `DesktopPayPage`、`DesktopVideoPlayerHost` 同一套口径）。图上那个网址是 `.invalid` 夹具（永远解析不出来）；交出去的地址与 `:app` 顶栏那颗「在外部浏览器打开」用的是**同一份** `shareableUrl`（本轮按五步法搬进 `:core`，判据在 `:core:commonTest` 的 `ShareableUrlTest` 与 `DesktopBrowserJvmTest`）。这一枪**只画不点**（那两颗按钮一颗会真去弹系统浏览器、一颗会碰系统剪贴板），断言三条：那句如实说明在、网址在、**`NotPortedScreen` 的标题不在** |
  * | `attendance.png` | 考勤屏（真路由：外壳 → `AppRoute.Attendance` → `DesktopSiteGate` → `AppAttendanceSource`） | 第十六条真数据路由：`bk-kq.xjtu.edu.cn` **有自己的独立登录入口**（`AttendanceLogin` 直连业务站的 CAS `student-pc` 入口 → 回调带 loginRequestId+ticket 换业务令牌），屏/VM 与取数端口都在 `:core`，桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认；图上「流水」那一栏的夹具课名（光电子学（假））与姓名行都是夹具样本 |
  * | `lms.png` | 思源学堂屏（真路由：外壳 → `AppRoute.Lms` → `DesktopSiteGate` → `AppLmsSource`） | 第十八条真数据路由：`lms.xjtu.edu.cn` **直接 CAS 回跳**（`LmsLogin.loginUrl` = lms 根路径，与教务同型、没有独立登录页），屏在 `:core`，落盘是 `DesktopLmsSaver`；图上课程列表那门夹具课（数据结构（示例课））与老师名都是夹具样本 |
  * | `jwapp.png` | 成绩屏（真路由：外壳 → `AppRoute.JwappScore` → `DesktopSiteGate` → `AppJwappScoreSource`） | 第十九条真数据路由：`jwapp.xjtu.edu.cn` **有自己的独立登录链**（开放平台 `appId=1370` → CAS → 回跳带 `token`，令牌从回调 URL 里抠出来当 `Authorization`）；这一屏的上游是**两个站点**（jwapp 那份粗分 + 教务 `xscjcx` 的精确总评，各自一份会话）；图上那门课（高等数学（上））与精确成绩都是夹具样本 |
@@ -966,6 +967,37 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.WebVpnConverter)) }
         check(vpnTyped) { "webvpn_converter.png：没找到那个输入框（semantics 里没有 SetText）" }
         check(vpnConverted) { "webvpn_converter.png：没点到「转换」" }
+
+        // ── 内置浏览器（`AppRoute.Browser`，桌面端等价物 = 外链中转页）────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Browser("https://notice.example.invalid/2026/summer-camp")`
+        // → 本端的 `DesktopBrowserScreen`。这条路由在 `:app` 是 WebView 里的内置浏览器（629 行），
+        // 桌面端没有那一层 ⇒ 这一端的等价物是「把地址交给系统浏览器」的中转页。
+        //
+        // 这一枪**只画不点**：「在系统浏览器打开」真会去 `Desktop.browse` / `xdg-open`（这台机器上
+        // 会真弹一个窗口），「复制链接」会碰 AWT 系统剪贴板（离屏无显示服务器时是 `HeadlessException`）。
+        // 那两颗按钮的装配由 `DesktopBrowserJvmTest` 钉，这里只钉「真路由落在了这一屏上」。
+        //
+        // 判据三条（全在 semantics 上）：① 那句如实说明在屏上（这条路由在桌面上的形态就是它）；
+        // ② 路由带的那个网址在屏上（`.invalid` 夹具 —— 证明参数真传到了屏上，不是一页空壳）；
+        // ③ **`NotPortedScreen` 那句标题不在**（这一条路由再也不会落到那张占位页）。
+        val browserUrl = "https://notice.example.invalid/2026/summer-camp"
+        var browserShown = false
+        var browserUrlShown = false
+        var notPortedShown = false
+        shot(
+            "browser.png",
+            frames = 6,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!browserShown) browserShown = hasText(scene, "桌面端没有内嵌浏览器")
+                    if (!browserUrlShown) browserUrlShown = hasText(scene, browserUrl)
+                    if (!notPortedShown) notPortedShown = hasText(scene, "这一屏还没搬到桌面")
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Browser(browserUrl))) }
+        check(browserShown) { "browser.png：屏上没有那句「桌面端没有内嵌浏览器」—— 多半没走到中转页" }
+        check(browserUrlShown) { "browser.png：屏上没有路由带的那个网址（$browserUrl）—— 参数没传到屏上" }
+        check(!notPortedShown) { "browser.png：落到了 `NotPortedScreen` 那张占位页 —— 这一条路由本该有真分支" }
 
         // ── 我的课表（第三十条真数据路由，本批主角）───────────────────────────────
         // 走**真路由**：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的
