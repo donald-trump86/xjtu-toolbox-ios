@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.nav.AppRoute

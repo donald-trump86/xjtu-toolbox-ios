@@ -27,6 +27,7 @@ import com.xjtu.toolbox.R
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.DataCache
