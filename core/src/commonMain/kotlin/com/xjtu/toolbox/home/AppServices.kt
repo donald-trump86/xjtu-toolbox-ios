@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.home
 
+// 服务目录 —— 从 `:app` 的 `home/AppServices.kt` 搬进 `:core`（**同包同名**，整体逐字未动；
+// 它本来就只依赖 `:core` 的这两个类型）。搬走之后 `:app` 的首页（`main/HomeTab.kt`）与全局搜索
+// （`home/GlobalSearchIndex`）一行引用都不用改，桌面端筛选出「自己真能打开的入口」也用这一份
+// —— 三端对「有哪些功能」只有一个说法。
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.nav.AppRoute
 
@@ -7,8 +11,12 @@ import com.xjtu.toolbox.nav.AppRoute
  * 主页宫格和全局搜索共用的服务目录。
  *
  * 新功能只在这里加一条：首页会出格子，搜索也能搜到。
- * 别再在 [GlobalSearchIndex] 里手写第二份清单。
+ * 别再在 `GlobalSearchIndex` 里手写第二份清单。
  * [audience] 非空时，只给对应本科/研究生身份看。
+ *
+ * `:core` 里的消费方是「服务与状态的**卡片模型**」（[HomeCards]）：它把这份目录按
+ * [ServiceCategory] 分组、再把每个功能此刻的状态填进对应那一行。各端只决定画不画、
+ * 以及哪些入口在自己的外壳里真能打开（能打开的那一份由各端自己声明）。
  */
 enum class ServiceCategory(val title: String, val subtitle: String) {
     LIFE("校园生活", "支付、校历与场馆服务"),
