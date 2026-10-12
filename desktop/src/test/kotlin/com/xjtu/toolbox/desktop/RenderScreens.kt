@@ -58,6 +58,7 @@ import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.io.File
@@ -102,7 +103,8 @@ import kotlinx.coroutines.runBlocking
  * | `webvpn_converter.png` | WebVPN 转换器屏（真路由：外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`） | 第二十八条真数据路由：屏本轮才搬进 `:core`，转换本体是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android **同一份实现**）。图上的输入与结果都是拍的时候现场做的：往输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）再点「转换」，结果里那串密文域名（`…fae05988692862446b468ca88d1b203b`）就是 AES-128-CFB 真算出来的 —— 与 `DesktopWebVpnCodecJvmTest` 里那一条同值 |
  * | `accounts.png` | 账号管理屏（真路由：外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`） | 第二十九条真数据路由：多账号。屏本轮才搬进 `:core`，动作本体是 `:desktop` 的 `DesktopAccounts`（`:core` 的 `AccountsController` 缝）。拍之前**真切了一次**：上面那次真登录把夹具账号写进了账号表（`AccountStore`），再加一条夹具账号（值都是编的），然后 `switchTo` 第二条 ⇒ 图上的「当前账号」卡与列表高亮都是第二条（`2021000002`），列表里还有第一条（`2021000001`）。头像那一格不传（画首字母圆）、昵称一直为空 —— 两处如实降级见 `DesktopAccounts` 的 KDoc |
  * | `game_merge.png` | 合成西交大的**如实说明页**（`AppRoute.GameMerge`） | 这条路由卡的是**载体**：游戏本体是 `:app` 的 `assets/games/merge/`（HTML + 776 行 JS + Matter.js 物理引擎），跑在 Android 的 WebView 里；桌面端没有 WebView、依赖里也没有 JVM 上的 JS 引擎 ⇒ 这一端没有能执行它的地方。这张图就是那张说明页本身（**不进** `DESKTOP_SUPPORTED_ROUTES`），不是「没搬过来」那个通用页 —— 卡的不是取数 |
- * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算，而课表/教材/考试（`ScheduleCache` + `DataCache`）、学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）四件都还是 `:app` 的实现；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
+ * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算。课表缓存那一层随「我的课表」搬过来了（见 `schedule.png`），但学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）与算法本体（`MatchProfile`，900 行）还在 `:app`；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
+ * | `schedule.png` | 我的课表屏（真路由：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的 `ScheduleScreen` + 本端 `DesktopScheduleHost`） | 第三十条真数据路由，也是本批的主角：屏与 ViewModel 按五步法搬进 `:core`（模型 / `CustomCourseStore` 端口 / 宿主槽位 / `CourseLinks` 按能力切开），这一端只提供宿主面（键值落盘 / 教务会话 / 节假日 / 思源入口）。图上的课名与教室都是夹具样本，而且**是格子画出来的**（`CourseCell` 那两行文本节点），不是只有一段说明文字 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -819,6 +821,43 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.WebVpnConverter)) }
         check(vpnTyped) { "webvpn_converter.png：没找到那个输入框（semantics 里没有 SetText）" }
         check(vpnConverted) { "webvpn_converter.png：没点到「转换」" }
+
+        // ── 我的课表（第三十条真数据路由，本批主角）───────────────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的
+        // `ScheduleScreen` + 本端 `DesktopScheduleHost`（键值落盘 / 教务会话 / 节假日）。
+        //
+        // ⚠️ 这一段必须排在「账号管理」之前：那一块会**真切账号**（换绑命名空间），
+        // 而课表的缓存、会话都按激活账号走。
+        //
+        // 这张图要证明的不是「有一屏」，而是**课表真画出来了**，所以断言分两层：
+        //  ① 夹具那门课的名字（`高等数学（上）`）出现在屏上 —— 教务会话建起来了、课表取到了；
+        //  ② 夹具那个教室（`主楼A-101`，`CourseCell` 画成 `@主楼A-101` 那一行）也在 ——
+        //     说明**格子真渲染**了（只有名字出现的话，也可能是哪行说明文字里带的）。
+        var scheduleCourseShown = false
+        var scheduleCellShown = false
+        shot(
+            "schedule.png",
+            width = 900,
+            height = 900,
+            // 进屏那一枪要走：建教务会话 → 拉课表 + 考试 + 学期列表 → 落缓存 → 上屏。
+            frames = 24,
+            onFrame = { frame, scene ->
+                if (frame >= 6 && !scheduleCourseShown) {
+                    scheduleCourseShown = hasText(scene, JwxtFakeUpstream.SCHEDULE_1_COURSE)
+                }
+                if (scheduleCourseShown && !scheduleCellShown) {
+                    scheduleCellShown = hasText(scene, JwxtFakeUpstream.SCHEDULE_1_ROOM)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Schedule)) }
+        check(scheduleCourseShown) { "schedule.png：屏上没出现夹具的课名 —— 多半没取到课表（会话或取数断了）" }
+        check(scheduleCellShown) { "schedule.png：课名在、教室不在 —— 课程格子没画出来？" }
+        // 顺手确认上屏的数据真落到了本端那份缓存里（逐条钉落盘的是 `DesktopScheduleJvmTest`）。
+        check(
+            com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(
+                DesktopScheduleHost(auth).cache(AccountContext.activeAccountId),
+            ) != null,
+        ) { "schedule.png：拍完了但课表缓存是空的 —— 上屏的数据没落盘" }
 
         // ── 账号管理（多账号，第二十九条真数据路由）────────────────────────────────
         // 走**真路由**（外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`），注入的是

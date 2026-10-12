@@ -64,6 +64,7 @@ import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
 import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.score.scoreReportSource
@@ -273,6 +274,12 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Library to "图书馆座位",
     AppRoute.Fitness to "体测",
     AppRoute.SchoolCourse to "全校课表",
+
+    // 我的课表（第 30 条真数据路由，也是本批的主角）：屏与 ViewModel 本轮按五步法搬进了 `:core`
+    // （模型 / 端口 / 宿主槽位都就位），取数是 `:data` 的 `JwxtScheduleApi` + `ScheduleSourceRouter`，
+    // 落盘是这个端的键值文件（见 `DesktopScheduleHost` 那张表）。名字照 `:app` 服务表里的叫法
+    //（「我的课表」）。它与「全校课表」是**同一个教务站点**、同一份会话。
+    AppRoute.Schedule to "我的课表",
     AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
@@ -519,6 +526,24 @@ private fun DesktopPage(
             SchoolCourseScreen(
                 source = remember(site) { AppSchoolCourseSource(site) },
                 onBack = back,
+            )
+        }
+        // 我的课表（第 30 条真数据路由）：屏与 ViewModel 都在 `:core`，这一端只提供**拿得到的
+        // 宿主面**（`DesktopScheduleHost` 那张表：键值落盘 / 教务会话 / 节假日 / 思源与考勤）。
+        // 站点会话**进门时才建**（见 `DesktopSiteGate`）—— 与全校课表 / 成绩共用同一个教务站点。
+        //
+        // 这一屏是唯一一屏要传 `host` 的：其余几屏拿的是**一个端口**（`source`），日程页要的是
+        // 一整组能力（本地落盘、分享面板、小组件与首页信号……），端口逐个拆反而看不清哪些端没有。
+        AppRoute.Schedule -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { _ ->
+            ScheduleScreen(
+                host = remember { DesktopScheduleHost(auth) },
+                onBack = back,
+                onNavigate = { r ->
+                    when (r) {
+                        is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                        else -> onNavigate(DesktopTarget.App(r))
+                    }
+                },
             )
         }
         // 成绩：同一个教务站点（两条路由共用一份会话）。取数要一个**学号**，它闭在适配器里；
@@ -1041,11 +1066,10 @@ private fun DesktopPage(
         // 匹配交友（`AppRoute.Match`）：这一条卡的是**本机数据**，不是网络。
         //
         // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一张
-        // 二维码、把对方的码解回来，交集全从**本机已有的缓存**里算。而桌面端现在没有那些缓存 ——
-        // 它们全部是 `:app` 的 Android 实现，一件都没搬：`ScheduleCache` + `DataCache`（课表 /
-        // 教材 / 考试 / 学期表）、`HelloProfileStore`（学工系统档案与头像）、`DiningHabit`（校园卡
-        // 消费）。桌面端只有自己那一份按站点的取数，没有「课表缓存」这一层
-        //（那条路由（`AppRoute.Schedule`）也还没搬过来）。
+        // 二维码、把对方的码解回来，交集全从**本机已有的缓存**里算。桌面端现在有一件了 —— 课表缓存
+        // 那一层随「我的课表」搬了过来（`AppRoute.Schedule` + `DesktopScheduleHost` 的键值文件），
+        // 但其余三件仍是 `:app` 的 Android 实现：`HelloProfileStore`（学工系统档案与头像）、
+        // `DiningHabit`（校园卡消费），以及**本机数据的读写口径**（那份 900 行的算法还在 `:app`）。
         //
         // 另外两件也卡着：分享码本体用 `java.util.zip` 的 deflate + `java.util.Base64`（`:core`
         // 的 commonMain 要编到 wasmJs，两者都不存在），扫码用 Android 的相机（`QrScannerView`）。
@@ -1064,9 +1088,9 @@ private fun DesktopPage(
             lines = listOf(
                 "它全程离线、一条请求都不发：把自己的档案压成一张码、把对方的码解回来，" +
                     "交集全从本机已有的缓存里算。",
-                "桌面端还没有那些缓存 —— 课表 / 教材 / 考试（ScheduleCache + DataCache）、" +
-                    "学工系统档案（HelloProfileStore）、校园卡消费（DiningHabit）都还是 :app 的实现，" +
-                    "一件都没搬过来。没有它们，这一屏算出来的交集只能是空的。",
+                "桌面端还没有那些缓存 —— 课表缓存这一层随「我的课表」搬过来了（键值文件），" +
+                    "但学工系统档案（HelloProfileStore）与校园卡消费（DiningHabit）还是 :app 的实现，" +
+                    "算法本体（MatchProfile）也还没搬。缺了它们，这一屏算出来的交集只能是空的。",
                 "分享码本体还要 java.util.zip 的 deflate 与 java.util.Base64（:core 的 commonMain 里" +
                     "不存在），扫码要 Android 的相机 —— 两件都得先切成平台缝。",
             ),
