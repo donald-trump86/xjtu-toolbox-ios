@@ -400,10 +400,10 @@ POST /api/venue/cancel
   屏是 `:core` 的共享屏（宿舍电费那一屏是本端自己的读数页，理由同样在 §5.5）。每屏顶部都画一条「如实缺口」
   说明，拿不到的字段一个都不画。这一批同时把 §7 第 1 条那个「三处同改」的第三处（`:web`）补上了：
  上一次（七个端点落地那批）那一处是有意留空的，登记在 §7 第 5 条。
-- ⏳ **第二批只读域（2026-10-14）的消费方还是空的**：§5.6 的八个端点（思源学堂 / 教材中心 /
-  移动教务成绩 / 人脸识别签到）本轮只改了两处（本文档 + `:testkit` 夹具），`:web` 那一处
-  **待接** —— 已在 §5.6 末尾显式标注（每屏要哪个端点、拿不到什么、接的时候注意什么），
-  并登记在 §7 第 6 条。本节因此**没有**这四屏的消费方行为可记。
+- **第二批只读域的消费方也已落地（2026-10-14 接线）**：思源学堂 / 教材查询 / 成绩 / 快速考勤流水
+  四屏在 `:web` 上真能打开了 —— 取数是 `:core/net` 的四个新 `Campus*Api`，屏是 `:core` 的共享屏
+  （逐屏见 §5.6 末尾那张表）。两屏在接线时多开了几个能力开关（见 §5.6 那一节的三条细节），
+  拿不到的字段与新入口一样：不画就不画、也不拿一个像真的默认值顶上。
 
 ### 5.5 只读四域（2026-10-13 收尾轮落地）：成绩单 / 考勤 / 加餐券 / 宿舍电费
 
@@ -644,29 +644,44 @@ POST /api/venue/cancel
   这一条是签到平台的「今天刷没刷上卡」——两屏在 `:app` 与桌面上本来就并存、互不替代；
 - 错误码：`400` `date` 不成形 · `401` 没会话 · `502` 上游/网络故障。
 
-#### 消费方（`:web`）：**待接**（2026-10-14 如实标注，不是漏）
+#### 消费方（`:web`）：**已落地**（2026-10-14 接线）
 
-本轮只同改了两处（本文档 + `:testkit` 夹具），第三处（`:web` 的消费方）**没有动** —— 按 §7 第 1 条
-那本是漂移，所以在这里指名点姓地标出来（与上一批同样的做法，见 §7 第 5 / 6 条）。
-四屏在 `:core` 里**都已经有共享屏**，缺的只是 `:core/net` 的取数实现与四处接线。
+八个端点由 `:core/net` 的四个新 `Campus*Api` 消费（`CampusLmsApi` / `CampusJiaocaiApi` /
+`CampusJwappScoreApi`（一个类实现两个端口）/ `CampusIclassfaceApi`）—— 与上一批那四个同一族
+（`ApiMode` 双形态），同样：**默认形态（campus-api）那一支不猜也不编空数据，直接抛错**（这四个域
+在 campus-api 里根本没有端点：`:app` / 桌面是走 `:data` 的 okhttp 抓的）。`:web` 因此把这四屏写成
+「serve 形态才画真屏，否则画一张「这一屏要 serve 模式」的如实页」，并把拿不到的东西画在屏幕上，
+而不是编出来：
 
-| 屏（`:core` 已有的） | 要哪个端点 | 接的时候要注意什么 |
-|---|---|---|
-| 思源学堂 `LmsScreen` | `courses` + `activities` + `activity` | ① 屏吃的端口是 `LmsSource`，web 要接的是 `:core/net` 的新 `CampusLmsApi`（`ApiMode` 双形态；campus-api 那一支没有这个域 ⇒ 照 §5.5 四个 `Campus*Api` 的先例）。② **教师那一格拿不到**（`instructors` 不投影）—— 课程卡上那句 `instructorNames` 会显示「未知」，别当 bug。③ 详情页的**播放器 / 下载 / 附件图片预览**在 serve 模式下没有端点（地址不在响应里）⇒ 照 `supportsVideoQueue=false` 那条 seam 的先例在那几处不露。④ 「提交记录」那一块拿不到（`submissionList` 不端）。⑤ `type` 是小写字符串，`LmsActivityType.fromString` 直接吃 |
-| 教材查询 `TextbookScreen` | `search`（+ 进详情再打 `ssno`） | ① 搜索框的输入就是 `keyword`（没有院系/教师筛选控件、没有翻页）。② 「本学期我的教材」那一栏**拿不到**（要学号）⇒ 如实不画。③ 全文阅读（`jiaocai1` 页图）本轮没有端点：`ssno` 拿到只够显示「有本地全文」。④ 检索结果里 `ssno` 恒 `null` |
-| 成绩 `JwappScoreScreen` | `scores` + `precise-scores` | ① 屏要的端口是**两个**（`JwappScoreSource` + `JwxtScoreSupplement`）⇒ 两份端点都要接。② `precise-scores` 502 是**可容忍**的（VM 老规矩：拿不到就只出 jwapp 那一份），别让整屏失败。③ 「点开一门课看分项」**没有端点**（`getScoreDetail` 不端）⇒ 那一栏如实不画。④ `precise-scores` 里那份 `-1.0` 哨兵值要自己认 |
-| 快速考勤流水 `IclassfaceScreen` | `records` | ① 三格（时刻/地点/类型）都在，**整屏能复用**。② `time` **不是 ISO-8601**：直接当服务端时区的墙上时间显示，**不要** parse 成 UTC 再本地化（那会整体平移）。③ 日期条：`?date=` 省略就是服务端时区的今天（与屏上默认选中那天同一条式子）。④ 没有分页 |
+| 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
+|---|---|---|---|
+| 思源学堂 `LmsScreen` | `GET /api/lms/courses` + `/activities?courseId=` + `/activity?courseId=&activityId=` | 课程卡（名称 / 课程号 / 学分 / 学期 / 教学班 / 人数）+ 活动列表（按类型筛、勾选批量下载）+ 详情页（正文、附件卡、作业信息与截止时间） | ① 教师姓名：`instructors` / `liveInstructorNames` 不投影 ⇒ `instructorNames` 显示「未知」；② 附件的预览与下载、以及「批量下载」那一整档（`LmsSource.supportsDownload = false`）：附件的三个地址都不投影，浏览器直接打开只会拿到登录页；③ 回放与直播的**播放地址**（`lesson.replayVideos` / `live.liveStreams` 不端）⇒ 屏上没有可点的播放动作；④ 作业的**提交记录**（`LmsSource.supportsSubmissionList = false`，那块里有提交人姓名与学号）—— 别拿「还没有提交记录」那张卡冒充它；⑤ 正文按本端的纯文本近似显示（`htmlToPlainText` 这个纯函数契约不端，`:data` 那份用 jsoup，wasm 上没有） |
+| 教材查询 `TextbookScreen` | `GET /api/jiaocai/search?keyword=` + `/ssno?id=&appId=&engineInstanceId=` | 「查教材」那一栏：一个关键词输入 + 结果卡 + 详情卡（字段表 / 书目号补齐） | ① 「本学期我的教材」那一段（数据在**教务**的报表里，**要学号** ⇒ 宿主端口 `WebJiaocaiTermTextbooks` 如实回空表，那一段整段不显示）；② 「书架」「全文库」两栏与各处的「读全文 / 阅读全文」入口（`jiaocai1` 是另一个域名、另一套会话 ⇒ `TextbookScreen` 的两个 jiaocai1 端口传 `null`，屏只留一栏）；③ 检索结果里 `ssno` 恒 `null`（上游口径，要它进详情再补一枪） |
+| 成绩 `JwappScoreScreen` | `GET /api/jwapp/scores?term=` + `/precise-scores` | 学期成绩 + GPA 卡 + 选课算均分（两份上游在屏上按「学期 + 课程名」合并，与 `:data` / 桌面同一条 VM） | ① 「点开一门课看分项」那一栏（`getScoreDetail` 不端 ⇒ `JwappScoreSource.canFetchScoreDetail = false`，卡片点了不再展开）；② 未评教名单与「按学号补的报表」两路（前者属评教那一侧、后者要学号 ⇒ 本端 `studentId` 传空串，VM 根本不调）；③ 落盘缓存（宿主能力，屏传 `cache = null`）；④ `precise-scores` 的 `502` **可容忍**：拿不到就只出 jwapp 那一份，**不让整屏失败**；⑤ `-1.0` 那个哨兵值在**服务端那一侧**就归一成 `null`（`:data` 的 `takeIf { it > -100 }`），消费方不再判一次、也不拿 `0` 冒充 |
+| 快速考勤流水 `IclassfaceScreen` | `GET /api/iclassface/records?date=` | **整屏复用**：日期条 + 一天一张卡（时刻 / 地点 / 类型） | 姓名与学号（`name` / `studentNo` 不投影 ⇒ 空串；屏本来也不画那两格）；照片（上游根本没有这个字段）；⚠️ `time` 是**服务端时区的墙上时间**（上游原文，不是 ISO-8601）⇒ 消费方原样显示，**不** `parse` 成 UTC 再本地化（那会整体平移）；没有分页（上游一天一枪） |
 
 四条相同的接线动作（逐条照 §5.5 那次接线做）：`:core/net` 的 `Campus*Api`（`ApiMode` 双形态，
 非 serve 分支 `serveOnly(...)` 抛错而不是编空数据）· `WebSupport.openableRouteIds` ·
 `AppPage` 的 `when (route)` · 屏顶部那条「如实缺口」说明。**一处都不能缺**
 （缺任一处就是「屏在、门不在」或「拿不到的东西在屏上被编出来」）。
 
+三个接线时定下来的细节（写在这里，免得下一个读的人当成 bug）：
+
+1. **屏上的能力开关**：serve 形态拿不到的那几处不是「本端忘了画」，而是端口上的一格
+   （`LmsSource.supportsDownload` / `supportsSubmissionList`、早就在的 `LmsSource.supportsVideoQueue`、
+   `JwappScoreSource.canFetchScoreDetail`）；`TextbookScreen` 那边用的是「端口传 `null` = 本端没有这一档」。
+   **默认值一律保持各端原行为**（Android / 桌面一行未变）。
+2. **学堂的详情要多一个 `courseId`**：屏那一侧把列表里那一条当 `brief` 传下去（服务端就是靠它
+   并 `deadline` 的）；拿不到 `brief` 时本端**不猜**一个课程号，直接抛错。
+3. **考勤屏上的「快速考勤流水」入口**：那一屏本端接上了 ⇒ 入口照 App / 桌面画出来
+   （不再是「本端没有这一档」那个 `null`）。
+
 夹具与用例：`LmsFakeUpstream` / `Jiaocai1FakeUpstream`（它同时扮教材中心与全文库） /
 `JwappFakeUpstream` + `JwxtFakeUpstream`（成绩的第二条上游在教务） / `IclassfaceFakeUpstream`
-—— 四份都已存在，本轮只往 `LmsFakeUpstream` 提了两个常量（`USER_INDEX_NAME` /
-`USER_INDEX_USER_NO`，把内联在 `USER_INDEX_HTML` 里的姓名与学号提出来供红线断言引用；值没变）。
-用例见 §6 的 `ServeLmsJiaocaiJwappIclassfaceTest`（8 例）。
+—— 四份都已存在（上一批只往 `LmsFakeUpstream` 提了两个常量 `USER_INDEX_NAME` /
+`USER_INDEX_USER_NO`，值没变）。用例见 §6 的 `ServeLmsJiaocaiJwappIclassfaceTest`（8 例），
+以及**客户端那一侧**的 `:core:jvmTest` `ServeLmsJiaocaiJwappIclassfaceApiTest`（9 例：逐字段形状、
+错误信封只读 `message`、不投影的格如实留空、四个能力开关、非 serve 分支抛错）。
 
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
@@ -711,11 +726,16 @@ POST /api/venue/cancel
    四个新 `Campus*Api`（`CampusTranscriptApi` / `CampusAttendanceApi` / `CampusCouponApi` /
    `CampusDormPowerApi`）+ 四屏接线 + `WebSupport` 入口 + §5.5 的消费方表 ⇒ 三处同改齐了。
    **教训照旧**：「端点在 `:server` 上能跑」不等于「这屏在该端上能用」，两者之间差的就是这一处。
-6. ⏳ **本轮的例外（第二批只读域，2026-10-14）**：§5.6 的八个端点只改了本文档 + `:testkit` 夹具
-   （`LmsFakeUpstream` 提了两个常量，值没变）两处，`:web` 那一处**待接** —— 已在 §5.6 末尾显式
-   标注（每屏要哪个端点、拿不到什么、接的时候要注意什么）。与第 5 条同一条形态：
-   **允许留空，但必须指名点姓**。这四个域的四屏在 `:core` 里都已经有共享屏，缺的只是取数实现
-   与四处接线 —— 也就是「端点在 `:server` 上能跑」与「这屏在该端上能用」之间的那一处。
+6. ✅ **那一例外也补位了（2026-10-14 接线）**：第二批只读域的八个端点（§5.6）当时**只改了本文档 +
+   `:testkit` 夹具两处**（`LmsFakeUpstream` 提了两个常量，值没变），`:web` 那一处**待接**，
+   并在 §5.6 末尾**指名点姓地**标了出来（每屏要哪个端点、拿不到什么、接的时候要注意什么）。
+   随后那一次接线把第三处也补上了：四个新 `Campus*Api`（`CampusLmsApi` / `CampusJiaocaiApi` /
+   `CampusJwappScoreApi`（一个类两个端口）/ `CampusIclassfaceApi`）+ 四屏接线 + `WebSupport` 入口 +
+   §5.6 的消费方表 ⇒ 三处同改齐了。**教训照旧**：「端点在 `:server` 上能跑」不等于「这屏在该端上
+   能用」，两者之间差的就是这一处；而且这两轮都证明了一件事：那一处**不是文档问题**，它是实现。
+   另外记一条接线时才浮现的事：屏上为了「不画拿不到的东西」而在**端口上**加了几格能力开关
+   （`LmsSource.supportsDownload` / `supportsSubmissionList`、`JwappScoreSource.canFetchScoreDetail`），
+   它们的默认值保持 Android / 桌面的原行为 —— 这是上一轮那次接线就定下的形式（§5.5）。
 
 ---
 

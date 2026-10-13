@@ -224,16 +224,16 @@ internal fun WebGapNote(text: String) {
 }
 
 /**
- * 「这一屏要有 serve 模式才有取数链」—— 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费）在
- * **campus-api 形态**下的落点。
+ * 「这一屏要有 serve 模式才有取数链」—— 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费，§5.5）与
+ * 第二批那四屏（思源学堂 / 教材查询 / 成绩 / 快速考勤流水，§5.6）在 **campus-api 形态**下的落点。
  *
- * 为什么不是 `NotPortedScreen`：那四张屏本端**有**（就是 `:core` 的共享屏），本端也有取数
- *（`:core` 的四个 `Campus*Api`），只是它们只认 serve 契约（§5.5）—— campus-api 里没有对应端点
+ * 为什么不是 `NotPortedScreen`：那些屏本端**有**（就是 `:core` 的共享屏），本端也有取数
+ *（`:core` 的四个 `Campus*Api`），只是它们只认 serve 契约 —— campus-api 里没有对应端点
  *（`:app` / 桌面是走 `:data` 的 okhttp 抓的）。所以这里写的是「切到 serve 模式就能用」，
  * 而不是「这一屏还没搬到 Web」—— 后者是假话。
  *
  * @param title 那一屏的名字（“考勤”那种）
- * @param endpoints 它在 serve 契约里的端点（照 §5.5 的表写）
+ * @param endpoints 它在 serve 契约里的端点（照 §5.5 / §5.6 的表写）
  * @param why 为什么这一端只能走 serve（一句话：哪个站/哪条会话）
  */
 @Composable

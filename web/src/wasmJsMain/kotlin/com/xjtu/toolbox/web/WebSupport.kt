@@ -39,7 +39,7 @@ import com.xjtu.toolbox.nav.AppRoute
  *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`Lms` / `Jiaocai` / `PaymentCode` / `Iclassface` / `DownloadManager` …）：
+ * - 其余 `:core` 路由（`PaymentCode` / `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` …）：
  *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
  *
  * ## 与目录的另一半：还没有屏的那些
@@ -83,6 +83,18 @@ internal object WebSupport {
         AppRoute.Attendance,
         AppRoute.Coupon,
         AppRoute.DormPower,
+        // 第二批只读域（2026-10-14 接线，契约 §5.6）：思源学堂 / 教材查询 / 成绩 / 快速考勤流水。
+        // 与上面那四条同一条规矩：**「本端有没有这一屏」与「此刻后端是哪一形态」是两件事** ——
+        // 取数只在 serve 形态下存在（campus-api 里没有这四族的端点），但那四屏就在 `:core`，
+        // 所以门照旧列在这里，campus-api 形态下 `AppPage` 画的是「这一屏要 serve 模式」那张如实页。
+        //
+        // ⚠️ `AppRoute.Lms` 是带参数的 data class（`courseId`）：这里要的是**没有课程号那一条**
+        // （`AppRoute.Lms()` ⇒ id = `lms`），带 courseId 的形态是深链（`?route=lms?courseId=…`）
+        // 与日程页下钻用的，不进宫格的清单。
+        AppRoute.Lms(),
+        AppRoute.Jiaocai,
+        AppRoute.JwappScore,
+        AppRoute.Iclassface,
         // 游戏：合集 + 合集里那六屏（它们在目录里只有「小游戏」一条，子路由由合集屏自己往下走）
         AppRoute.Games,
         AppRoute.Game2048,
