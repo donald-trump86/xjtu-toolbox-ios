@@ -39,8 +39,12 @@ import com.xjtu.toolbox.nav.AppRoute
  *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`PaymentCode` / `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` …）：
+ * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` / `GameMerge` / `Accounts` …）：
  *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
+ *
+ * ⚠️ 清单里**不等于** "那一屏在本端真能用"：第三批的 `AppRoute.Match` 就在清单里，而它在浏览器里
+ * 落的是**如实说明页**（wasm 上没有 deflate / Base64 ⇒ 分享码生成与解析都不可用，见 `WebMatchGapScreen`）。
+ * 清单管的是"点了会有个说法"，那一屏到底真能用还是如实说明，由 `AppPage` 那条分支自己说。
  *
  * ## 与目录的另一半：还没有屏的那些
  *
@@ -95,6 +99,17 @@ internal object WebSupport {
         AppRoute.Jiaocai,
         AppRoute.JwappScore,
         AppRoute.Iclassface,
+        // 第三批（2026-10-14 接线，契约 §5.7）：付款码 / 反馈与建议 / 匹配交友 / WebVPN 转换器。
+        // 四条里三种落法，但门都列在这里（「本端有没有这一屏」与「此刻后端是哪一形态」是两件事）：
+        //  - 付款码 / 反馈 / WebVPN：屏在 `:core`，取数只认 serve 契约 ⇒ campus-api 形态下画
+        //    `WebServeOnlyScreen`（说清「切到 serve 模式就能用」，不是「还没搬到 Web」）；
+        //  - 匹配交友：**两种形态下都用不了**（wasm 上没有 deflate / Base64 ⇒ 分享码生成与解析都
+        //    不可用）⇒ `AppPage` 落一张**如实说明页**（`WebMatchGapScreen`）—— 那也是「本端能打开
+        //    这一条路由」的一种真相，而且比藏起来强：用户点进去看得到为什么。
+        AppRoute.PaymentCode,
+        AppRoute.Feedback,
+        AppRoute.Match,
+        AppRoute.WebVpnConverter,
         // 游戏：合集 + 合集里那六屏（它们在目录里只有「小游戏」一条，子路由由合集屏自己往下走）
         AppRoute.Games,
         AppRoute.Game2048,

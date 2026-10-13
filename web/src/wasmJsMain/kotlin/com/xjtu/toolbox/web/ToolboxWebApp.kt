@@ -20,6 +20,13 @@ import com.xjtu.toolbox.core.net.CampusIclassfaceApi
 import com.xjtu.toolbox.core.net.CampusJiaocaiApi
 import com.xjtu.toolbox.core.net.CampusJwappScoreApi
 import com.xjtu.toolbox.core.net.CampusLmsApi
+import com.xjtu.toolbox.core.net.CampusFeedbackApi
+import com.xjtu.toolbox.core.net.CampusPayApi
+import com.xjtu.toolbox.core.net.CampusWebVpnApi
+import com.xjtu.toolbox.feedback.FeedbackScreen
+import com.xjtu.toolbox.pay.PaymentCodeScreen
+import com.xjtu.toolbox.pay.PaymentSelectionStore
+import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
@@ -778,6 +785,105 @@ private fun AppPage(
                 Box(Modifier.weight(1f)) {
                     IclassfaceScreen(
                         source = remember(client, mode) { CampusIclassfaceApi(client, API_BASE, mode) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        // ── 第三批（2026-10-14 接线，契约 §5.7）──────────────────────────────
+        //
+        // 付款码 / 反馈与建议 / 匹配交友 / WebVPN 转换器。三条分支三种落法：
+        //  - 付款码 / 反馈 / WebVPN：屏在 `:core`、取数只认 serve 契约（campus-api 里这三族没有端点）
+        //    ⇒ campus-api 形态下画 `WebServeOnlyScreen`；
+        //  - 匹配交友：**两种形态下都用不了**（wasm 上没有 deflate / URL-safe Base64 ⇒
+        //    `MatchProfile.codecAvailable` 是 false）⇒ 落一张如实说明页 [WebMatchGapScreen]，
+        //    不把那张共享屏半开着挂上去。
+        // 每屏页顶那条 `WebGapNote` 说的是这一屏**拿不到什么**（照 §5.7 逐条，不编）。
+        AppRoute.PaymentCode -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "付款码",
+                endpoints = "GET /api/pay/code + /api/pay/vouchers",
+                why = "付款码借的是校园卡那个站点的会话。",
+                section = "§5.7",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "两处如实不画：① 条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
+                        "`qrCodeModules` / `code128Modules` 如实返回 null）⇒ 只画付款码**数字**那一档，" +
+                        "两个矩阵一个都不画（不是画一张假的）；② 加餐券的**勾选框** —— 勾选会把「这一轮" +
+                        "用哪几张」真的推给上游，那是写路径（serve 契约 §5.7 不端）⇒ 那几行券只读。" +
+                        "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    PaymentCodeScreen(
+                        source = remember(client, mode) { CampusPayApi(client, API_BASE, mode) },
+                        // 勾选的落盘存储：与 Android 同一个存储名、同一批键（wasm 上是 localStorage）。
+                        // 本端是只读那一档（`canSelectVouchers = false`）⇒ 它只会读到一张空表。
+                        selections = remember { PaymentSelectionStore(keyValueStore("payment_code")) },
+                        // 这一屏在 `:app` 是个弹窗，"关掉"就是退出；本端的等价物是回日程（与其它屏的返回同一条）。
+                        onDismiss = back,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "反馈与建议",
+                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa",
+                why = "反馈没有校园站点会话：凭据由 serve 进程启动时读 FEEDBACK_* 环境变量注入。",
+                section = "§5.7",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "四处如实缺口：① 提交那一半**没有端点**（写路径不端）⇒ 屏上整块表单不画，只剩" +
+                        "「去 GitHub 提 Issue」那条外链；② 工单号来自**屏自己的本地账本**（`:core` 的" +
+                        "`FeedbackStore`，本端落在 localStorage），而这一端**不能提交** ⇒ 新浏览器里那份账本" +
+                        "是空的 ⇒「我提过的」那一段不出现（只有账本里真有单号的人才看得到回复）；" +
+                        "③ 读这一半要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时两条端点答 502，" +
+                        "而屏把取数失败吞掉了 ⇒ 页面会显示成「没有新回复 / 没有问答」；④ 这一族**不套会话**，" +
+                        "所以本端没有「先登录校园账号」那一步。",
+                )
+                Box(Modifier.weight(1f)) {
+                    FeedbackScreen(
+                        source = remember(client, mode) { CampusFeedbackApi(client, API_BASE, mode) },
+                        onOpenUrl = { openInNewTab(it) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        // 匹配交友：这一屏在浏览器里**整屏用不了** —— 它的全部动作都是「把自己的档案压成一段码」与
+        // 「解朋友的码」，而那两步要 deflate 与 URL-safe Base64（wasm 上两个 actual 都如实返回 null）
+        // ⇒ `MatchProfile.codecAvailable` 是 false。学工档案那一半服务端也没有端点（hello 那条链只在
+        // `:app`）。所以这里画的是**如实说明页**，不是半开着的交友界面（见 [WebMatchGapScreen]）。
+        AppRoute.Match -> WebMatchGapScreen(onNavigate)
+
+        AppRoute.WebVpnConverter -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "WebVPN 转换器",
+                endpoints = "POST /api/webvpn/convert",
+                why = "转换本体要一个对称密码：浏览器只在安全上下文（HTTPS / localhost）里有 crypto.subtle，" +
+                    "而 serve 默认明文 HTTP ⇒ 这一族放在服务端（纯函数，不收会话）。",
+                section = "§5.7",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "两处如实缺口：① 转换是**一发 HTTP**（服务端那份 `WebVpnUtil` 算的，与 Android / " +
+                        "桌面注入的是同一个算法）⇒ 断网时转不了，而 Android / 桌面是本地纯函数；② 转换结果那颗" +
+                        "「用 WebVPN 打开」只做浏览器做得到的那一件：新标签打开那个网关地址 —— 网关自己的会话" +
+                        "不在这个浏览器里，所以要过它自己的登录页（`:app` 的免验证打开靠的是 App 内的 WebVPN 会话）。" +
+                        "这一族**不收会话**，所以本端没有「先登录」那一步。",
+                )
+                Box(Modifier.weight(1f)) {
+                    WebVpnConverterScreen(
+                        codec = remember(client, mode) { CampusWebVpnApi(client, API_BASE, mode) },
+                        onOpenWithWebVpn = { openInNewTab(it) },
                         onBack = back,
                     )
                 }

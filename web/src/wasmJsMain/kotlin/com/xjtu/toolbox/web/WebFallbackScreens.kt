@@ -35,14 +35,17 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 流式传输、工具层，本端一件都没有）。把格子藏掉就又变成"另一套层级"，所以照桌面 `HostUnavailableScreen` /
  * `NotPortedScreen` 的口径**落一张写清原因与缺哪一件的页**：用户看得见这一格、也看得见为什么。
  *
- * 四张页的分工：
+ * 五张页的分工：
  * - [WebUnavailableScreen]：通用降级页（屁岱，以及壳里认不出的自定义目标）；
  * - [WebSupportMismatchScreen]：**这一端的 bug 页** —— 支持清单说有、`AppPage` 却没有分支时画它
  *   （见 `WebSupport` 的 KDoc：清单与分支必须同时改）；
  * - [WebServicesScreen]：「学辅」那一格 —— **可点目录**（`:app` 那格是学业服务目录 + 每项此刻的
  *   状态摘要，本端没有后一半，于是列同一份目录里本端真能点开的那些，点一行进一屏）；
  * - [WebScheduleGapNote]：**日程页顶部那一行**。日程是本端真接上的共享屏，
- *   但它缺三个端点（见那段 KDoc），这一行把它写在屏幕上而不是只写在代码注释里。
+ *   但它缺三个端点（见那段 KDoc），这一行把它写在屏幕上而不是只写在代码注释里；
+ * - [WebMatchGapScreen]：**匹配交友那一屏的落点**。它与上面几张不同：那一屏的屏**就在 `:core`**
+ *   （不是"还没搬过来"），用不了的是它的能力（wasm 上没有 deflate / Base64 ⇒ 分享码不可用）
+ *   —— 所以这一张写的是"这一端缺哪两件能力"，而不是"缺哪个宿主面"。
  */
 
 /**
@@ -235,9 +238,15 @@ internal fun WebGapNote(text: String) {
  * @param title 那一屏的名字（“考勤”那种）
  * @param endpoints 它在 serve 契约里的端点（照 §5.5 / §5.6 的表写）
  * @param why 为什么这一端只能走 serve（一句话：哪个站/哪条会话）
+ * @param section 这些端点在哪一节（`"§5.5"` / `"§5.6"` / `"§5.7"` —— 这一页三批共用一个）
  */
 @Composable
-internal fun WebServeOnlyScreen(title: String, endpoints: String, why: String) {
+internal fun WebServeOnlyScreen(
+    title: String,
+    endpoints: String,
+    why: String,
+    section: String = "§5.5",
+) {
     val cs = MiuixTheme.colorScheme
     Column(
         modifier = Modifier
@@ -249,7 +258,7 @@ internal fun WebServeOnlyScreen(title: String, endpoints: String, why: String) {
         Text("$title（Web 这一端：需要 serve 模式）", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(
             "这一屏在本端**有**（`:core` 的共享屏 + `:web` 注入的 `:core` 取数），但它只认 serve 契约的端点：" +
-                "$endpoints（docs/api-contract.md §5.5）。$why 当前这一份 `:web` 探到的是 campus-api 形态" +
+                "$endpoints（docs/api-contract.md $section）。$why 当前这一份 `:web` 探到的是 campus-api 形态" +
                 "（凭据托管在同源反代进程里），那几个端点不存在 ⇒ 这里写清楚，不拿别的屏冒充。",
             color = cs.onSurface,
             fontSize = 13.sp,
@@ -257,12 +266,77 @@ internal fun WebServeOnlyScreen(title: String, endpoints: String, why: String) {
         Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
         listOf(
             "serve 会话：起 `:server`（它同时托管这一份 `:web`），或用 `?backend=serve` 把模式钉死",
-            "campus-api 形态下这条取数链不存在 —— 这四个域在 campus-api 里没有端点（不是本端没实现）",
+            "campus-api 形态下这条取数链不存在 —— 这些域在 campus-api 里没有端点（不是本端没实现）",
         ).forEach { line ->
             Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
         }
     }
 }
+
+/**
+ * 匹配交友（`AppRoute.Match`）在 `:web` 上的落点：**如实说明页**。
+ *
+ * 为何不是直接挂那张共享屏：`MatchScreen` 就在 `:core`（**不是**"还没搬过来"），但它整屏的价值都在
+ * 「把自己的档案压成一段分享码 / 解朋友的码」那两步上，而那两步要 **deflate** 与 **URL-safe Base64**
+ * 两件平台能力 —— wasmJs 上两个 actual 都**如实返回 null**（浏览器那两份是流式异步 API，而这条链在
+ * 共享层是同步的，见 `core/.../platform/Deflate.kt` 文件头）⇒ `MatchProfile.codecAvailable` 是 false：
+ * 生成与解析**都不可用**。
+ *
+ * 所以这里不画那些东西（每一条都写在页面上）：不拿空矩阵当码、不拿「共同空闲 100%」那种默认值顶上、
+ * 也不为了"看起来能用"把消费统计单独画成一列（它是出码的输入，出不了码就没有地方用它）。
+ *
+ * 服务端**也不**代它出码：码里含昵称与课表网格，是用户自己决定给谁看的东西（`MatchProfile` 的类 KDoc
+ * 就是为这条写的）—— 那一族在 serve 契约里只端了消费统计那一发（§5.7）。
+ */
+@Composable
+internal fun WebMatchGapScreen(onNavigate: (WebTarget) -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            "匹配交友（Web 这一端：这一屏用不了）",
+            color = cs.onSurface,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "屏本身就在这里（`:core` 的 `MatchScreen`，不是「还没搬到 Web」）。用不了的是它**全部的动作**：" +
+                "把自己的档案压成一段分享码给朋友扫，或者解朋友发来的码 —— 那两步要 deflate 与 URL-safe " +
+                "Base64 两件平台能力，而浏览器这一端两个 actual 都如实返回 null ⇒ 生成与解析**都不可用**" +
+                "（`MatchProfile.codecAvailable` 是 false）。",
+            color = cs.onSurface,
+            fontSize = 13.sp,
+        )
+        Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
+        listOf(
+            "deflate / inflate（`core/.../platform/Deflate.wasmJs.kt`：如实返回 null —— 浏览器的 " +
+                "CompressionStream 是流式异步的，而分享码这条链在共享层是同步的）",
+            "URL-safe Base64（`core/.../platform/Base64Url.wasmJs.kt`：如实返回 null）",
+            "学工档案（年级 / 专业 / 学院 / 书院 / 校区 / 班级 / 生源地）：那条链是 hello.xjtu.edu.cn，" +
+                "实现只在 `:app`（要 Context 与站点会话），`:data` 里一个 hello 字面量都没有 ⇒ 服务端契约也没有 " +
+                "`/api/match/profile`",
+            "消费统计那一维（服务端有 `/api/match/dining`）在本端**没有消费方**：它是出码的一个输入，" +
+                "出不了码就没有地方用它 —— 拿它单独画一列就是半残的交友界面",
+            "课表族缓存里那几维（考试 / 教材）：本端只有课表那一份（服务端契约里没有考试与教材的端点，" +
+                "见日程页顶部那条说明）",
+        ).forEach { line ->
+            Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        }
+        Text(
+            "结论：这一屏请在**能出码的端**上用（App 或桌面）。服务端**不**代它出码 —— 码里含昵称与" +
+                "课表网格，是用户自己决定给谁看的东西（`MatchProfile` 的类 KDoc 就是为这条写的）。",
+            color = cs.onBackgroundVariant,
+            fontSize = 12.sp,
+        )
+        TextButton(text = "回首页", onClick = { onNavigate(WebTarget.App(AppRoute.Main)) }, minWidth = 128.dp)
+    }
+}
+
 /**
  * 日程页顶部那一行**如实说明**（不是装饰：它说的是这一页少掉的三样）。
  *
