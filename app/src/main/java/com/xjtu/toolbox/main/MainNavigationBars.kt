@@ -97,14 +97,14 @@ internal fun Modifier.feedPidaiTouch(origin: () -> Offset): Modifier = pointerIn
  * 那一格的序号（瞟眼往哪边看）、以及点击。**判据与画法一个字没改。**
  *
  * @param tabs 这一端的 tab 集合（只为取序号：原来用的是 `BottomTab.ordinal`）
- * @param current 当前选中的那一格
+ * @param current 当前页落的那一格；**null = 不属于任何一格**（底栏一格都不高亮，见 `ShellNavState.selected`）
  * @param tab 屁岱那一格
  * @param onClick 点这一格（共享壳接的是 `ShellNavState.onSelect`）
  */
 @Composable
 private fun PidaiTabButton(
     tabs: ShellTabs,
-    current: ShellTab,
+    current: ShellTab?,
     tab: ShellTab,
     onClick: () -> Unit,
     selected: Boolean,
@@ -118,8 +118,10 @@ private fun PidaiTabButton(
     var glance by remember { mutableStateOf<PidaiGlance?>(null) }
     var lastSelected by remember { mutableStateOf(current) }
     LaunchedEffect(current) {
+        // current = null（当前页不属于任何一格）时没有「切到哪一格」可言 ⇒ 机器人不看那一边。
+        // Android 这一端每一页都落在某一格上，走不到这一支（桌面才有那 37 条非 tab 路由）。
         val now = current
-        if (now.id != lastSelected.id && now.id != tab.id) {
+        if (now != null && now.id != lastSelected?.id && now.id != tab.id) {
             val side = if (tabs.indexOf(now.id) < tabs.indexOf(tab.id)) -1f else 1f
             glance = PidaiGlance(if (vertical) 0f else side, if (vertical) side else 0f, (glance?.serial ?: 0) + 1)
         }
@@ -128,7 +130,7 @@ private fun PidaiTabButton(
     // 自己的中心（根坐标），布局时写、帧循环里读
     val center = remember { floatArrayOf(Float.NaN, 0f) }
     val reach = with(LocalDensity.current) { 160.dp.toPx() }
-    val onOwnTab = current.id == tab.id
+    val onOwnTab = current?.id == tab.id
     val look = look@{
         val p = PidaiTouch.point() ?: return@look null
         if (center[0].isNaN()) return@look null
@@ -166,7 +168,7 @@ private fun PidaiTabButton(
 @Composable
 private fun RailPidaiItem(
     tabs: ShellTabs,
-    current: ShellTab,
+    current: ShellTab?,
     tab: ShellTab,
     onClick: () -> Unit,
     expanded: Boolean,
@@ -195,7 +197,7 @@ private fun RailPidaiItem(
                 current = current,
                 tab = tab,
                 onClick = onClick,
-                selected = current.id == tab.id,
+                selected = current?.id == tab.id,
                 diameter = 40.dp,
                 paper = MiuixTheme.colorScheme.surface,
                 vertical = true,
@@ -242,7 +244,7 @@ internal class AndroidShellTabArt(
     override fun handles(tab: ShellTab): Boolean = tab.id == pidai.id
 
     @Composable
-    override fun barTab(current: ShellTab, tab: ShellTab, selected: Boolean, variant: ShellTabVariant) {
+    override fun barTab(current: ShellTab?, tab: ShellTab, selected: Boolean, variant: ShellTabVariant) {
         PidaiTabButton(
             tabs = tabs,
             current = current,
@@ -258,7 +260,7 @@ internal class AndroidShellTabArt(
     }
 
     @Composable
-    override fun railTab(current: ShellTab, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant) {
+    override fun railTab(current: ShellTab?, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant) {
         RailPidaiItem(
             tabs = tabs,
             current = current,

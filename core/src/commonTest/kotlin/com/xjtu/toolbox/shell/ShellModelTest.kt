@@ -9,6 +9,7 @@ import com.xjtu.toolbox.ui.glass.GLASS_BAR_HEIGHT
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -22,11 +23,11 @@ import kotlin.test.assertTrue
  */
 class ShellModelTest {
 
-    private fun tab(id: String, badge: Boolean = false) = ShellTab(
+    private fun tab(id: String, target: ShellTarget = ShellTarget.Custom(id), badge: Boolean = false) = ShellTab(
         id = id,
         label = id,
         icon = Icons.Filled.Home,
-        target = ShellTarget.Custom(id),
+        target = target,
         showsAccountBadge = badge,
     )
 
@@ -38,6 +39,17 @@ class ShellModelTest {
             tab("PIDAI"),
             tab("TOOLS"),
             tab("PROFILE", badge = true),
+        ),
+    )
+
+    /**
+     * 桌面那一份 tab 集合的**形状**（最后一格是「全部」）：钉「非 tab 路由不高亮任何一格」用它。
+     * 真表在 `:desktop` 的 `desktopTabs()`，这里只要「一格指向共享路由、一格指向 [ShellTarget.AllPages]」。
+     */
+    private val routeTabs = ShellTabs(
+        listOf(
+            tab("home", ShellTarget.App(AppRoute.Main)),
+            tab("all", ShellTarget.AllPages),
         ),
     )
 
@@ -69,17 +81,32 @@ class ShellModelTest {
     // ── 选中态 ──
 
     @Test
-    fun `选中的 id 不在集合里就退到第一格`() {
-        val nav = ShellNavState(tabs = tabs, selectedId = "GONE", onSelect = {})
-        assertEquals("HOME", nav.selected.id)
-        val known = ShellNavState(tabs = tabs, selectedId = "TOOLS", onSelect = {})
-        assertEquals("TOOLS", known.selected.id)
+    fun `当前页落在某一格上就高亮那一格`() {
+        val nav = ShellNavState(tabs = tabs, target = ShellTarget.Custom("HOME"), onSelect = {})
+        assertEquals("HOME", nav.selected?.id)
+        val known = ShellNavState(tabs = tabs, target = ShellTarget.Custom("TOOLS"), onSelect = {})
+        assertEquals("TOOLS", known.selected?.id)
+    }
+
+    @Test
+    fun `非 tab 路由不高亮任何一格`() {
+        // 桌面那 43 条路由里有 37 条不属于底栏任何一格（体测 / 成绩 / 屁岱……）。
+        // 这一步之前只能表达「选中某一格」⇒ 这种页会被画成第一格高亮（首页）——
+        // 而且 42 张证据图与 85 例测试都不会红（底栏每张图都长得一样）。
+        val offTab = ShellNavState(tabs = routeTabs, target = ShellTarget.App(AppRoute.Fitness), onSelect = {})
+        assertNull(offTab.selected)
+        // 一格都不高亮时序号是 -1（底栏 / 侧栏按它判「没有一格是选中态」）
+        assertEquals(-1, routeTabs.indexOf(offTab.selected?.id))
+
+        // 落在某一格上、以及落在「全部」那一格上，高亮的就还是它
+        assertEquals("home", ShellNavState(routeTabs, ShellTarget.App(AppRoute.Main), {}).selected?.id)
+        assertEquals("all", ShellNavState(routeTabs, ShellTarget.AllPages, {}).selected?.id)
     }
 
     @Test
     fun `点了某一格回调拿到的就是那一格`() {
         var picked: ShellTab? = null
-        val nav = ShellNavState(tabs = tabs, selectedId = "HOME", onSelect = { picked = it })
+        val nav = ShellNavState(tabs = tabs, target = ShellTarget.Custom("HOME"), onSelect = { picked = it })
         nav.onSelect(tabs.byId("PROFILE")!!)
         assertEquals("PROFILE", picked?.id)
     }
@@ -98,13 +125,47 @@ class ShellModelTest {
     @Test
     fun `只有标了角标的那一格才画`() {
         val badge = ShellAccountBadge.of(accountCount = 2, isLoggedIn = true)
-        val nav = ShellNavState(tabs = tabs, selectedId = "HOME", onSelect = {}, accountBadge = badge)
+        val nav = ShellNavState(tabs = tabs, target = ShellTarget.Custom("HOME"), onSelect = {}, accountBadge = badge)
         // 没有角标内容时一格都不画
-        val bare = ShellNavState(tabs = tabs, selectedId = "HOME", onSelect = {})
+        val bare = ShellNavState(tabs = tabs, target = ShellTarget.Custom("HOME"), onSelect = {})
         assertNull(bare.badge(tabs.byId("PROFILE")!!))
         // 有角标内容时只有那一格画（其余四格仍然不画）
         assertNotNull(nav.badge(tabs.byId("PROFILE")!!))
         tabs.tabs.filter { it.id != "PROFILE" }.forEach { assertNull(nav.badge(it)) }
+    }
+
+    // ── 当前页那一层（ShellPage / ShellPageHost）──
+
+    @Test
+    fun `当前页不属于任何一格时交给 page 的仍然是当前页`() {
+        val nav = ShellNavState(tabs = routeTabs, target = ShellTarget.App(AppRoute.Fitness), onSelect = {})
+        assertEquals(ShellTarget.App(AppRoute.Fitness), nav.currentShellPage().target)
+        assertNull(nav.currentShellPage().tab)
+    }
+
+    @Test
+    fun `Custom 页也能进 page`() {
+        // 端自己的页（不属于共享路由表、也不落在任何一格上）同样要有渲染入口
+        val only = ShellNavState(tabs = routeTabs, target = ShellTarget.Custom("desktop_only"), onSelect = {})
+        assertEquals(ShellTarget.Custom("desktop_only"), only.currentShellPage().target)
+        assertNull(only.currentShellPage().tab)
+
+        // 落在某一格上时两样都给：`page` 按格认屏（`:app`）或按路由认屏（桌面）都拿得到判据
+        val onTab = ShellNavState(tabs = routeTabs, target = ShellTarget.AllPages, onSelect = {})
+        assertEquals(ShellTarget.AllPages, onTab.currentShellPage().target)
+        assertEquals("all", onTab.currentShellPage().tab?.id)
+    }
+
+    @Test
+    fun `哪一种摆法由端上说（不属于任何一格时退回只画当前页）`() {
+        val onTab = ShellNavState(tabs = routeTabs, target = ShellTarget.App(AppRoute.Main), onSelect = {})
+        assertTrue(onTab.keepsVisitedTabPages(ShellPageHost.VISITED_TABS))
+        assertFalse(onTab.keepsVisitedTabPages(ShellPageHost.CURRENT_ONLY))
+
+        val offTab = ShellNavState(tabs = routeTabs, target = ShellTarget.App(AppRoute.Fitness), onSelect = {})
+        // 不属于任何一格时不能走 tab 宿主：那一档没一格是 active，画出来是一张全空的页
+        assertFalse(offTab.keepsVisitedTabPages(ShellPageHost.VISITED_TABS))
+        assertFalse(offTab.keepsVisitedTabPages(ShellPageHost.CURRENT_ONLY))
     }
 
     // ── 形态学（屏形状 × 界面风格）──

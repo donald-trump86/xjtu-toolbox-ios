@@ -260,7 +260,8 @@ internal fun MainScreen(
 
     val navState = ShellNavState(
         tabs = ANDROID_SHELL_TABS,
-        selectedId = selectedTab.name,
+        // 当前页 = 选中的那一格指向的那一页（这一端五格与五屏一一对应，见 BottomTab.shellTab）
+        target = selectedTab.shellTab().target,
         onSelect = onSelectTab,
         accountBadge = ShellAccountBadge.of(navAccountCount, loginState.isLoggedIn),
     )
@@ -452,8 +453,10 @@ internal fun MainScreen(
         },
         restoring = isRestoring,
         restoreStep = restoreStep,
-        page = { tab, insets ->
-            when (tab.id) {
+        page = { shellPage, insets ->
+            // 这一端每格一个分支（判据是格 id：BottomTab 是存盘与启动意图按它认的那个名字）；
+            // `shellPage.tab` 在 Android 上不会为 null（当前页就是选中的那一格），`else` 收「我的」那一格
+            when (shellPage.tab?.id) {
                 BottomTab.HOME.name -> HomeTab(
                     loginState,
                     isRestoring = isRestoring,

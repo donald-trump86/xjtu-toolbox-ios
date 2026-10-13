@@ -63,8 +63,13 @@ class ShellTabs(val tabs: List<ShellTab>) {
 
     operator fun get(index: Int): ShellTab = tabs[index]
 
-    /** [id] 的序号；没有这一格返回 -1（[ShellTab.id] 的判据与 `List.indexOfFirst` 同）。 */
-    fun indexOf(id: String): Int = tabs.indexOfFirst { it.id == id }
+    /**
+     * [id] 的序号；没有这一格、或 [id] 为 null，返回 -1（与 `List.indexOfFirst` 同）。
+     *
+     * 收 null 是为了 [ShellNavState.selected]：「当前页不属于任何一格」时它就是 null，
+     * 而底栏 / 侧栏到处要算序号（见 `ShellBars`）—— -1 就是「一格都不高亮」。
+     */
+    fun indexOf(id: String?): Int = if (id == null) -1 else tabs.indexOfFirst { it.id == id }
 
     /**
      * 按 id 找那一格。找不到（存盘的 id 是上一版的、或者这一端裁掉了那一格）返回 null ——

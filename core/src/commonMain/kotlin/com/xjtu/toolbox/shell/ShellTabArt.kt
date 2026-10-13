@@ -36,13 +36,14 @@ interface ShellTabArt {
     /**
      * 画底栏里的 [tab]（经典底栏 / 玻璃胶囊 / 悬浮胶囊三处共用）。
      *
-     * @param current 当前选中的那一格（自绘内容可能要看它：屁岱按「切到哪一格」决定朝哪边瞟一眼）
+     * @param current 当前页落的那一格；**null = 不属于任何一格**（底栏一格都不高亮，例如桌面上一条
+     *   非 tab 路由）⇒ 自绘内容不该拿它当「切到了哪一格」（屁岱就是按它决定朝哪边瞟一眼）
      * @param tab 要画的这一格
      * @param selected 这一格是不是选中态
      * @param variant 尺寸 / 底色 / 要落的 [Modifier] / 点击（各底栏各不相同，见 [ShellTabVariant]）
      */
     @Composable
-    fun barTab(current: ShellTab, tab: ShellTab, selected: Boolean, variant: ShellTabVariant)
+    fun barTab(current: ShellTab?, tab: ShellTab, selected: Boolean, variant: ShellTabVariant)
 
     /**
      * 画侧栏（宽屏）里的 [tab]。
@@ -54,7 +55,7 @@ interface ShellTabArt {
      * @param expanded 侧栏当前是不是展开态
      */
     @Composable
-    fun railTab(current: ShellTab, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant)
+    fun railTab(current: ShellTab?, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant)
 
     companion object {
 
@@ -66,10 +67,10 @@ interface ShellTabArt {
             override fun handles(tab: ShellTab): Boolean = false
 
             @Composable
-            override fun barTab(current: ShellTab, tab: ShellTab, selected: Boolean, variant: ShellTabVariant) = Unit
+            override fun barTab(current: ShellTab?, tab: ShellTab, selected: Boolean, variant: ShellTabVariant) = Unit
 
             @Composable
-            override fun railTab(current: ShellTab, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant) = Unit
+            override fun railTab(current: ShellTab?, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant) = Unit
         }
     }
 }

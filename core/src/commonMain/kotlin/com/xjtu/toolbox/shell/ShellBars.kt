@@ -65,7 +65,7 @@ fun ClassicBottomBar(
                     tabArt.barTab(
                         current = nav.selected,
                         tab = tab,
-                        selected = nav.selected.id == tab.id,
+                        selected = nav.selected?.id == tab.id,
                         variant = ShellTabVariant(
                             diameter = 38.dp,
                             liftUp = 8.dp,
@@ -78,7 +78,7 @@ fun ClassicBottomBar(
                     )
                 } else {
                     NavigationBarItem(
-                        selected = nav.selected.id == tab.id,
+                        selected = nav.selected?.id == tab.id,
                         onClick = { nav.onSelect(tab) },
                         icon = tab.icon,
                         label = tab.label,
@@ -145,7 +145,8 @@ fun GlassBottomBar(
                     }
                 }
             },
-            selectedIndex = nav.tabs.indexOf(nav.selected.id).coerceAtLeast(0),
+            // -1（当前页不属于任何一格）会让玻璃底栏一格都不高亮 —— 见 GlassBottomTabs 那个参数
+            selectedIndex = nav.tabs.indexOf(nav.selected?.id),
             onTabSelected = { index ->
                 nav.onSelect(nav.tabs[index])
             },
@@ -176,7 +177,7 @@ fun FloatingBottomBar(
                     tabArt.barTab(
                         current = nav.selected,
                         tab = tab,
-                        selected = nav.selected.id == tab.id,
+                        selected = nav.selected?.id == tab.id,
                         variant = ShellTabVariant(
                             diameter = 40.dp,
                             paper = MiuixTheme.colorScheme.surfaceContainerHigh,
@@ -185,7 +186,7 @@ fun FloatingBottomBar(
                     )
                 } else {
                     FloatingNavigationBarItem(
-                        selected = nav.selected.id == tab.id,
+                        selected = nav.selected?.id == tab.id,
                         onClick = { nav.onSelect(tab) },
                         icon = tab.icon,
                         label = tab.label,
@@ -243,7 +244,7 @@ fun ShellNavigationRail(
                     )
                 } else {
                     NavigationRailItem(
-                        selected = nav.selected.id == tab.id,
+                        selected = nav.selected?.id == tab.id,
                         onClick = { nav.onSelect(tab) },
                         icon = tab.icon,
                         label = tab.label,

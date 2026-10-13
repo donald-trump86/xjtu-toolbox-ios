@@ -42,7 +42,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 1. **形态**：屏形状 × 界面风格 → 底栏画哪一种（[ShellForm]，判据见 [shellForm]）；
  * 2. **占位**：底栏占掉多少、内容要让开多少、玻璃风格下内容要不要铺到顶栏下面（[ShellLayout]）；
- * 3. **当前页那一层**：选中过的 tab 才进组合、切换带横移缩放（[ShellTabHost]）；
+ * 3. **当前页那一层**：只画当前这一页，还是把进过的 tab 留在组合里（[ShellTabHost]，见 [ShellPageHost]）；
  * 4. **底栏 / 侧栏本身**：三块底栏与侧栏（[ClassicBottomBar] / [GlassBottomBar] /
  *    [FloatingBottomBar] / [ShellNavigationRail]）；
  * 5. **页脚横幅**：恢复登录中（[ShellRestoreBanner]），它压在底栏上方，位置只有壳知道。
@@ -51,7 +51,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * | 参数 | `:app`（Android） | `:desktop` / `:web` |
  * |---|---|---|
- * | [page] | 五个 tab 的屏 + 各自的宿主面（`HomeTab` / `AgentScreen` / `ScheduleScreen` / …） | 路由表里那一屏 |
+ * | [page] | 五格各自的屏 + 各自的宿主面（`HomeTab` / `AgentScreen` / `ScheduleScreen` / …） | 路由表里那一屏（43 条分支） |
+ * | [pageHost] | [ShellPageHost.VISITED_TABS]（切回来不重新取数） | [ShellPageHost.CURRENT_ONLY]（导航模型是路由） |
  * | [topBar] | `MainTopBar`（带 Android 的扫一扫图标与每 tab 表头槽位） | null：这一端每一屏自己画头部 |
  * | [contentWindowInsets] | 有状态栏 / 小白条，要按宽窄两套写法 | 没有系统栏，给 `WindowInsets(0)` |
  * | [bottomInset] | 读 `WindowInsets.navigationBars` | 0 |
@@ -85,7 +86,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun AppShell(
     nav: ShellNavState,
-    page: @Composable (ShellTab, ShellPageInsets) -> Unit,
+    page: @Composable (ShellPage, ShellPageInsets) -> Unit,
+    pageHost: ShellPageHost = ShellPageHost.VISITED_TABS,
     contentWindowInsets: WindowInsets,
     glassStyle: Boolean,
     bottomInset: Dp,
@@ -93,7 +95,7 @@ fun AppShell(
     rootModifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     snackbarHost: @Composable () -> Unit = {},
-    topBar: (@Composable (ShellTab, ShellHandles) -> Unit)? = null,
+    topBar: (@Composable (ShellTab?, ShellHandles) -> Unit)? = null,
     barBubble: (@Composable (ShellHandles) -> Unit)? = null,
     railOverlay: (@Composable (ShellHandles) -> Unit)? = null,
     overlays: (@Composable (ShellHandles) -> Unit)? = null,
@@ -214,12 +216,13 @@ fun AppShell(
                 ) {
                     ShellTabHost(
                         nav = nav,
+                        pageHost = pageHost,
                         modifier = if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier,
                         tabModifier = {
                             if (glassStyle) Modifier.followTopBar({ stableTopBar.value }, padding) else Modifier
                         },
-                    ) { tab ->
-                        page(tab, insets)
+                    ) { p ->
+                        page(p, insets)
                     }
 
                     ShellRestoreBanner(
