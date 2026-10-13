@@ -1119,7 +1119,7 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.GameMerge)) }
         check(mergeShown) { "game_merge.png：没画到那张说明页" }
 
-        // ── 匹配交友（`schedule_match`，第三十三条真数据路由）─────────────
+        // ── 匹配交友（`schedule_match`，第三十三条真数据路由）─────────────────────────────────
         // 走**真路由**：外壳 → `AppRoute.Match` → `:core` 的 `MatchScreen` + 本端 `DesktopMatchHost`。
         //
         // 这一条路由**一条请求都不发**，所以「真数据」只能是本机缓存：自己的课表/考试由拍之前写进
