@@ -19,8 +19,15 @@ import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.attendance.AttendanceScreen
+import com.xjtu.toolbox.coupon.CouponScreen
+import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.core.net.CampusCardNetApi
+import com.xjtu.toolbox.core.net.CampusAttendanceApi
+import com.xjtu.toolbox.core.net.CampusCouponApi
+import com.xjtu.toolbox.core.net.CampusDormPowerApi
+import com.xjtu.toolbox.core.net.CampusTranscriptApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
 import com.xjtu.toolbox.core.net.CampusVenueApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
@@ -261,7 +268,10 @@ internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()
  * - 屁岱：降级页（见 [WebUnavailableScreen]，写清缺哪一个宿主面）；
  * - 黄页：campus-api 版的 [CampusYellowPageApi]（serve 模式下是同一份类的 `ApiMode.SERVE` 那一支）；
  * - 校历/体测：campus-api 版的 [CampusSchoolCalendarApi] / [CampusFitnessApi]（同一条理由：学校域名不给 CORS 头）；
- * - 取数：`mode` 决定 baseUrl 与解析形状（[ApiMode]），13 个 `Campus*Api` 一行不改地两边跑；
+ * - 只读四域：成绩单 / 考勤 / 加餐券 / 宿舍电费（`:core` 的共享屏 + `:core` 的 `Campus*Api` 取数）。
+ *   取数只认 serve 契约（§5.5）⇒ campus-api 形态下画 `WebServeOnlyScreen`；宿舍电费那一屏用的是
+ *   本端自己的读数页（`:core` 那张 `DormPowerScreen` 的全部内容是缴费页浏览器，而缴费页入口不端）。
+ * - 取数：`mode` 决定 baseUrl 与解析形状（[ApiMode]），17 个 `Campus*Api` 各按自己的契约跑；
  * - 社区：登录态与设备码登录在 Web 上如实报「未配置」（见 [WebGithubSession]）；
  * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
  */
@@ -270,7 +280,7 @@ private fun AppPage(
     route: AppRoute,
     client: HttpClient,
     /**
-     * 这一份 `:web` 在对谁说话（见 [ApiMode]）：13 个 `Campus*Api` 都按它选解析形状与基址。
+     * 这一份 `:web` 在对谁说话（见 [ApiMode]）：17 个 `Campus*Api` 都按它选解析形状与基址。
      * 由外壳探测一次后传下来 —— 屏自己不去猜后端（那是装配层的知识）。
      */
     mode: ApiMode,
@@ -520,6 +530,110 @@ private fun AppPage(
                 onFirstUseHintRead = { hintPrefs.putBoolean("library_hint_shown", true) },
             )
         }
+
+        // ── 只读四域（2026-10-13 接线，契约 §5.5）──────────────────────────────
+        //
+        // 这四屏的屏与模型都在 `:core`，取数是 `:core` 的四个新 `Campus*Api`（它们只认 serve 契约：
+        // `ApiMode.SERVE` 那一支走新端点，campus-api 那一支**不猜、不返回空数据**，直接抛错）。
+        // campus-api 形态下这四个域**没有端点**（`:app` / 桌面是走 `:data` 的 okhttp 抓的）⇒
+        // 非 serve 形态画的是 `WebServeOnlyScreen`（说清「切到 serve 模式就能用」），
+        // 而不是「还没搬到 Web」—— 那是假话（屏就在 `:core`）。
+        //
+        // 每屏顶部那条 `WebGapNote` 说的是这张屏**拿不到什么**（照 §5.5 逐条，不编）：
+        // 成绩单只有「选类型」一步；考勤只有学期 + 流水表；加餐券没有封面图与「领取」；
+        // 宿舍电费没有读数时间戳与「去缴费」那一跳。
+        AppRoute.Transcript -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "电子成绩单",
+                endpoints = "GET /api/dzpz/transcript",
+                why = "成绩单走 `dzpz` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "这一屏只画得了「选类型」这一步：serve 契约 §5.5 只端了建单表单（GET /api/dzpz/transcript）。" +
+                        "学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF 六步刻意不投影" +
+                        "（第二步的返回值里有学号，其余是写路径）⇒ 出 PDF 那半条链在浏览器里没有端点，" +
+                        "那一块不画按钮、只写缺口。要出 PDF 请在 App 或桌面端申请。",
+                )
+                Box(Modifier.weight(1f)) {
+                    // 没有 saveSink：浏览器这一端没有「保存到下载目录 / 下载管理」那一档（也不会有 PDF 可存）
+                    TranscriptScreen(
+                        source = remember(client, mode) { CampusTranscriptApi(client, API_BASE, mode) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Attendance -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "考勤",
+                endpoints = "GET /api/attendance/terms + /api/attendance/records",
+                why = "考勤走 `new_attendance` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "这一屏只有「学期选择 + 流水表」两样：serve 契约 §5.5 只端了这两个端点。如实不画的三处：" +
+                        "① 上课教师名（记录里有这个名字，但 §5.2 的例外清单里没有它 —— 红线）；" +
+                        "②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords 没有端点，" +
+                        "本端也不拿流水在本机算第二份口径）；③「打卡流水」与「请假」两栏（打卡原始流水没有端点，" +
+                        "请假 / 销假是写路径、一律不端）。姓名那一格同理不画（getStudentInfo 不端）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    AttendanceScreen(
+                        source = remember(client, mode) { CampusAttendanceApi(client, API_BASE, mode) },
+                        onBack = back,
+                        // 快速考勤流水那一屏（AppRoute.Iclassface）在本端没有取数（`iclassface` 站点的会话，
+                        // 契约里没有它的端点）⇒ 顶栏那个入口不画：传 null 是「本端没有这一档」，
+                        // 不是「点了不做事」。
+                        onOpenIclassface = null,
+                    )
+                }
+            }
+        }
+
+        AppRoute.Coupon -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "加餐券",
+                endpoints = "GET /api/coupon/list + /api/coupon/detail",
+                why = "加餐券走 `coupon` 站点的会话。",
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                WebGapNote(
+                    "两处如实不画：①「领取」按钮 —— 领券（POST /app/voucher/activate）是写路径，" +
+                        "serve 契约 §5.5 只端只读两格，那个按钮没有端点可走；② 券封面图 —— 那张图要带 egc 的" +
+                        "Authorization 才取得到，浏览器直接打开那个 URL 会拿到登录页（契约里没有图片代理端点）" +
+                        "⇒ 券卡退化成图标。金额一格单位是分（屏自己除 100 显示，本端不换算）。",
+                )
+                Box(Modifier.weight(1f)) {
+                    CouponScreen(
+                        source = remember(client, mode) { CampusCouponApi(client, API_BASE, mode) },
+                        onBack = back,
+                    )
+                }
+            }
+        }
+
+        // 宿舍电费：⚠️ 这一屏用的是 `:web` 自己的读数页（[WebDormPowerScreen]），**不是** `:core` 的
+        // `DormPowerScreen` —— 后者的全部内容是「缴费页浏览器」（只要 `freshPayUrl()`），而缴费页入口
+        // 在 serve 契约里没有端点（§5.5）。契约真端的是 `/api/dorm/rooms` 与 `/api/dorm/reading`，
+        // 所以这里按拿得到的两个端点画一份只读读数页（理由与逐条降级写在那个文件的 KDoc 里）。
+        AppRoute.DormPower -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "宿舍电费",
+                endpoints = "GET /api/dorm/rooms + /api/dorm/reading",
+                why = "宿舍电费走 `ssn` 站点的会话（`cid` 是登录时写进会话的）。",
+            )
+        } else {
+            WebDormPowerScreen(
+                source = remember(client, mode) { CampusDormPowerApi(client, API_BASE, mode) },
+                onBack = back,
+            )
+        }
+
 
         AppRoute.Community -> CommunityScreen(
             session = session,

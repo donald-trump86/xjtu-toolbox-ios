@@ -343,7 +343,7 @@ POST /api/venue/cancel
 
 ### 5.4 `:web` 消费方（2026-10-11 落地，`ApiMode` 那一次提交）
 
-消费方（`core/net` 的 13 个 `Campus*Api` + `:web` 外壳）按**本文件**接线，不认 campus-api 的字段名（§7.2）。
+消费方（`core/net` 的 17 个 `Campus*Api` + `:web` 外壳）按**本文件**接线，不认 campus-api 的字段名（§7.2）。
 这条只记**消费方自己的行为**，不改任何端点的形状 —— 改形状仍然要走 §7 的三处同改。
 
 - **模式开关**：`?backend=serve` 钉死 serve 模式（书签/排障用）；否则探一次 `GET /api/status` —— serve 的那份是
@@ -387,9 +387,11 @@ POST /api/venue/cancel
   所以 `:web` 这边也还没有可谈的消费方行为（⚠️ 别读成「这两样没实现」：`:data` 侧的实现都在（
   `data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），
   Android 与桌面都在用（`docs/desktop-port-plan.md` §12.2 / §12.3）；缺的只是 `:server` 把它们端出去）；
-- **加餐券的只读半已落地（2026-10-13），但消费方待接**：端点（`/api/coupon/{list,detail}`）与本文档 §5.5
-  已就位，`:web` 侧**还没有**任何实现 —— 本节不替它写「消费方行为」，也不把它读成「web 上已经能用」
-  （详情见 §5.5 末尾的「消费方待接」表）。
+- **只读四域的消费方已落地（2026-10-13 接线）**：成绩单 / 考勤 / 加餐券 / 宿舍电费四屏在 `:web` 上
+  真能打开了 —— 取数是 `:core/net` 的四个新 `Campus*Api`（`ApiMode.SERVE` 那一支，逐屏见 §5.5 末尾那张表），
+  屏是 `:core` 的共享屏（宿舍电费那一屏是本端自己的读数页，理由同样在 §5.5）。每屏顶部都画一条「如实缺口」
+  说明，拿不到的字段一个都不画。这一批同时把 §7 第 1 条那个「三处同改」的第三处（`:web`）补上了：
+  上一次（七个端点落地那批）那一处是有意留空的，登记在 §7 第 5 条。
 
 ### 5.5 只读四域（2026-10-13 收尾轮落地）：成绩单 / 考勤 / 加餐券 / 宿舍电费
 
@@ -493,20 +495,34 @@ POST /api/venue/cancel
 - 错误码：`400` `roomId` 缺/空白 · `401` 没会话 · `502` 上游/网络故障（含会话失效那一档 —— 上游的
   `401001` 被 `:data` 认成登录过期，本层按 `502` 报「稍后重试可能就成」）。
 
-#### 消费方（`:web`）：**待接**（2026-10-13 如实标注）
+#### 消费方（`:web`）：**已落地**（2026-10-13 接线）
 
-⚠️ **这七个端点已实现、测试已钉住（`:server:test` 的 `ServeReadonlyFourDomainsTest` 8 例），但 `:web`
-还没有任何消费方实现** —— 这正是 §7 第 1 条那次「三处同改」里**故意没动第三处**的一回（本文档 + `:testkit`
-夹具两处已动，`:web` 那一处留给下一批的接线）。**不要**把这七个端点读成「web 上已经能用」。
+七个端点由 `:core/net` 的四个新 `Campus*Api` 消费（`CampusTranscriptApi` / `CampusAttendanceApi` /
+`CampusCouponApi` / `CampusDormPowerApi`）—— 它们与既有那 13 个同一族（`ApiMode` 双形态），只有一个差别：
+**默认形态（campus-api）那一支不猜也不编空数据，直接抛错**（这四个域在 campus-api 里根本没有端点：
+`:app` / 桌面是走 `:data` 的 okhttp 抓的）。`:web` 因此把这四屏写成「serve 形态才画真屏，否则画一张
+「这一屏要 serve 模式」的如实页」，并把拿不到的东西画在屏幕上，而不是编出来：
 
-下一批接 web 时每屏要的东西（照本文件接线，不认 campus-api 的字段名）：
+| 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
+|---|---|---|---|
+| 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`） | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
+| 考勤 | `GET /api/attendance/terms` + `/records` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期） | 上课教师名（记录里有，但不投影 —— 红线）、姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假那一栏（写路径）。那三栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 三档 `false`）；统计也不拿流水在本机重算 |
+| 加餐券 | `GET /api/coupon/list` + `/detail` | 四档 + 翻页 + 金额（分）+ 有效期 | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；「领取」按钮（写路径不端，`CouponSource.canActivate = false`）；金额不换算成元（除 100 是屏的事） |
+| 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
 
-| 屏 | 要的端点 | 拿不到的东西（如实缺口） |
-|---|---|---|
-| 电子成绩单 | `GET /api/dzpz/transcript` | 只能画「选类型」那一步：预览 PDF / 提交 / 下载 PDF 都没有端点 |
-| 考勤 | `GET /api/attendance/terms` + `/records` | 教师名（红线）、按课程统计那一栏、打卡原始流水 |
-| 加餐券 | `GET /api/coupon/list` + `/detail` | 封面图（要 egc 会话）、「领取」按钮 |
-| 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 读数的时间戳（上游不给）、「去缴费」那一跳 |
+三处要点（写在这里，免得下一个读的人当成 bug 或当成漏）：
+
+1. **入口**：这四条路由同时进了 `:web` 的 `WebSupport.openableRouteIds`（首页宫格 / 学辅目录的唯一真源）
+   与 `AppPage` 的 `when (route)` —— 缺任一处就是「屏在、门不在」那一类漏（上一轮踩过的就是它）；
+2. **campus-api 形态**：那四个 `Campus*Api` 的非 serve 分支一律 `serveOnly(...)` 抛错，`:web` 在那形态下
+   画的是「这一屏要 serve 模式」那张页 —— 不是「还没搬到 Web」（屏就在 `:core`）；
+3. **本机时刻与 `null` 的区别**：宿舍电费的读数时间戳由消费方在**自己拿到响应的那一刻**记（端点不端
+   时间戳，见上）；`kwh` 的 `null`（上游明确说「没有表」）与**字段缺失**（形状没对上）在客户端是两件事，
+   后者抛错（不拿 `null` 冒充「没有表」）。
+
+夹具与用例：`:server:test` 的 `ServeReadonlyFourDomainsTest` 8 例（形状那一侧）之外，本轮补了
+`:core:jvmTest` 的 `ServeReadonlyFourDomainsApiTest` **6** 例 —— 逐字段、错误信封、`status=-1` → 「未知」、
+缺字段不编造、`kwh` 缺失 vs `null`、以及「campus-api 分支抛错而不是返回空数据」。
 
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
@@ -535,10 +551,12 @@ POST /api/venue/cancel
 2. `:web` 侧只认**本文档**，不认 campus-api 的字段名（那条路在 serve 模式下退休）；
 3. 与 `:data` 的分工：**`:data` 定义模型与口径，本文档只定义"怎么把它端出去"**——同一个字段名不在这两处各起一个。
 4. **这条纪律最近三次契约变更都照做了**：`0022296`（§5.3 两行 + §5.4）、`4abd1ae`（§5.3.1 写路径）、`45a0e50`（§5.3.2 写路径）—— 本文档、`:testkit` 夹具、`:web` 实现三处都在**同一次提交**里（见各自的提交信息）。反过来，不碰 `/api/*` 形状的那些搬迁提交（`:core`/`:data`/`:desktop`）**不动本文档**。
-5. ⚠️ **已登记的一次例外（2026-10-13 收尾轮，只读四域）**：新增的七个端点（§5.5）**只改了本文档 + `:testkit`
-   夹具两处，`:web` 那一处有意留空** —— 消费方的接线是下一批的活。按第 1 条那本是漂移，所以把它在 §5.5
-   末尾**显式标注为「消费方待接」**（而不是默默欠着）：这是本条纪律允许的唯一形态（缺的那一处必须在文档里
-   指名点姓地标出来），**不要把「端点在 `:server` 上能跑」读成「这屏在 web 上能用」**。
+5. ✅ **那次例外已补位（2026-10-13 接线）**：只读四域的七个端点（§5.5）最初**只改了本文档 + `:testkit`
+   夹具两处，`:web` 那一处有意留空**，当时在 §5.5 末尾**显式标注为「消费方待接」**（按第 1 条那本是漂移，
+   本条纪律允许的唯一形态是「把缺的那一处指名点姓地标出来」）。后续那一次接线把第三处补上了：
+   四个新 `Campus*Api`（`CampusTranscriptApi` / `CampusAttendanceApi` / `CampusCouponApi` /
+   `CampusDormPowerApi`）+ 四屏接线 + `WebSupport` 入口 + §5.5 的消费方表 ⇒ 三处同改齐了。
+   **教训照旧**：「端点在 `:server` 上能跑」不等于「这屏在该端上能用」，两者之间差的就是这一处。
 
 ---
 
@@ -546,6 +564,7 @@ POST /api/venue/cancel
 
 - 读者：`serve` 模式的实现者（`:server` + `:web` 改造），以及每次把某个 `*Api` 搬进 `:data` 的那次提交。
 - 依据（全部是只读核对）：`docs/desktop-port-plan.md` 的 D3/D5/D6 与 §3/§5/§6；
-  `:core/core/net/` 那 13 个 campus-api 实现（它们的类 KDoc 里有逐条字段映射与"如实降级"说明）；
+  `:core/core/net/` 那 17 个 campus-api 实现（它们的类 KDoc 里有逐条字段映射与"如实降级"说明；
+  只读四域的四个是 2026-10-13 接线时补的，本文件草拟时那一族还是 13 个）；
   `:core` 里 12 个取数端口的接口 KDoc；`web/tools/serve-same-origin.py`（serve 模式的雏形）。
 - 未核实的部分已标 `TODO`/`待确认`，**不要当成结论用**。

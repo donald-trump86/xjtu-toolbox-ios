@@ -208,7 +208,61 @@ private fun ServiceEntryRow(service: AppService, onNavigate: (WebTarget) -> Unit
     }
 }
 
+/**
+ * 一屏顶部的**如实缺口**说明（通用那张；日程那一张 [WebScheduleGapNote] 就是它的第一个用户）。
+ *
+ * 为什么要有它：这一端接上共享屏之后，缺的往往是**服务端契约**里的东西（某几个端点没端、某几格
+ * 刻意不投影）。那些话不能只写在代码注释里 —— 用户看着一屏少了半截，得能分清「本端/契约没有」
+ * 与「真没有数据」，这两件事在屏幕上的说法完全不同（后者是「暂无…」，前者必须指名道姓）。
+ */
+@Composable
+internal fun WebGapNote(text: String) {
+    val cs = MiuixTheme.colorScheme
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), insideMargin = PaddingValues(10.dp)) {
+        Text(text, color = cs.onBackgroundVariant, fontSize = 11.sp)
+    }
+}
 
+/**
+ * 「这一屏要有 serve 模式才有取数链」—— 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费）在
+ * **campus-api 形态**下的落点。
+ *
+ * 为什么不是 `NotPortedScreen`：那四张屏本端**有**（就是 `:core` 的共享屏），本端也有取数
+ *（`:core` 的四个 `Campus*Api`），只是它们只认 serve 契约（§5.5）—— campus-api 里没有对应端点
+ *（`:app` / 桌面是走 `:data` 的 okhttp 抓的）。所以这里写的是「切到 serve 模式就能用」，
+ * 而不是「这一屏还没搬到 Web」—— 后者是假话。
+ *
+ * @param title 那一屏的名字（“考勤”那种）
+ * @param endpoints 它在 serve 契约里的端点（照 §5.5 的表写）
+ * @param why 为什么这一端只能走 serve（一句话：哪个站/哪条会话）
+ */
+@Composable
+internal fun WebServeOnlyScreen(title: String, endpoints: String, why: String) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("$title（Web 这一端：需要 serve 模式）", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "这一屏在本端**有**（`:core` 的共享屏 + `:web` 注入的 `:core` 取数），但它只认 serve 契约的端点：" +
+                "$endpoints（docs/api-contract.md §5.5）。$why 当前这一份 `:web` 探到的是 campus-api 形态" +
+                "（凭据托管在同源反代进程里），那几个端点不存在 ⇒ 这里写清楚，不拿别的屏冒充。",
+            color = cs.onSurface,
+            fontSize = 13.sp,
+        )
+        Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
+        listOf(
+            "serve 会话：起 `:server`（它同时托管这一份 `:web`），或用 `?backend=serve` 把模式钉死",
+            "campus-api 形态下这条取数链不存在 —— 这四个域在 campus-api 里没有端点（不是本端没实现）",
+        ).forEach { line ->
+            Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        }
+    }
+}
 /**
  * 日程页顶部那一行**如实说明**（不是装饰：它说的是这一页少掉的三样）。
  *
@@ -227,14 +281,9 @@ private fun ServiceEntryRow(service: AppService, onNavigate: (WebTarget) -> Unit
  */
 @Composable
 internal fun WebScheduleGapNote() {
-    val cs = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), insideMargin = PaddingValues(10.dp)) {
-        Text(
-            "Web 这一份的日程只显示排课原样：调停补课 / 考试 / 教材三个端点不在服务端契约里" +
-                "（`docs/api-contract.md` §5 只有八个端点，实测 serve 对它们答 404），" +
-                "所以调课、停课、换教室不体现在格子上，考试与教材两栏空着。",
-            color = cs.onBackgroundVariant,
-            fontSize = 11.sp,
-        )
-    }
+    WebGapNote(
+        "Web 这一份的日程只显示排课原样：调停补课 / 考试 / 教材三个端点不在服务端契约里" +
+            "（`docs/api-contract.md` §5 只有八个端点，实测 serve 对它们答 404），" +
+            "所以调课、停课、换教室不体现在格子上，考试与教材两栏空着。",
+    )
 }

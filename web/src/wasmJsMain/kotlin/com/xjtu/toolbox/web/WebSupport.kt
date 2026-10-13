@@ -39,7 +39,7 @@ import com.xjtu.toolbox.nav.AppRoute
  *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`Lms` / `Attendance` / `Jiaocai` / `PaymentCode` / `DormPower` …）：
+ * - 其余 `:core` 路由（`Lms` / `Jiaocai` / `PaymentCode` / `Iclassface` / `DownloadManager` …）：
  *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
  *
  * ## 与目录的另一半：还没有屏的那些
@@ -75,6 +75,14 @@ internal object WebSupport {
         AppRoute.Library,
         AppRoute.Community,
         AppRoute.Settings,
+        // 只读四域（2026-10-13 接线）：成绩单 / 考勤 / 加餐券 / 宿舍电费。它们的取数只在 serve
+        // 形态下存在（契约 §5.5）—— campus-api 形态下这几条分支画的是「这一屏要 serve 模式」那张
+        // 如实页（`WebServeOnlyScreen`）。门照旧列在这里：**「本端有没有这一屏」与「此刻后端是哪一
+        // 形态」是两件事**（深链与首页入口不该随探测结果变来变去）。
+        AppRoute.Transcript,
+        AppRoute.Attendance,
+        AppRoute.Coupon,
+        AppRoute.DormPower,
         // 游戏：合集 + 合集里那六屏（它们在目录里只有「小游戏」一条，子路由由合集屏自己往下走）
         AppRoute.Games,
         AppRoute.Game2048,

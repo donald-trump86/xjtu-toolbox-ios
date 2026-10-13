@@ -80,6 +80,22 @@ internal suspend fun HttpClient.serveData(
         ?: error("$what：服务端返回缺少 data（HTTP ${response.status.value}）")
 }
 
+/**
+ * 「这条取数链**只在 serve 契约里**」的固定说法：成绩单 / 考勤 / 加餐券 / 宿舍电费这四个新域
+ * （`docs/api-contract.md` §5.5，2026-10-13 接线）在 campus-api 里**没有对应端点** —— 它们是
+ * `:app` / 桌面直接走 `:data` 的 okhttp 抓的。
+ *
+ * 所以那四个 `Campus*Api` 的非 serve 分支**不猜、也不编一份空数据**：悄悄返回空表或 `null`
+ * 会让「形态不对」看起来像「真没有数据」，而这是两件完全不同的事。
+ *
+ * @param what 面向用户/排障的动作名（“考勤取数”那种）
+ * @param endpoints 这条链在 serve 契约里的端点（写清哪几个，照 §5.5 的表）
+ */
+internal fun serveOnly(what: String, endpoints: String): Nothing = throw UnsupportedOperationException(
+    "campus-api 形态没有「$what」的端点：它只在 serve 契约里（$endpoints，docs/api-contract.md §5.5）" +
+        "—— 这一端要在 serve 模式下才有这条取数链",
+)
+
 
 /**
  * serve 契约的一次**写**（`POST`，例如 `POST /api/library/action`、`POST /api/venue/book`）。
