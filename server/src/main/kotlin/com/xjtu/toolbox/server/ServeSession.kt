@@ -2,7 +2,10 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.auth.CampusCardSession
+import com.xjtu.toolbox.auth.CouponSession
+import com.xjtu.toolbox.auth.DzpzSession
 import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
@@ -12,6 +15,7 @@ import com.xjtu.toolbox.auth.LibrarySession
 import com.xjtu.toolbox.auth.MfaRequest
 import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
+import com.xjtu.toolbox.auth.SsnSession
 import com.xjtu.toolbox.auth.VenueSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.YwtbSession
@@ -109,6 +113,19 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         register(JsSession())
         register(VenueSession())
         register(YwtbSession())
+        // 成绩单（`dzpz`）：电子凭证引擎，`/api/dzpz/transcript` 要它。它**有自己的独立登录页**
+        // （`DzpzSession` + `DzpzLogin`：CAS OAuth2 `client_id=new9940` 回跳换 `loginidweaver`），
+        // 不借别的站点会话。与校园卡/场馆一样，「登录那一步」只是尽力预热（失败只记不抛）。
+        register(DzpzSession())
+        // 加餐券（`coupon`）：`/api/coupon/{list,detail}` 要它。同样是独立登录页
+        // （`CouponLogin`：CAS OAuth2 `client_id=1596` → 开放平台 → 回 egc 换 `auth_token`）。
+        register(CouponSession())
+        // 宿舍电费（`ssn`）：`/api/dorm/{rooms,reading}` 要它 —— 而且 `cid` 必须由**登录**写进会话
+        // （`SsnLogin.parseCid` 从缴费页 HTML 里取），否则 `DormPowerApi.cid()` 直接抛「未登录」。
+        register(SsnSession())
+        // 考勤（`new_attendance`）：`/api/attendance/{terms,records}` 要它。它直连本科生业务站登录
+        // （`AttendanceLogin`：入口 → CAS → 换业务令牌），不借别的站点会话。
+        register(AttendanceSession())
     }
 
     /**
@@ -314,12 +331,23 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         const val CAMPUS_CARD_SITE_KEY = "campus_card"
         const val VENUE_SITE_KEY = "venue"
         const val YWTB_SITE_KEY = "ywtb"
+        const val DZPZ_SITE_KEY = "dzpz"
+        const val COUPON_SITE_KEY = "coupon"
+        /** 宿舍电费。key 是 `SsnSession.SITE_KEY`（**不是** `dorm_power`；`LoginType.DORM_POWER.siteKey()` 映射到它）。 */
+        const val SSN_SITE_KEY = "ssn"
+        /** 考勤。key 是 `AttendanceSession` 那个字面量（`LoginType.ATTENDANCE.siteKey()` 映射到它）。 */
+        const val ATTENDANCE_SITE_KEY = "new_attendance"
 
         /**
          * 登录那一步一次建起会话的站点（与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。
          *
          * ⚠️ `js`（智慧教室平台）**刻意不在**表里：只有空闲教室那一屏的三档里的「实时状态」要它，
          * 为了一屏的一档让每一次登录都多走一趟 CAS 不划算 —— 进屏时由那个源自己 ensure。
+         *
+         * `dzpz` / `coupon` / `ssn` / `new_attendance` 四个在表里（2026-10-13 补）：四组只读域的
+         * 端点（`/api/dzpz*` `/api/attendance*` `/api/coupon*` `/api/dorm*`）各自要自己的站点，
+         * 而它们的域名互相独立（没有哪个站点能替另一个建会话）；`ssn` 更是**必须**登录 ——
+         * `cid` 是登录时从缴费页里取出来写进会话的，不预热就到了取数那一步才发现要重登。
          */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,
@@ -330,6 +358,10 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
             CAMPUS_CARD_SITE_KEY,
             VENUE_SITE_KEY,
             YWTB_SITE_KEY,
+            DZPZ_SITE_KEY,
+            COUPON_SITE_KEY,
+            SSN_SITE_KEY,
+            ATTENDANCE_SITE_KEY,
         )
 
         /**

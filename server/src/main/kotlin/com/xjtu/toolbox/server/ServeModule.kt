@@ -81,6 +81,14 @@ fun Application.serveModule(
             cardRoutes(session)
             venueRoutes(session)
 
+            // 四组**只读域**（成绩单 / 考勤 / 加餐券 / 宿舍电费，契约 §5.5）：
+            // `:data` 里早就有取数实现（桌面端直连在用），本批只是把它们端出去。
+            // 四族各自一个文件（与上面那几族同一条规矩）。
+            dzpzRoutes(session)
+            attendanceRoutes(session)
+            couponRoutes(session)
+            dormRoutes(session)
+
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。
             route("{path...}") {
