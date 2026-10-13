@@ -17,7 +17,7 @@
 
 | | campus-api（旧） | `/api/*`（新） |
 |---|---|---|
-| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用 ⇒ 2026-10-13 起加餐券的**只读**两发（`/api/coupon/{list,detail}`）已落地（§5.5），**领券**（`activateCoupon`，真改上游状态）与付款码仍**没有对应端点**（§5 表里付款码那一行仍是 P2 未实现） |
+| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用 ⇒ 2026-10-13 起加餐券的**只读**两发（`/api/coupon/{list,detail}`）已落地（§5.5），**领券**（`activateCoupon`，真改上游状态）与付款码仍**没有对应端点**（§5 表里付款码那一行仍是 P2 未实现）。⚠️ 2026-10-14 的第二批只读域（§5.6）同一条口径：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到四条链在 `:data` 里都有实现（Android 与桌面端直连在用），本轮只端**只读**那一半 —— 学堂的作业**提交**与附件**下载**、教材的**全文阅读**、成绩的**分项**与成绩**报表**都不端，签到的姓名/学号按红线不投影（逐条见 §5.6） |
 | **谁能做** | 一刀切只读 | **能力开关随部署与账号变**：`canBook` / `canCancel` / `canSubmit` / `hasSeatPlan` / `availableSources` 必须**如实**出现在响应里，屏按它决定画不画按钮（"点了会失败的按钮一个都不画"） |
 | **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌）。令牌先换成 cookie `serve_token`（只有它能被浏览器带着走），之后的请求就只靠它 |
 
@@ -84,6 +84,10 @@
 | `/api/attendance/terms` `/api/attendance/records` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi`） | 考勤 | **P0 · 已落地 2026-10-13** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次），`teacher` 按红线不端，见 §5.5 |
 | `/api/coupon/list` `/api/coupon/detail` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**只读**） | **P0 · 已落地 2026-10-13** | **新形状**（原来这一行是 P2 = Stage C 宿主能力；本轮只端**只读**半，领券不端）。金额单位是**分**，见 §5.5 |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
+| `/api/lms/courses` `/api/lms/activities` `/api/lms/activity` | `LmsSource`（`:data` 侧 `AppLmsSource` + `LmsApi`） | 思源学堂 | **P0 · 已落地 2026-10-14** | **要改**：`instructors` / `liveInstructorNames`（**教师姓名**）按红线不投影；附件的三个下载/预览地址与回放、直播地址**不端**（要站点会话）；`type` 是 `LmsActivityType.value` 那个小写字符串，见 §5.6 |
+| `/api/jiaocai/search` `/api/jiaocai/ssno` | `JiaocaiSource`（`AppJiaocaiSource` + `JiaocaiApi`） | 教材查询 | **P0 · 已落地 2026-10-14** | **新形状**：`search` 只收一个 `keyword`（这一屏没有院系/教师那种筛选控件）、**没有翻页**；`ssno` 是「列表里拿不到、进详情才有的全文库书目号」那一枪，见 §5.6 |
+| `/api/jwapp/scores` `/api/jwapp/precise-scores` | `JwappScoreSource` + `JwxtScoreSupplement`（`:data` 侧 `AppJwappScoreSource` + `JwappApi` / `CjcxApi`） | 成绩 | **P0 · 已落地 2026-10-14** | **新形状**：**一族两个站点**（`scores` 打移动教务、`precise-scores` 打**教务** `xscjcx.do`），服务端**不合并**两份（合并口径在 `:core` 的 `JwappScoreViewModel`，有测试钉着），见 §5.6 |
+| `/api/iclassface/records` | `IclassfaceSource`（`AppIclassfaceSource` + `IclassfaceApi`） | 快速考勤流水 | **P0 · 已落地 2026-10-14** | **要改**：`name` / `studentNo`（姓名与学号）按红线不投影（屏上本来也不画那两格）；`time` **保留上游原文、不转 ISO-8601**，见 §5.6 |
 | `/api/payment-code` | 新（`:data` 侧 `PaymentCodeApi`） | 付款码 | P2 | 无旧形状（⚠️ **仍未实现**：`:server` 里没有这个端点） |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 
@@ -95,8 +99,12 @@
 > `card/{balance,transactions}` ·
 > **只读四域（2026-10-13 收尾轮新增）**：`dzpz/transcript` ·
 > `attendance/{terms,records}` · `coupon/{list,detail}` · `dorm/{rooms,reading}` ——
-> 与本文档 §5.1–§5.3.2 与 §5.5 逐条对得上（核法：`:server` 源码里那些
+> 与本文档 §5.1–§5.3.2 与 §5.5 / §5.6 逐条对得上（核法：`:server` 源码里那些
 > `*_SEGMENT` 常量与 `get()`/`post()` 注册点逐个列过一遍）。
+> **第二批只读域（2026-10-14 新增）**：`lms/{courses,activities,activity}`、`jiaocai/{search,ssno}`、
+> `jwapp/{scores,precise-scores}`、`iclassface/records` —— 逐字段与「不端什么」见 §5.6；
+> 会话侧把 `lms` / `jwapp` / `iclassface` / `jiaocai` 四个站点补进了登录预热清单
+> （与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。
 > **仍未实现**的只剩两行：`/api/payment-code`（P2：`:data` 侧有 `PaymentCodeApi`，`:server` 里没有端点）、
 > `/api/v1/personal/me/user`（P2：来源仍待确认）。
 > （加餐券那一行已于 2026-10-13 从「未实现」里出来 —— 只读两发落地，见 §5.5；**领券**仍未端。）
@@ -391,7 +399,11 @@ POST /api/venue/cancel
   真能打开了 —— 取数是 `:core/net` 的四个新 `Campus*Api`（`ApiMode.SERVE` 那一支，逐屏见 §5.5 末尾那张表），
   屏是 `:core` 的共享屏（宿舍电费那一屏是本端自己的读数页，理由同样在 §5.5）。每屏顶部都画一条「如实缺口」
   说明，拿不到的字段一个都不画。这一批同时把 §7 第 1 条那个「三处同改」的第三处（`:web`）补上了：
-  上一次（七个端点落地那批）那一处是有意留空的，登记在 §7 第 5 条。
+ 上一次（七个端点落地那批）那一处是有意留空的，登记在 §7 第 5 条。
+- ⏳ **第二批只读域（2026-10-14）的消费方还是空的**：§5.6 的八个端点（思源学堂 / 教材中心 /
+  移动教务成绩 / 人脸识别签到）本轮只改了两处（本文档 + `:testkit` 夹具），`:web` 那一处
+  **待接** —— 已在 §5.6 末尾显式标注（每屏要哪个端点、拿不到什么、接的时候注意什么），
+  并登记在 §7 第 6 条。本节因此**没有**这四屏的消费方行为可记。
 
 ### 5.5 只读四域（2026-10-13 收尾轮落地）：成绩单 / 考勤 / 加餐券 / 宿舍电费
 
@@ -525,6 +537,138 @@ POST /api/venue/cancel
 缺字段不编造、`kwh` 缺失 vs `null`、以及「campus-api 分支抛错而不是返回空数据」。
 
 
+### 5.6 第二批只读域（2026-10-14 落地）：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到
+
+八个端点，四个 `:server` 路由文件（`LmsRoutes.kt` / `JiaocaiRoutes.kt` / `JwappRoutes.kt` /
+`IclassfaceRoutes.kt`），全部是「`:data` 里已有实现在取数」的**薄包装**（解析口径一行不重做）。
+统一口径照 §5.2：信封 `{code,data,message}`、`code == HTTP 状态码`、`401` =「请先登录：POST /api/session/login」、
+`400` 参数形状、`404` 未实现、`502` 上游/网络故障（含会话失效那档）。
+
+**会话**：四个域各自一个站点（`lms` / `jiaocai` / `jwapp` / `iclassface`），四个都已进
+`ServeSession.SESSION_SITE_KEYS` 的登录预热清单 —— 与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS`
+是**同一份清单**（四个 key 逐字相同）。四个都是独立登录页（`lms` 直连 CAS；`jwapp` 走开放平台
+`appId=1370`；`iclassface` 走 CAS OAuth2 `client_id=1543` → 开放平台 `authorizesw`；`jiaocai` 走
+`/entry/login` → 超星 SSO），没有哪个站点能替另一个建会话。
+⚠️ `jwapp` 那一族的**第二条上游在教务**（`precise-scores`，站点 `jwxt`）—— 那个站点本来就在清单里。
+
+| 端点 | 请求 | 响应 `data`（逐字段） |
+|---|---|---|
+| `GET /api/lms/courses` | ——（不收参数） | `{courses:[{id,name,courseCode,courseType,credit,compulsory,startDate,endDate,academicYear:{id,code,name,sort},semester:{id,code,name,realName,sort},department:{id,name,code},courseAttributes:{published,studentCount,teachingClassName}}]}` |
+| `GET /api/lms/activities` | `?courseId=<正整数，必填>` | `{courseId,count,activities:[{id,courseId,type,title,moduleId,startTime,visibleStartAt,endTime,deadline,submitByGroup,published,createdAt,updatedAt,isClosed}]}` |
+| `GET /api/lms/activity` | `?courseId=&activityId=<两个都必填>` | `{id,courseId,type,title,description,moduleId,startTime,visibleStartAt,endTime,deadline,published,createdAt,updatedAt,isClosed,uploads:[{id,name,type,size}],homework:{submitByGroup,groupId,groupSetName,userSubmitCount,averageScore,highestScore,lowestScore,hasScoreCount,submitTimes,nonSubmitTimes}\|null,lesson:{lessonStart,lessonEnd,replayVideoCount}\|null,live:{liveRoomName,liveRoomCode,liveStatus,externalLiveId,viewLive,viewRecord}\|null}` |
+| `GET /api/jiaocai/search` | `?keyword=<必填，空白⇒400>` | `{keyword,count,books:[{id,appId,engineInstanceId,title,author,summary,ssno,hasFullText,fields:{<上游原文的键>:<值>}}]}` |
+| `GET /api/jiaocai/ssno` | `?id=&appId=&engineInstanceId=<三个都必填>` | `{id,ssno:string\|null}` |
+| `GET /api/jwapp/scores` | `?term=<省略 = 全部学期>` | `{term:string\|null,count,terms:[{termCode,termName,scoreList:[{id,termCode,courseName,score,scoreValue,passFlag,specificReason,coursePoint,examType,majorFlag,examProp,replaceFlag,gpa,source,courseCategory,courseCode,courseGroup}]}]}` |
+| `GET /api/jwapp/precise-scores` | ——（不收参数） | `{count,scores:[{courseName,termCode,zcj,xfjd,xf,djcjlxdm,djcjmc,pscj,pscjxs,qmcj,qmcjxs,kch,jxbid,passFlag,examProp,kclbdm}]}` |
+| `GET /api/iclassface/records` | `?date=<YYYY-MM-DD；省略 = 今天>` | `{date,count,records:[{time,location,type}]}` |
+
+**思源学堂（`lms`）**
+
+- 三层形状**原样沿用 `:core` 的模型**（字段名一个不改：它们是 `LmsCourseSummary` / `LmsActivity`
+  的字段）。嵌套的 `academicYear` / `semester` / `department` / `courseAttributes` 直接复用 `:core`
+  那四个 `@Serializable` 数据类，本层不重写一份；
+- `type` 是 `LmsActivityType.value`（`homework` / `material` / `lesson` / `lecture_live` / `page` /
+  `forum` / `questionnaire` / `online_video`，认不出是 `unknown`）—— `:core` 的
+  `LmsActivityType.fromString` 吃的就是同一个字符串，消费方**零转换**；
+- ⚠️ **`courseId` 在 `activity` 里也是必需的**，不是可选提示：`deadline` **只有列表接口给**
+  （详情 79 个键里没有它）⇒ 本端点多打一枪列表、把 `activityId` 那一条当 `brief` 传给
+  `activityDetail`（就是 `:core` 的 `LmsApi.mergeBrief` 那条口径）。少了它，`deadline` 会退回
+  `endTime`（实测最多差 20 天）—— 屏上那个「截止时间」会悄悄变成另一个值；
+- `activity` 的 `data` 里那三个块（`homework` / `lesson` / `live`）**只有与 `type` 对应的那一个是对象**，另两个是 `null`；
+- ⚠️ **不投影的字段**（都是**如实缺口**，不是 bug）：
+  ① `instructors` / `liveInstructorNames`（**教师姓名**，§5.2 红线的例外清单里没有这一族）；
+  ② 附件的 `downloadUrl` / `previewUrl` / `attachmentUrl`（要站点会话，浏览器直接打开只会拿到登录页）
+  —— 附件只端元数据 `{id, name, type, size}`；
+  ③ `lesson` 的 `replayVideos` / `replayDownloadUrls`、`lecture_live` 的 `liveStreams` / `liveReplayVideos`
+  （播放与下载那半条链在 `:web` 上没有端点）⇒ 只端 `replayVideoCount` 那个**条数**；
+  ④ 作业的提交记录（`submissionList`，里面有提交人姓名与学号）；
+- **刻意不端的写路径 / 宿主能力**：作业提交、附件下载与落盘（`saveDownload`）、回放排队
+  （`queueReplayVideos`）、附件图片预览（`uploadBytes`）—— 一条都没有端点；
+- 错误码：`400` `courseId` / `activityId` 缺或不是正整数 · `401` 没会话 · `502` 上游/网络故障。
+
+**教材中心（`jiaocai`）**
+
+- `search` 命中 `:core` 的 `JiaocaiBook` 全部九格：`title` 已剥掉 `<b>` 那些标签、`summary` 是
+  `<br>` 分行的富文本转成的纯文本、`fields` 是**上游原文**的键值对（课程名称 / 教材名称 / 编者 /
+  出版社 / ISBN号…，键名不翻译、不重排）。书目信息是**公开数据**，没有姓名/学号那一类字段；
+- ⚠️ **`ssno` 在 `search` 里恒 `null`**：`search-list` 的 `content` 被服务端剥掉了 `<a>`（只剩
+  「获取方式一：本地全文」这句文字）⇒ 要全文库书目号就得对那本书再打一次 `ssno`（`fetchSsno`）；
+  `ssno` 响应**只回两格**（不回 `hasFullText`：这里没有 `fields`，重算等于给同一个判据起第二个写法）；
+- **不收 `page` / `pageSize`**：这一屏没有翻页（`:data` 固定 20 条一页、只取第一页）；
+- ⚠️ **「本学期我的教材」那一栏不端**（屏上搜索框为空时那一段）：数据不在教材中心，而在**教务**
+  的报表里（`:core` 的 `JiaocaiTermTextbooks` 是个**由宿主实现**的端口），而 `:data` 里真正取它的
+  是 `JwxtScheduleApi.textbooks(studentId, term)` —— **要学号**（§5.2 红线）；
+- ⚠️ **全文阅读不端**：`jiaocai1.lib` 的页图与阅读器是另一条链（另一个域名、另一套会话），本轮不碰；
+- ⚠️ 没有会话时上游返的是一张「JS 跳转登录链」页（`:data` 的 `PortalRedirect` 会自己跟完那几跳），
+  跟不通就按 `:data` 的老口径**回空列表** ⇒ 「查不到书」与「会话断了」在 `search` 这一发上长得一样
+  （那是 `:data` 既有的口径，本层不改）；
+- 错误码：`400` `keyword` 空白 / `id` 缺 / `appId`、`engineInstanceId` 不是整数 · `401` 没会话 · `502` 上游/网络故障。
+
+**移动教务成绩（`jwapp`）—— 一族两个站点**
+
+- `scores` 是对 `JwappApi`（`jwapp.xjtu.edu.cn`）的 `POST /score/termScore`；`precise-scores` 是对
+  **教务** `xscjcx.do`（`CjcxApi`，`jwxt.xjtu.edu.cn`）的自动分页拉取。**两条路径各自打一个站点**；
+- **服务端不合并两份**：`:core` 的 `JwappScoreViewModel` 是「分别取、在屏上按学期 + 课程名替换」的
+  （那份归一化 `normalizeCjcxCourseName` 在 `:core`、有测试钉着）—— 服务端合并等于把同一件事做第二遍；
+- `scores` 的 `terms` 直接复用 `:core` 的 `TermScore`（`termCode` / `termName` / `scoreList`），
+  `source` = `JWAPP` / `REPORT`、`courseGroup` = `GEN_CORE` / `GEN_ELECTIVE`（枚举的线上形状是**枚举名**）。
+  ⚠️ `score` 是**字符串**（上游原文，可能是「优秀」「通过」这种等级制文本），`scoreValue` 才是解析出的数字；
+- `precise-scores` 的字段名就是**教务列名**（本层不翻译成「好看的名字」—— §7.3 同一个字段名不在这两处
+  各起一个）。缩写对照：`zcj` 总评成绩 · `xfjd` 学分绩点 · `xf` 学分 · `pscj` / `pscjxs` 平时成绩（值 / 显示文本）·
+  `qmcj` / `qmcjxs` 期末成绩 · `djcjlxdm` / `djcjmc` 等级成绩类型代码 / 名称 · `kch` 课程号 · `jxbid` 教学班 id ·
+  `examProp` 考核性质（`CXCKDM_DISPLAY`）· `kclbdm` 课程类别（`KCLBDM_DISPLAY`）· `passFlag` 是否通过。
+  ⚠️ 上游对「没这一格」的写法是 `-1.0`（不是 `null`）—— `:data` 的 `takeIf { it > -100 }` 原样留着，
+  消费方要自己认那个哨兵值（与 `:core` 的 VM 同一条口径）；
+- ⚠️ `?term=` **不做形状校验**（学期码的合法取值就是响应里的 `termCode`），省略 = 全部学期
+  （上游请求体里是 `{"termCode":"*"}`）；给了个空白串是「形状不对」⇒ `400`；
+- ⚠️ **两个端点的会话是两个站点**：`jwapp` 没会话时 `scores` 502；`jwxt` 没会话时 `precise-scores` 502
+  —— 而 `:core` 的 VM 对后者是**容忍**的（拿不到就只出 jwapp 那一份），消费方照那条规矩处理；
+- **刻意不端**：`getScoreDetail`（一门课的**分项**成绩，屏上「点开一门课」那一格）、
+  `unevaluatedCourseNames`（评教那一侧的名单）、`reportedGrades(studentId)`（**要学号**，红线）、
+  `reAuthenticate`（宿主凭据的写动作）、`JwappScoreCache` 的读写（宿主落盘缓存）；
+- 与 `/api/jwxt/grades`（§5.2，`ScoreReportSource` 的**成绩报表**）不是同一份数据，两者互不替代；
+- 错误码：`400` `term` 空白 · `401` 没会话 · `502` 上游/网络故障。
+
+**人脸识别签到（`iclassface`）**
+
+- 上游那张表一行是 `<序号, 姓名, 学号, 时间, 地点, 类型>`：⚠️ **`name` / `studentNo` 不投影**
+  （§5.2 红线；例外清单里没有这一族）—— `:core` 的 `IclassfaceScreen` 本来也不画那两格，
+  所以**整屏可复用**。**照片也没有**：这一族的上游根本没有照片字段（`:data` 只解析那张表）；
+- ⚠️ `time` 是**上游原文**的 `2026-06-04 14:14:37`，**本契约唯一一处不按 §4 转 ISO-8601 的时间**：
+  它本来就是给人看的刷卡时刻、上游没给时区标记 ⇒ 服务端硬转一次只会多一处可能错的口径。
+  消费方按「**服务端时区的墙上时间**」显示，**不要**再 `parse` 成 UTC 再本地化（那会整体平移）；
+- `?date=` 省略 = **今天**（`:core` 的 `todayInSystemZone`，服务端系统时区）；给了但不成形 ⇒ `400`。
+  ⚠️ **没有分页**：上游就是「一天一枪 POST、返回整张表」；
+- 空数组 = 那天确实没有记录（含「还没刷上卡」），**不是**错误；响应回 `date`（定下来的那一天）；
+- 与 `/api/attendance/{terms,records}`（§5.5）不是同一件事：那条是本科考勤业务站的**课程级**流水，
+  这一条是签到平台的「今天刷没刷上卡」——两屏在 `:app` 与桌面上本来就并存、互不替代；
+- 错误码：`400` `date` 不成形 · `401` 没会话 · `502` 上游/网络故障。
+
+#### 消费方（`:web`）：**待接**（2026-10-14 如实标注，不是漏）
+
+本轮只同改了两处（本文档 + `:testkit` 夹具），第三处（`:web` 的消费方）**没有动** —— 按 §7 第 1 条
+那本是漂移，所以在这里指名点姓地标出来（与上一批同样的做法，见 §7 第 5 / 6 条）。
+四屏在 `:core` 里**都已经有共享屏**，缺的只是 `:core/net` 的取数实现与四处接线。
+
+| 屏（`:core` 已有的） | 要哪个端点 | 接的时候要注意什么 |
+|---|---|---|
+| 思源学堂 `LmsScreen` | `courses` + `activities` + `activity` | ① 屏吃的端口是 `LmsSource`，web 要接的是 `:core/net` 的新 `CampusLmsApi`（`ApiMode` 双形态；campus-api 那一支没有这个域 ⇒ 照 §5.5 四个 `Campus*Api` 的先例）。② **教师那一格拿不到**（`instructors` 不投影）—— 课程卡上那句 `instructorNames` 会显示「未知」，别当 bug。③ 详情页的**播放器 / 下载 / 附件图片预览**在 serve 模式下没有端点（地址不在响应里）⇒ 照 `supportsVideoQueue=false` 那条 seam 的先例在那几处不露。④ 「提交记录」那一块拿不到（`submissionList` 不端）。⑤ `type` 是小写字符串，`LmsActivityType.fromString` 直接吃 |
+| 教材查询 `TextbookScreen` | `search`（+ 进详情再打 `ssno`） | ① 搜索框的输入就是 `keyword`（没有院系/教师筛选控件、没有翻页）。② 「本学期我的教材」那一栏**拿不到**（要学号）⇒ 如实不画。③ 全文阅读（`jiaocai1` 页图）本轮没有端点：`ssno` 拿到只够显示「有本地全文」。④ 检索结果里 `ssno` 恒 `null` |
+| 成绩 `JwappScoreScreen` | `scores` + `precise-scores` | ① 屏要的端口是**两个**（`JwappScoreSource` + `JwxtScoreSupplement`）⇒ 两份端点都要接。② `precise-scores` 502 是**可容忍**的（VM 老规矩：拿不到就只出 jwapp 那一份），别让整屏失败。③ 「点开一门课看分项」**没有端点**（`getScoreDetail` 不端）⇒ 那一栏如实不画。④ `precise-scores` 里那份 `-1.0` 哨兵值要自己认 |
+| 快速考勤流水 `IclassfaceScreen` | `records` | ① 三格（时刻/地点/类型）都在，**整屏能复用**。② `time` **不是 ISO-8601**：直接当服务端时区的墙上时间显示，**不要** parse 成 UTC 再本地化（那会整体平移）。③ 日期条：`?date=` 省略就是服务端时区的今天（与屏上默认选中那天同一条式子）。④ 没有分页 |
+
+四条相同的接线动作（逐条照 §5.5 那次接线做）：`:core/net` 的 `Campus*Api`（`ApiMode` 双形态，
+非 serve 分支 `serveOnly(...)` 抛错而不是编空数据）· `WebSupport.openableRouteIds` ·
+`AppPage` 的 `when (route)` · 屏顶部那条「如实缺口」说明。**一处都不能缺**
+（缺任一处就是「屏在、门不在」或「拿不到的东西在屏上被编出来」）。
+
+夹具与用例：`LmsFakeUpstream` / `Jiaocai1FakeUpstream`（它同时扮教材中心与全文库） /
+`JwappFakeUpstream` + `JwxtFakeUpstream`（成绩的第二条上游在教务） / `IclassfaceFakeUpstream`
+—— 四份都已存在，本轮只往 `LmsFakeUpstream` 提了两个常量（`USER_INDEX_NAME` /
+`USER_INDEX_USER_NO`，把内联在 `USER_INDEX_HTML` 里的姓名与学号提出来供红线断言引用；值没变）。
+用例见 §6 的 `ServeLmsJiaocaiJwappIclassfaceTest`（8 例）。
+
+
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
 - 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的
@@ -538,12 +682,22 @@ POST /api/venue/cancel
 - MFA（短信二验）那条链需要一份**真的能走完**的上游剧本：二次认证页 + 取手机号 + 校验验证码 +
   隐藏表单回提，四步都在 `:testkit`（`CasSafetyVerifyPage` / `LibraryFakeUpstream` / `JwxtFakeUpstream`），
   默认关着开关，契约测试开它。
-- 计数（2026-10-13 核）：`:server:test` 共 **52** 例 —— 上面那 13 例之外是按域分批补的契约验收，
-  最近一批是只读四域的 `ServeReadonlyFourDomainsTest`（**8** 例，§5.5：每域两例 —— 成功逐字段一例、
+- 计数（2026-10-14 核）：`:server:test` 共 **60** 例 —— 上面那 13 例之外是按域分批补的契约验收，
+  上一批是只读四域的 `ServeReadonlyFourDomainsTest`（**8** 例，§5.5：每域两例 —— 成功逐字段一例、
   闸门/参数形状一例），它用的就是 `:testkit` 那四份早已存在的假上游（`DzpzFakeUpstream` /
   `AttendanceFakeUpstream` / `CouponFakeUpstream` / `DormPowerFakeUpstream`）—— 本轮只往
   `AttendanceFakeUpstream` 里补了一个 `TEACHER_NAME` 常量（把原本内联在 `recordsPageJson` 里的教师名
   提升为常量，供「教师名不投影」那条红线断言引用；值没变）。
+
+**新增的 8 例（2026-10-14，第二批只读域 §5.6）**：`ServeLmsJiaocaiJwappIclassfaceTest` ——
+四族每族两例（成功逐字段一例、闸门/参数形状一例）：`lms` 两例（课程 + 活动列表；详情按类型只出现一格
++ `deadline` 从列表并进来 + 参数 400）· `jiaocai` 两例（检索 + 未命中那一档；`ssno` 三格必填 + 那个
+书目号真取到）· `jwapp` 两例（学期成绩逐字段 + 两条上游的请求体/表单各自对着夹具断言 ——
+`precise-scores` 真打到**教务**的 `xscjcx.do` 而不是 `jwapp`）· `iclassface` 两例（`date` 默认今天 +
+逐字段；形状不对 400 + 空表那一档是 `count 0` 而不是错误）。
+每例都过 §5.2 的红线断言，而且是在**夹具里明明有那些值**的前提下证明的（学堂的教师名与本人姓名/学号、
+签到表里的姓名与学号）—— 不是「夹具没有所以没出现」。夹具沿用 `:testkit` 那几份早已存在的假上游
+（本轮只往 `LmsFakeUpstream` 提了两个常量 `USER_INDEX_NAME` / `USER_INDEX_USER_NO`，值没变）。
 
 ## 7. 变更纪律
 
@@ -557,6 +711,11 @@ POST /api/venue/cancel
    四个新 `Campus*Api`（`CampusTranscriptApi` / `CampusAttendanceApi` / `CampusCouponApi` /
    `CampusDormPowerApi`）+ 四屏接线 + `WebSupport` 入口 + §5.5 的消费方表 ⇒ 三处同改齐了。
    **教训照旧**：「端点在 `:server` 上能跑」不等于「这屏在该端上能用」，两者之间差的就是这一处。
+6. ⏳ **本轮的例外（第二批只读域，2026-10-14）**：§5.6 的八个端点只改了本文档 + `:testkit` 夹具
+   （`LmsFakeUpstream` 提了两个常量，值没变）两处，`:web` 那一处**待接** —— 已在 §5.6 末尾显式
+   标注（每屏要哪个端点、拿不到什么、接的时候要注意什么）。与第 5 条同一条形态：
+   **允许留空，但必须指名点姓**。这四个域的四屏在 `:core` 里都已经有共享屏，缺的只是取数实现
+   与四处接线 —— 也就是「端点在 `:server` 上能跑」与「这屏在该端上能用」之间的那一处。
 
 ---
 

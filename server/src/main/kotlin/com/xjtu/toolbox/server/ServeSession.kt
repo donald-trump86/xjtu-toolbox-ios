@@ -9,9 +9,13 @@ import com.xjtu.toolbox.auth.DzpzSession
 import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
+import com.xjtu.toolbox.auth.IclassfaceSession
+import com.xjtu.toolbox.auth.JiaocaiSession
 import com.xjtu.toolbox.auth.JsSession
+import com.xjtu.toolbox.auth.JwappSession
 import com.xjtu.toolbox.auth.JwxtSession
 import com.xjtu.toolbox.auth.LibrarySession
+import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.MfaRequest
 import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
@@ -126,6 +130,19 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         // 考勤（`new_attendance`）：`/api/attendance/{terms,records}` 要它。它直连本科生业务站登录
         // （`AttendanceLogin`：入口 → CAS → 换业务令牌），不借别的站点会话。
         register(AttendanceSession())
+        // 思源学堂（`lms`）：`/api/lms/{courses,activities,activity}` 要它。它直连本域根路径 → 302 到
+        // 统一认证（与教务同型，不经过开放平台/OAuth 授权页，见 `LmsLogin`），不借别的站点会话。
+        register(LmsSession())
+        // 教材中心（`jiaocai`）：`/api/jiaocai/{search,ssno}` 要它。登录入口在 `/entry/login`
+        // （CAS → 超星 SSO），业务接口受「JS 跳转登录链」保护、由 `PortalRedirect` 自己跟完那几跳。
+        // `mustUseWebVpn = true`：真机上校外要走 WebVPN，与 `:desktop` 同一个站点、同一个开关。
+        register(JiaocaiSession())
+        // 移动教务（`jwapp`）：`/api/jwapp/scores` 要它；同一族的 `/api/jwapp/precise-scores` 要的是
+        // **教务**（`jwxt`，上面的站点已经注册过）。它的登录链走开放平台 `appId=1370` 那一跳。
+        register(JwappSession())
+        // 人脸识别签到（`iclassface`）：`/api/iclassface/records` 要它。走 CAS OAuth2 `client_id=1543`
+        // → 开放平台 `authorizesw` → 回本站种下 `PHPSESSID`（`mustUseWebVpn = true`，同上）。
+        register(IclassfaceSession())
     }
 
     /**
@@ -338,6 +355,23 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         /** 考勤。key 是 `AttendanceSession` 那个字面量（`LoginType.ATTENDANCE.siteKey()` 映射到它）。 */
         const val ATTENDANCE_SITE_KEY = "new_attendance"
 
+        /** 思源学堂（`lms`）。`/api/lms*` 进门时用它（与 `:desktop` 的 `DesktopAuth.LMS_SITE_KEY` 同一个值）。 */
+        const val LMS_SITE_KEY = LmsSession.SITE_KEY
+
+        /**
+         * 教材中心（`jiaocai`）。`/api/jiaocai*` 进门时用它。
+         *
+         * ⚠️ key 是 **`jiaocai`（教材中心）**，不是 `jiaocai1` —— 全文库借的就是教材中心的会话
+         *（`:desktop` 的 `DesktopAuth.JIAOCAI_SITE_KEY` 与 `:app` 导航层那句 `WithSite("jiaocai")` 同源）。
+         */
+        const val JIAOCAI_SITE_KEY = JiaocaiSession.SITE_KEY
+
+        /** 移动教务（`jwapp`）。`/api/jwapp/scores` 进门时用它（`jwxt` 那个站点是同一族的第二条上游）。 */
+        const val JWAPP_SITE_KEY = JwappSession.SITE_KEY
+
+        /** 人脸识别签到（`iclassface`）。`/api/iclassface/records` 进门时用它。 */
+        const val ICLASSFACE_SITE_KEY = IclassfaceSession.SITE_KEY
+
         /**
          * 登录那一步一次建起会话的站点（与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。
          *
@@ -348,6 +382,13 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
          * 端点（`/api/dzpz*` `/api/attendance*` `/api/coupon*` `/api/dorm*`）各自要自己的站点，
          * 而它们的域名互相独立（没有哪个站点能替另一个建会话）；`ssn` 更是**必须**登录 ——
          * `cid` 是登录时从缴费页里取出来写进会话的，不预热就到了取数那一步才发现要重登。
+         *
+         * `lms` / `jwapp` / `iclassface` / `jiaocai` 四个也在（2026-10-14 补，第二批只读域 §5.6）：
+         * 它们与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 是**同一份清单**（四个 key 逐字相同）。
+         * 四个都是独立登录页（`lms` 直连 CAS、`jwapp` 走开放平台 `appId=1370`、
+         * `iclassface` 走 CAS OAuth2 + `authorizesw`、`jiaocai` 走 `/entry/login` → 超星 SSO），
+         * 没有哪个能替另一个建会话 —— 少了预热的后果就是「第一次取数才发现要重登」。
+         * 与 `js` 那条例外不冲突：那四屏的取数**只有**一个站点（不像空闲教室是三档里的一档）。
          */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,
@@ -362,6 +403,10 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
             COUPON_SITE_KEY,
             SSN_SITE_KEY,
             ATTENDANCE_SITE_KEY,
+            LMS_SITE_KEY,
+            JWAPP_SITE_KEY,
+            ICLASSFACE_SITE_KEY,
+            JIAOCAI_SITE_KEY,
         )
 
         /**

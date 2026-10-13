@@ -89,6 +89,13 @@ fun Application.serveModule(
             couponRoutes(session)
             dormRoutes(session)
 
+            // 第二批**只读域**（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到，契约 §5.6）：
+            // 与上一批同一条做法 —— `:data` 里早有取数实现（桌面端直连在用），这里只是端出去。
+            lmsRoutes(session)
+            jiaocaiRoutes(session)
+            jwappRoutes(session)
+            iclassfaceRoutes(session)
+
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。
             route("{path...}") {
