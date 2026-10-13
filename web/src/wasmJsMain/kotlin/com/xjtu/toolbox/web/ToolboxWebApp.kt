@@ -96,10 +96,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * | 格 | 落点 |
  * |---|---|
- * | 首页 | **降级页**：`:core` 的 `HomeScreen` 要 `HomeHost`（课表缓存 / 节假日 / 公告 / 消息 / 状态摘要 / 宫格目录的端上配色），本端一件都没有 |
+ * | 首页 | **共享屏** `:core` 的 `HomeScreen` + 本端 `WebHomeHost`（真算的：问候 / 教学周 / 下一项安排 / 待办那一格；宫格按「本端真能打开的路由」筛）—— 它是这一端**所有功能屏的入口**，上一轮把这一格留成降级页，于是那些屏的入口全被关上了 |
  * | 日程 | **共享屏** `:core` 的 `ScheduleScreen` + `WebScheduleHost`（本端真接上的唯一一格，见那个类的 KDoc 与页顶那一行说明） |
  * | 屁岱 | **降级页**：`:core` 的 `AgentScreen` 要 `AgentHost`（配置 / 会话 / 记忆三份落盘、SSE 传输、工具层），本端一件都没有 |
- * | 学辅 | 本端自己的页（`WebServicesScreen`）：`:app` 那格是学业服务目录，本端没有那份目录的宿主面 ⇒ 如实换成"本端有什么" |
+ * | 学辅 | 本端自己的**可点目录**（`WebServicesScreen`）：`:app` 那格是学业服务目录（宫格 + 每项此刻的状态摘要），本端没有"状态摘要"那半 ⇒ 换成同一份目录的可点清单 + 会话入口，**不是**一张纯文字说明 |
  * | 我的 | **共享屏** `:core` 的 `SettingsScreen` + `WebSettingsHost`（本端没有账号这回事，所以落设置屏而不是账号页） |
  *
  * ## 没动的那几段（搬迁前刚修好的用户体验）
@@ -257,7 +257,8 @@ internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()
  * 一屏共享页（或本端的那几张页）。每个屏只注入**这一端能提供的东西**：
  * - 日程：`:core` 的共享屏 + 本端 `WebScheduleHost`（见那个类的 KDoc：哪几条缝是真的、缺哪几档）；
  * - 我的 / 学辅：见 [WebSettingsHost] 与 [WebServicesScreen]；
- * - 首页 / 屁岱：降级页（见 [WebUnavailableScreen]，写清缺哪一个宿主面）；
+ * - 首页：`:core` 的共享屏 + 本端 `WebHomeHost`（见那个类的 KDoc：真算哪几样、如实不列哪几块）；
+ * - 屁岱：降级页（见 [WebUnavailableScreen]，写清缺哪一个宿主面）；
  * - 黄页：campus-api 版的 [CampusYellowPageApi]（serve 模式下是同一份类的 `ApiMode.SERVE` 那一支）；
  * - 校历/体测：campus-api 版的 [CampusSchoolCalendarApi] / [CampusFitnessApi]（同一条理由：学校域名不给 CORS 头）；
  * - 取数：`mode` 决定 baseUrl 与解析形状（[ApiMode]），13 个 `Campus*Api` 一行不改地两边跑；
@@ -306,21 +307,17 @@ private fun AppPage(
             }
         }
 
-        // 首页：`:core` 的 `HomeScreen` 要 `HomeHost`（宿主要给课表缓存、节假日、公告条、消息那一格、
-        // 状态摘要、宫格目录的端上配色与"这一端真能打开的路由"）—— 本端一件都没有 ⇒ 降级页。
-        // TODO（下一批）：接 `HomeHost` 里能算得出来的那几块（问候 / 教学周 / 常用入口）并把
-        // `HomeCard` 只列那几块；`BULLETIN_BAR` / `INBOX` / `GLANCE` 要的宿主面本端没有。
-        AppRoute.Main -> WebUnavailableScreen(
-            title = "首页（Web 这一端）",
-            why = "App 与桌面的首页是 `:core` 的 `HomeScreen`，它要一份 `HomeHost` 宿主面；" +
-                "Web 这一端那份还是空的。",
-            missing = listOf(
-                "`HomeHost` 本身：问候文案 / 日期 / 教学周（要课表缓存与学期表）",
-                "顶部公告条（要 `BulletinStore` + 公告取数）",
-                "「待办与消息」那一格（要 `InboxStore`）",
-                "速览格（校园卡余额等各功能的落盘摘要）",
-                "服务宫格（`:core` 的 `AppServices` 目录 + 本端真能打开的路由集合）",
-            ),
+        // 首页：与 Android / 桌面**同一个屏**（`:core` 的 `HomeScreen`），本端只提供宿主面
+        //（`WebHomeHost`：课表缓存 / 节假日 / 本端真能打开的路由表 / 收纳那一格），它缺哪几块
+        // 如实写在那个类的 KDoc 里（`BULLETIN_BAR` / `GLANCE` / `QUICK_ACTIONS` 一条都不列）。
+        //
+        // 它同时是这一端**所有功能屏的入口**：宫格列出的每一格都由 `WebSupport.openableRouteIds`
+        // 筛过、点击走 [onNavigate] —— 上一轮的漏正是这里（门在首页宫格里，而首页当时是降级页）。
+        AppRoute.Main -> WebHomeScreen(
+            client = client,
+            mode = mode,
+            insets = insets,
+            onNavigate = onNavigate,
         )
 
         // 屁岱：`:core` 的 `AgentScreen` 要 `AgentHost`（配置 / 会话 / 记忆三份落盘、SSE 传输、
@@ -542,9 +539,14 @@ private fun AppPage(
             onBack = back,
         )
 
-        // 其它路线的屏还在 :app：**如实说「没搬过来」，不拿课表冒充**（以前这里落回 ScheduleScreen，
-        // 深链 `?route=notification` 会静默显示课表 —— 看着像 bug，也让人分不清「没实现」与「坏了」）。
-        else -> NotPortedScreen(route, onNavigate)
+        // 兜底。两种可能，含义完全不同，所以分开说：
+        //  - 清单（`WebSupport.openableRouteIds`）说这一条能打开、而这里**没有它的分支** ⇒ 那是
+        //    **这一端的 bug**（门开着、里面没屏）⇒ 画一张指名道姓的页（叫上要改的那两处），
+        //    而不是落「还没搬到 Web」—— 那会把自家漏了的屏说成"本来就搬不过来"；
+        //  - 其余路线的屏还在 :app：**如实说「没搬过来」，不拿课表冒充**（以前这里落回 ScheduleScreen，
+        //    深链 `?route=notification` 会静默显示课表 —— 看着像 bug，也让人分不清「没实现」与「坏了」）。
+        else -> if (WebSupport.isOpenable(route)) WebSupportMismatchScreen(route, onNavigate)
+        else NotPortedScreen(route, onNavigate)
     }
 }
 

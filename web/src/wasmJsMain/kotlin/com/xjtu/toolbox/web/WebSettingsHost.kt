@@ -9,20 +9,25 @@ import com.xjtu.toolbox.settings.SettingsRow
 /**
  * Web 这一端的设置页宿主面（`:core` 的 `SettingsScreen` 是**共享屏**）。
  *
- * ## 真会照着办的行：[SettingsRow.DARK_MODE]
+ * ## 真会照着办的行：[SettingsRow.DARK_MODE] 与 [SettingsRow.HOME_THEME]
  *
- * 外壳（`Main.kt`）按 `SettingsStore().darkMode` 套 `XJTUToolBoxTheme`，改完由
+ * 深色模式：外壳（`Main.kt`）按 `SettingsStore().darkMode` 套 `XJTUToolBoxTheme`，改完由
  * [onAppearanceChanged] 戳一下重新读 —— 与桌面那份同一个写法（键值缝没有监听器）。
  * 于是「在设置页把深色模式改成始终深色」**当场就变**，这一行是真能用的。
  *
+ * 首页主题：首页（`:core` 的 `HomeScreen` + 本端 `WebHomeHost`）按 `SettingsStore.homeTheme`
+ * 决定画三段式分类卡还是彩虹宫格（图标主题）—— 这个键与 `:app` 同一个（`home_theme`）。
+ * 改完**切回首页就是新布局**（与 `:app` 上「切回 Tab 1 就能看见」同一件事：本端一次只组合
+ * 当前那一页，所以回首页时会重新读一次）。
  * ## 不列的行（列了就是假开关）
  *
  * - [SettingsRow.DYNAMIC_COLOR]（跟随系统取色 / Monet）：本端外壳现在**不读**这个键
  *   （`Main.kt` 的 `XJTUToolBoxTheme(dynamicColor = false)`）—— 理由不是"浏览器没有 Monet"，
  *   而是这一档在 wasm 上还没验证过（`:core` 用的是 `material-color-utilities` 的 KMP 版）。
  *   TODO：验证之后把 [SettingsRow.DYNAMIC_COLOR] 列进来、`Main.kt` 跟着读这个键，两处一起改；
- * - [SettingsRow.HOME_THEME] / [SettingsRow.QUICK_ACTIONS]：本端「首页」那一格还是降级页
- *   （见 `WebFallbackScreens`），改了没有任何东西会变；
+ * - [SettingsRow.QUICK_ACTIONS]（显示常用功能）：本端首页**不画「常用功能」那一排**
+ *   （`HomeCard.QUICK_ACTIONS` 不进 `honoredCards`，理由见 `WebHomeHost`：`:app` 按点击习惯排，
+ *   本端没有 `ServiceUsageTracker` 那份记录）⇒ 开着它也不会有任何东西出现，不画这个开关；
  * - [SettingsRow.NAV_STYLE]（玻璃 / 经典）：本端底栏交给共享壳画，`glassStyle = false` 固定
  *   （`ToolboxWebApp` 里那一行）—— 这一端没有"玻璃底栏"这一档，不画这个开关；
  * - [SettingsRow.DEFAULT_TAB]：`:app` 的启动 Tab 存在设置里、由**启动意图**消费；本端是刷新
@@ -51,7 +56,8 @@ internal class WebSettingsHost(
      */
     override val versionText: String = "Web 构建（wasm）"
 
-    override val honoredRows: Set<SettingsRow> = setOf(SettingsRow.DARK_MODE)
+    override val honoredRows: Set<SettingsRow> =
+        setOf(SettingsRow.DARK_MODE, SettingsRow.HOME_THEME)
 
     /** 本端没有更新日志（`:app` 的 `AppChangelog` 在更新域里）⇒ 那一行不画。 */
     override val changelog: List<ChangelogEntry> = emptyList()

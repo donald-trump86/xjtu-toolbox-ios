@@ -863,11 +863,11 @@ current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 
 
 | 格 | 这一端的归属 | 为什么 |
 |---|---|---|
-| 首页 | **降级页**（`WebUnavailableScreen`，列了缺哪五件） | `:core` 的 `HomeScreen` 要 `HomeHost`：课表缓存 / 节假日 / 公告条（`BulletinStore`）/ 消息那一格（`InboxStore`）/ 状态摘要 / 宫格目录的端上配色与「本端真能打开的路由」。本端一件都没有 |
-| 日程 | **共享屏**：`:core` 的 `ScheduleScreen` + 本端 `WebScheduleHost` | 本端唯一真接上的一格，见 §15.3 |
+| 首页 | **共享屏** `:core` 的 `HomeScreen` + 本端 `WebHomeHost`（2026-10-13 补：见 §15.8；当时这一格是降级页，于是十几条路由的入口全被关上了） | 这一端所有功能屏的入口：宫格 = `:core` 的服务目录 × 本端真能打开的路由（`WebSupport` 那份唯一真源） |
+| 日程 | **共享屏**：`:core` 的 `ScheduleScreen` + 本端 `WebScheduleHost` | 见 §15.3（本端真接上的三格之一，另两格是首页与我的） |
 | 屁岱 | **降级页** | `:core` 的 `AgentScreen` 要 `AgentHost`：配置 / 会话 / 记忆三份落盘、一条流式传输（`:data` 的 SSE）、工具层取数口。本端一件都没接，服务端契约里也没有对应端点 |
-| 学辅 | 本端自己的页 `WebServicesScreen`（**不是**降级：它如实列出本端真能打开的入口 + 会话入口） | `:app` 那一格是学业服务目录（`AppServices` 宫格 + 点击习惯排序 + 每项此刻的状态），本端没有那份目录的宿主面 ⇒ 如实换成「本端有什么」，不伪造一个宫格 |
-| 我的 | **共享屏**：`:core` 的 `SettingsScreen` + 本端 `WebSettingsHost` | `:app` 那一格是账号页（多账号 / 登录态）；本端没有账号这回事（凭据在 campus-api / serve 进程里）⇒ 落同一份共享设置屏。`honoredRows` 只列 `DARK_MODE`（外壳真按它换主题，见 §15.5），其余十项各自写明为什么不列（列了就是假开关） |
+| 学辅 | 本端自己的**可点目录** `WebServicesScreen`（**不是**降级：点一行进那一屏 + 会话入口；2026-10-13 从「本端有什么」说明页改过来） | `:app` 那一格是学业服务目录（`AppServices` 宫格 + 点击习惯排序 + 每项此刻的状态），本端没有「状态摘要」那一半 ⇒ 换成同一份目录的可点清单，不伪造一个宫格 |
+| 我的 | **共享屏**：`:core` 的 `SettingsScreen` + 本端 `WebSettingsHost` | `:app` 那一格是账号页（多账号 / 登录态）；本端没有账号这回事（凭据在 campus-api / serve 进程里）⇒ 落同一份共享设置屏。`honoredRows` 列 `DARK_MODE` 与 `HOME_THEME`（两项真会生效，见 §15.5 与 §15.8），其余九项各自写明为什么不列（列了就是假开关） |
 
 **做不到的格子落降级页、不藏起来**：藏起来就又变成"另一套层级"（这条是这一阶段的验收口径）。
 「我的」那一格 `showsAccountBadge = true` 照抄 `:app`，但 `ShellNavState.accountBadge` 传 null ⇒

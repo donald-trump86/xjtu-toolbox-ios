@@ -29,8 +29,9 @@ import com.xjtu.toolbox.shell.ShellTarget
  * 成绩 / 黄页 / GPA2048 / 方块 / 游戏 / 社区」九格，全是能做的功能凑出来的），而是与 App 同五格；
  * **做不到的那几格落一张如实降级页，不把格子藏起来** —— 藏起来就又变成"另一套层级"了。
  *
- * 哪一格真能做：见 `ToolboxWebApp` 的 `page` 分支（日程 = 共享 `ScheduleScreen` + web `ScheduleHost`，
- * 我的 = 共享 `SettingsScreen` + web `SettingsHost`），做不到的见 `WebFallbackScreens.kt`。
+ * 哪一格真能做：见 `ToolboxWebApp` 的 `page` 分支（首页 = 共享 `HomeScreen` + web `WebHomeHost`，
+ * 日程 = 共享 `ScheduleScreen` + web `ScheduleHost`，
+ * 我的 = 共享 `SettingsScreen` + web `SettingsHost`），做不到的（屁岱）见 `WebFallbackScreens.kt`。
  *
  * ## 「会话」那一屏不进 tab 列表（壳级 [ShellTarget.Custom] 入口）
  *
@@ -84,7 +85,7 @@ internal sealed interface WebTarget {
     /** serve 模式的会话屏（Web 专有，见文件头）。 */
     data object Serve : WebTarget
 
-    /** 「学辅」那一格：本端「有什么」说明页（Web 专有）。 */
+    /** 「学辅」那一格：本端自己的**可点目录**（同一份服务目录里本端真能点开的那些）。 */
     data object Services : WebTarget
 
     /** 「我的」那一格：共享设置屏（Web 专有目标，屏是 `:core` 的）。 */
