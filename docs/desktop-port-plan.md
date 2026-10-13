@@ -718,3 +718,28 @@ e: .../core/src/commonMain/kotlin/com/xjtu/toolbox/social/MatchProfile.kt:497:29
 
 **这一轮仍没有变的未验证项**：同 §14.4 那四条（真站点、Windows 打包/DPAPI、Linux 真装与真启动、
 `:web` serve 的浏览器实跑）一条都没验——本轮只把「产物能出、门禁能绿、分支能覆盖」这三件做成了可核的事实。
+
+### 14.6 serve 模式实跑（2026-10-13 09:37–09:50，本机真跑）
+
+命令：`./gradlew :server:run --args="--host 0.0.0.0 --port 40961"` —— `--host 0.0.0.0` 是**显式对外暴露**
+（不写就只监听回环，见服务端启动 banner 的告警），端口用系统挑的空闲端口。下面每一条都是 `curl` 现场跑出来的原文摘录：
+
+| 请求 | 结果 |
+|---|---|
+| `GET /api/status`（唯一免令牌端点） | `200` `{"authenticated":false,"uptimeSeconds":139}` |
+| `GET /`（静态站点） | `200` `text/html` 874 B —— 就是 `:web` 的 wasm dist 那份 `index.html` |
+| `GET /api/session`（**不带**令牌） | `401` `{"code":401,…,"message":"访问令牌缺失或无效：请带 Authorization: Bearer <令牌>"}` |
+| `GET /api/session`（`Authorization: Bearer <令牌>`） | `200` `{"code":0,"data":{"authenticated":false},"message":null}` |
+| `GET /api/session`（`Cookie: serve_token=<令牌>`） | 同上 `200` —— 契约 §3.2 的**两种形态都真通** |
+| `GET /api/jwxt/term`（令牌对、**未登录**） | `401` `{"code":401,…,"message":"请先登录：POST /api/session/login"}`（`/api/library/campus`、`/api/venue/status` 同） |
+| `GET /api/calendar/school` | `200` 真校历：`2026-09-14 → 2027-01-17`、17 周、`报道注册 2026-09-12` |
+| `GET /api/info/yellowpage` | `200` 真黄页：`updateTime 2026年07月02日`、5 个分类 |
+| `GET /api/notification/sources` | `200` 29 个源（教务处 / 研究生院 / 钱学森书院 …） |
+
+**这把 §14.4 第 4 条从「没记录」推进到「有记录的一半」**：服务端 + HTTP 契约面（含免登录端点打到真上游、
+令牌两种形态、401 的两句不同语义）都是**真跑通**的；**仍然没做**的是「人在浏览器里打开那一页点一遍」——
+那需要在能访问 `http://192.168.5.11:40961` 的机器上做（服务当时就开着，令牌在
+`~/.local/share/xjtu-toolbox/serve.properties` 的 `access_token`）。
+
+⚠️ 同一次实跑也复现了服务端的告警：**HTTP + 非 localhost 是浏览器的非安全上下文**，
+`navigator.clipboard` / `crypto.subtle` 之类会被禁用；要真当产品用，前面得加 HTTPS 反代 + 鉴权。
