@@ -743,3 +743,104 @@ e: .../core/src/commonMain/kotlin/com/xjtu/toolbox/social/MatchProfile.kt:497:29
 
 ⚠️ 同一次实跑也复现了服务端的告警：**HTTP + 非 localhost 是浏览器的非安全上下文**，
 `navigator.clipboard` / `crypto.subtle` 之类会被禁用；要真当产品用，前面得加 HTTPS 反代 + 鉴权。
+
+### 14.7 阶段 B 留下的一处可疑退化：`shell-after-login.png` 底部那 64px —— 查到底了，**不是退化**（2026-10-13 本轮）
+
+`6d94a59c`（桌面换成共享壳）的提交信息里如实留了一条没查到底的疑点：`shell-after-login.png` 的底部一条
+与基线对不上。这一轮把它钉死了，结论是**正常差异**（同一条 miuix 契约在换壳前后两种宿主上的必然结果），
+`:core` 共享壳**一个字没改**。
+
+#### 现象（只看那一张 PNG；520×900）
+
+| | 旧壳（旧代码重出的那一批） | 新壳（本轮重出） |
+|---|---|---|
+| 与「上一轮同代码重出」的可见差异 | — | **74,461 px / 15.910%**，包围盒 `520x296+0+604` |
+| y=0..603 | 两图**逐字节相同** | |
+| 弹窗卡片（亮色连续段 ≥ 200px 的行） | y=**604..822** | y=**669..887** |
+| 底栏那一条（y=836..900）的底色 | `247,247,247` | `172,172,172` |
+| 底栏图标上那一点的灰度 | `168` | `117` |
+
+172/247 = 0.696、117/168 = 0.697 —— 正好是 miuix 的 `windowDimming`（浅色下 `Color.Black.copy(alpha = 0.3F)`，
+`miuix-ui/…/theme/Colors.kt:391`）：**底下那一层没换颜色，是被压暗了**。差的那 64 就是经典底栏的高度
+（836..900）：弹窗整体下移 64 之后压在底栏上。
+
+> 旧壳那一批是上一轮在**旧代码**（`6283fad2` 之前那份 `ToolboxDesktopApp`）上重出的 42 张
+> （临时目录 `/tmp/base-screens`，日志 `/tmp/baserender.log`）：42 张的字节数与日志**逐条一致**；其中两张
+> 不涉壳的图（`login.png` / `library-after-login.png`）与本轮 HEAD 重出的**逐字节相同** ⇒ 那份基线
+> 就是「同场景、只差壳」。两样都在临时目录里，不进仓库。
+
+#### 语义树 bounds（本轮新加的两个用例：`desktop/…/DesktopShellOverlayJvmTest.kt`）
+
+```
+PROBE[shell] 底栏第一格=Rect.fromLTRB(0.0, 836.0, 86.0, 900.0)  弹窗标题=Rect.fromLTRB(74.0, 733.0, 446.0, 754.0)
+PROBE[shell] 弹窗卡片 rows=709..887
+PROBE[shell] 语义树文字=[…, 当前预约：A03, …, A01, …, A09, 兴庆图书馆, 首页, 校历, 图书馆, 黄页, 游戏, 全部, 图书馆座位预约, ⏰, 预约成功后，请在 30 分钟内入馆签到…, 知道了]
+PROBE[old-shape] 卡片底边=824.0（页框底 = 900 − 64 = 836）/ 壳里=888.0
+PROBE[old-shape] 标题底：旧壳那种容器=690.0 / 壳里=754.0
+```
+
+- **底栏第一格 `top=836`** ⇒ 页框仍然是 836（= 900 − 64），**没有拿到整窗高度** —— 上一轮那个
+  「页拿到了整窗高度 / `bottomBar` 的槽被判空」的假设就此证伪；
+- 弹窗底：壳里 **888 = 900 − 12**、旧壳那种容器 **824 = 836 − 12**（`DialogDefaults.outsideMargin.height`
+  = 12dp）；两组各自再差 64（像素：卡片 888−824；语义树：标题底 754−690，两次量法互相印证）；
+- 两种容器里**页里的内容一模一样**（座位 A01..A09、三个区域、「当前预约：A03」都在）⇒ 「只有内容填到
+  底部才出现」那条线索也不成立：差的那 64 与页里画了多少东西无关。
+
+#### 根因（miuix 的契约 + 宿主从「页」变成了「壳」）
+
+`miuix-ui` 的 `overlay/OverlayDialog.kt`：`renderInRootScaffold: Boolean = true`（**默认**）——
+KDoc 原文「When true (default), the dialog covers the full screen. When false, it renders within the
+current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 `Alignment.BottomCenter` +
+`outsideMargin.height`（12dp），变暗那一层 `.fillMaxSize()` 也画在这个宿主里。
+
+- **旧桌面壳**（`6283fad2` 之前的 `ToolboxDesktopApp`）是
+  `Column { Box(Modifier.weight(1f)) { 当前页 }; NavigationBar { … } }` —— **一个 Scaffold 都没有**
+  ⇒ 「最外层 Scaffold」落在**页自己**身上：宿主 = 836，弹窗被页框裁在底栏上方，底栏也不在变暗范围内
+  （所以旧壳那张图里底栏是本色 247）。
+- **共享壳**（`AppShell`）自己就是一个 `Scaffold` ⇒ 宿主 = 520×900 整窗：弹窗锚到窗口底、变暗层盖住底栏。
+  `:app` 的 `MainScreen.kt` 从第一天起就是这样（`:app` 一直是「弹窗铺满整窗」）—— 也就是说，这一处的
+  变化正是「三端同壳」本身，不是桌面这一端的退格。
+
+#### 判定与处置
+
+**不是 bug**：旧壳那 64px 是「桌面这一端恰好没有 Scaffold」这个偶然事实的产物，`shell-after-login.png`
+现在的样子才是与 `:app` 一致的形态。所以按纪律**没有**给桌面打补丁、也**没有**改 `:core` 的共享壳
+（`AppShell` / `ShellTabHost` / `ShellLayout` 本轮零改动）。钉住它的是两个**新用例**
+（`:desktop:test` 98 → **100**，0 失败）：同一份夹具（`canBook = true` 的库页取数）+ 同一个页
+（`LibraryScreen` 那条「首次使用提示」），只换外面那层容器，断言弹窗底锚在谁的底上、两者相差正好是
+底栏那一条 —— 语义树与像素各量一次。
+
+#### 顺带收敛的另一条 Open risk：深色下外壳那三层的层次
+
+共享壳会铺 Scaffold 的 `containerColor`（= `MiuixTheme.colorScheme.surface`），这是一处**看得见的变化**
+（旧桌面壳那些像素是**透明**的）。新加两张图（`home-dark.png` / `main-dark.png`）与两条判据
+（`RenderScreens` 的 `bandOf`），判据落在**落盘的 PNG** 上：
+
+```
+深浅对照：底栏 最亮=247 亮占比=100% → 最亮=24 亮占比=0%；侧栏 最亮=247 亮占比=100% → 最亮=24 亮占比=0%；页面 最亮=255 亮占比=97% → 最亮=254 亮占比=1%
+```
+
+- `home-dark.png`（520×900，与 `home.png` 同一条路由）量的是**底栏**那一层；`main-dark.png`（900×900）
+  量的是宽窗下换成**侧栏**的那一层；「页面」那一层用内容区的亮像素占比量（深色下 1%、浅色下 97%）。
+  三层都跟着主题换，没有哪一层留在浅色上。
+- ⚠️ 深色那两张的课表/考试两格与浅色那两张**不是同一份数据**：这一枪在所有图之后，缓存里已经是
+  `schedule_match.png` 那一枪写进去的夹具（图上会看到另一门课）。深浅对照要的是外壳那三层的像素，
+  与页里画了什么无关。
+
+**这一轮的证据图 42 → 44 张**（新增 `home-dark.png` / `main-dark.png`）：42 张里 33 张与上一轮 HEAD
+重出**逐字节相同**；9 张的差异都是 0.02%~0.85% 的局部小块（时序噪声，上一轮已记），**没有一张**的差异
+落在底栏那一条或图像底部。
+
+#### 本轮门禁（`--max-workers=1`；日志 `/tmp/gate-mine.log`）
+
+| 任务 | 用例 / 产物 | 失败 | 跑法 |
+|---|---|---|---|
+| `:core:jvmTest` | **439**（69 个 XML） | 0 | `--rerun` 独占重跑（XML 20:08:50） |
+| `:app:testDebugUnitTest` | **429**（76 个 XML） | 0 | `--rerun` 独占重跑（XML 20:09:48） |
+| `:desktop:test` | **98 → 100**（24 个 XML） | 0 | 本轮真跑（新增那两个用例） |
+| `:desktop:renderScreens` | **42 → 44 张** | — | 本轮真跑 |
+| `:core:compileKotlinWasmJs` / `:core:compileAndroidMain` / `:data:compileAndroidMain` / `:app:compileDebugKotlin` / `:desktop:compileKotlin` | — | — | 全部 `UP-TO-DATE`（`:core` 本轮零改动；`:web:compileKotlinWasmJs` 不在本轮范围） |
+
+⚠️ 这一轮跑门禁时，同一棵工作区里还有另一个子代理在做阶段 C（`:web`）：`core/net/CampusApi.kt` 有一处在途的
+**兼容性扩展**（`termStart(term: String? = null)`）与一批未跟踪的 `web/src/wasmJsMain/…` 文件参与了编译
+（它们仍在 `git status` 里 —— 本轮提交只 `git add` 了自己那三个路径）。
