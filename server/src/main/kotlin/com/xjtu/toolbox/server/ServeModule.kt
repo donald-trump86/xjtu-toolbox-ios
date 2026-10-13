@@ -96,6 +96,13 @@ fun Application.serveModule(
             jwappRoutes(session)
             iclassfaceRoutes(session)
 
+            // 第三批（付款码拿码 / 反馈读 / 匹配交友的消费统计 / WebVPN 纯转换，契约 §5.7）：
+            // 前两族各自有 `:data` 的实现、第三族落在校园卡流水上、第四族是纯函数。
+            payRoutes(session)
+            feedbackRoutes()
+            matchRoutes(session)
+            webVpnRoutes()
+
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。
             route("{path...}") {

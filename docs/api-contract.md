@@ -17,7 +17,7 @@
 
 | | campus-api（旧） | `/api/*`（新） |
 |---|---|---|
-| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用 ⇒ 2026-10-13 起加餐券的**只读**两发（`/api/coupon/{list,detail}`）已落地（§5.5），**领券**（`activateCoupon`，真改上游状态）与付款码仍**没有对应端点**（§5 表里付款码那一行仍是 P2 未实现）。⚠️ 2026-10-14 的第二批只读域（§5.6）同一条口径：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到四条链在 `:data` 里都有实现（Android 与桌面端直连在用），本轮只端**只读**那一半 —— 学堂的作业**提交**与附件**下载**、教材的**全文阅读**、成绩的**分项**与成绩**报表**都不端，签到的姓名/学号按红线不投影（逐条见 §5.6） |
+| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用 ⇒ 2026-10-13 起加餐券的**只读**两发（`/api/coupon/{list,detail}`）已落地（§5.5）；⚠️ 2026-10-14 起**付款码的「拿码」**也落地了（`/api/pay/code` + `/api/pay/vouchers`，§5.7），但**领券**（`activateCoupon`）、**付款码的勾选同步**（`updateVoucherStatus`）这类真改上游状态的写路径仍**没有对应端点**（「支付/扣款」那个动作客户端本来就没有，不是本轮砍的）。⚠️ 2026-10-14 的第二批只读域（§5.6）同一条口径：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到四条链在 `:data` 里都有实现（Android 与桌面端直连在用），本轮只端**只读**那一半 —— 学堂的作业**提交**与附件**下载**、教材的**全文阅读**、成绩的**分项**与成绩**报表**都不端，签到的姓名/学号按红线不投影（逐条见 §5.6）。⚠️ 第三批（§5.7）再补三族同一条口径：反馈只端**读**（提交反馈是写路径 ⇒ 不端）、匹配交友只端**消费统计**（学工档案那一半 `:data` 里没有源 ⇒ 不端），WebVPN 那一族是**纯函数**（不收会话、不碰上游、不改任何状态） |
 | **谁能做** | 一刀切只读 | **能力开关随部署与账号变**：`canBook` / `canCancel` / `canSubmit` / `hasSeatPlan` / `availableSources` 必须**如实**出现在响应里，屏按它决定画不画按钮（"点了会失败的按钮一个都不画"） |
 | **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌）。令牌先换成 cookie `serve_token`（只有它能被浏览器带着走），之后的请求就只靠它 |
 
@@ -88,7 +88,10 @@
 | `/api/jiaocai/search` `/api/jiaocai/ssno` | `JiaocaiSource`（`AppJiaocaiSource` + `JiaocaiApi`） | 教材查询 | **P0 · 已落地 2026-10-14** | **新形状**：`search` 只收一个 `keyword`（这一屏没有院系/教师那种筛选控件）、**没有翻页**；`ssno` 是「列表里拿不到、进详情才有的全文库书目号」那一枪，见 §5.6 |
 | `/api/jwapp/scores` `/api/jwapp/precise-scores` | `JwappScoreSource` + `JwxtScoreSupplement`（`:data` 侧 `AppJwappScoreSource` + `JwappApi` / `CjcxApi`） | 成绩 | **P0 · 已落地 2026-10-14** | **新形状**：**一族两个站点**（`scores` 打移动教务、`precise-scores` 打**教务** `xscjcx.do`），服务端**不合并**两份（合并口径在 `:core` 的 `JwappScoreViewModel`，有测试钉着），见 §5.6 |
 | `/api/iclassface/records` | `IclassfaceSource`（`AppIclassfaceSource` + `IclassfaceApi`） | 快速考勤流水 | **P0 · 已落地 2026-10-14** | **要改**：`name` / `studentNo`（姓名与学号）按红线不投影（屏上本来也不画那两格）；`time` **保留上游原文、不转 ISO-8601**，见 §5.6 |
-| `/api/payment-code` | 新（`:data` 侧 `PaymentCodeApi`） | 付款码 | P2 | 无旧形状（⚠️ **仍未实现**：`:server` 里没有这个端点） |
+| `/api/pay/code` `/api/pay/vouchers` | `PaymentCodeSource`（`:data` 侧 `PaymentCodeApi`）—— **借校园卡站点会话** | 付款码（**拿码**） | **P2 · 已落地 2026-10-14** | **要改**：旧那行写的 `/api/payment-code` 是建议路径、从未实现 ⇒ 现在写死成 `/api/pay/{code,vouchers}`（与其余各族同一条段名规矩）；⚠️ **支付 / 扣款这一档客户端本来就没有**（人只显示码）⇒ 不是本轮砍的；勾选券的同步（`updateVoucherStatus`，写路径）与勾选落盘也不端，见 §5.7 |
+| `/api/feedback/replies` `/api/feedback/public-qa` | `FeedbackSource`（`:data` 侧 `AppFeedbackSource` + `FeedbackApi`） | 反馈（**只读**） | **P0 · 已落地 2026-10-14** | **新形状**：这一族**没有校园站点会话**（凭据是 `app_id` + `app_secret` 换租户令牌 ⇒ serve 端按**环境变量**在启动时注入，见 §5.7）⇒ 这两条只认令牌闸门；**提交反馈是写路径 ⇒ 不端** |
+| `/api/match/dining` | `CampusCardSource`（流水） + `:core` 的 `DiningHabit` / `MatchProfile` | 匹配交友（消费统计） | **P0 · 已落地 2026-10-14** | **新形状**：只端「常在几点吃饭 / 常去哪个食堂」那两维（不含金额 / 商户全称 / 明细）；⚠️ `/api/match/profile`（**学工档案**）**不端** —— `:data` 里没有 `hello` 取数（那条链在 `:app`，桌面端也如实没有），见 §5.7 |
+| `POST /api/webvpn/convert` | `WebVpnCodec`（`:data` 侧 `WebVpnUtil`） | WebVPN 转换器 | **P0 · 已落地 2026-10-14** | **新形状**：纯转换（两个方向、无会话、不碰上游、`400` 只有参数那一档）。**为什么不做成浏览器本地**：HTTP + 非 localhost ⇒ 非安全上下文 ⇒ `crypto.subtle` 被禁，见 §5.7 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 
 > **状态收口（2026-10-13 核账，纯文档轮次）**：`:server` 里**已实现**的端点族 =
@@ -105,9 +108,14 @@
 > `jwapp/{scores,precise-scores}`、`iclassface/records` —— 逐字段与「不端什么」见 §5.6；
 > 会话侧把 `lms` / `jwapp` / `iclassface` / `jiaocai` 四个站点补进了登录预热清单
 > （与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。
-> **仍未实现**的只剩两行：`/api/payment-code`（P2：`:data` 侧有 `PaymentCodeApi`，`:server` 里没有端点）、
-> `/api/v1/personal/me/user`（P2：来源仍待确认）。
-> （加餐券那一行已于 2026-10-13 从「未实现」里出来 —— 只读两发落地，见 §5.5；**领券**仍未端。）
+> **第三批（2026-10-14 新增）**：`pay/{code,vouchers}`、`feedback/{replies,public-qa}`、`match/dining`、
+> `webvpn/convert` —— 逐字段与「不端什么」见 §5.7；会话侧**一个新站点都没注册**（付款码与消费统计
+> 借的是**校园卡**那条会话；反馈与 WebVPN 两族没有站点、只认令牌闸门）。
+> **仍未实现**的只剩一行 + 一处如实缺口：`/api/v1/personal/me/user`（P2：来源仍待确认）、
+> `/api/match/profile`（P2：**学工档案**在 `:data` 里没有源 —— `hello` 那条链只在 `:app`，桌面端也
+> 如实没有 ⇒ 本轮不端，判据与 `DesktopMatch.kt` 的 TODO 见 §5.7）。
+> （`/api/payment-code` 那一行已于 2026-10-14 从「未实现」里出来 —— 拿码 + 可用券两发落地，路径同时
+> 写死成 `/api/pay/{code,vouchers}`，见 §5.7；**支付 / 扣款**那个动作客户端本来就没有，**勾选同步**仍未端。）
 > ⚠️ **表里那个 `P0`/`P1`/`P2` 是优先级，不是状态** —— `P1` 那两行（写路径）都已落地（见各自那一格）。
 ### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
 
@@ -684,6 +692,144 @@ POST /api/venue/cancel
 错误信封只读 `message`、不投影的格如实留空、四个能力开关、非 serve 分支抛错）。
 
 
+### 5.7 第三批（2026-10-14 落地）：付款码拿码 / 反馈读 / 匹配交友的消费统计 / WebVPN 纯转换
+
+六个端点，四个 `:server` 路由文件（`PayRoutes.kt` / `FeedbackRoutes.kt` / `MatchRoutes.kt` /
+`WebVpnRoutes.kt`），全部是「`:data` 里已有实现在取数」的**薄包装**（解析口径一行不重做）。
+统一口径照 §5.2：信封 `{code,data,message}`、`code == HTTP 状态码`、
+`401` =「请先登录：POST /api/session/login」、`400` 参数形状、`404` 未实现、
+`502` 上游/网络故障（含会话失效那档）。
+
+**会话**：这一批**一个新站点都没注册**（`ServeSession.SESSION_SITE_KEYS` 与 `:desktop` 那份清单
+依旧逐字相同）——
+
+- 付款码与消费统计两族借的是**校园卡**那个会话（`campus_card`，它早就在登录预热清单里：付款码的业务
+  请求带的就是校园卡登录时存下的那张 JWT，`:app` 的 `AppRoute.PaymentCode.loginType = CAMPUS_CARD`
+  也是这么定的）；
+- 反馈与 WebVPN 两族**没有站点**：它们不认 `SiteSession`，所以**不套** `session.authenticated` ——
+  浏览器带上门牌（令牌闸门）就能读 / 转。
+
+| 端点 | 请求 | 响应 `data`（逐字段） |
+|---|---|---|
+| `GET /api/pay/code` | ——（不收参数） | `{barCode:string}` |
+| `GET /api/pay/vouchers` | ——（不收参数） | `{count:int, vouchers:[{showCardId:string, voucherName:string, typeName:string, amountFen:long, endDate:string}]}` |
+| `GET /api/feedback/replies` | `?tickets=<逗号分隔，必填；一次最多认 20 个>` | `{tickets:[string], count:int, replies:[{ticket:string, text:string, time:string}]}` |
+| `GET /api/feedback/public-qa` | ——（不收参数） | `{count:int, items:[{question:string, answer:string, category:string}]}` |
+| `GET /api/match/dining` | `?from=&to=<YYYY-MM-DD>`（两个都可省） | `{from:string, to:string, scanned:int, truncated:bool, hourCounts:{<"0".."23">:int}, diningHours:string, canteens:[string]}` |
+| `POST /api/webvpn/convert` | body `{url:string, direction:"to_vpn"\|"from_vpn"}` | `{direction:string, url:string}` |
+
+**付款码（`pay`）：拿码不是付钱**
+
+- 旧契约里那一行 `/api/payment-code`（P2「仍未实现」）**作废**：路径写死成 `/api/pay/{code,vouchers}`
+  （与 §5 表里其余各族的段名规矩一致）；
+- `barCode` ← `PaymentCodeApi.getBarCode()` —— 上游 `data.barCodeVo.barcode[0]`（**字符串**，20 位十进制）。
+  `:data` 已经把「`success != true`」「少 `data` / `barCodeVo`」「数组为空」三档都判过了；
+- 进门前先 `authenticate()`（`:core` 那条端口的「第一枪」）：它只**本地**看一眼会话里有没有那张
+  校园卡 JWT，**不发请求、不改状态**；
+- ⚠️ **这一串码就是能付钱的东西**（登录者本人的一次性凭据）：它不在 §5.2 那四个红线字段里，
+  但 serve 的默认姿势（只监听回环 + 令牌闸门）是它的**前提**而不是可选项 —— 对外暴露
+  （`--host 0.0.0.0`）时必须自己加反代 + 鉴权（§3.3 那条同源）；
+- `vouchers` 是 ncard 的**可用加餐券**（与 §5.5 的 `/api/coupon*` 不是同一份：那一条打的是 `egc`）：
+  五格逐一投影，`amountFen` 单位是**分**（与 §5.5 同一条口径），`endDate` 是上游原文的
+  `2026-12-31`（它本来就是「到哪天为止」，不是 ISO-8601 的时刻）。`PaymentVoucher.serverFlag`
+  （上游 `flag`）**不投影**：`:core` 的 `PaymentCodeScreen` 一处都没读它，多一格只会多一处要
+  跟着上游漂的口径；
+- **刻意不端的写路径**：`updateVoucherStatus(ids)`（`POST .../vouchers/updateVoucherStatus`）——
+  屏上勾选加餐券时会把「这一轮用哪几张」**真的推给上游**。serve 模式下那个勾选动作**没有端点**，
+  加餐券勾选的**宿主落盘**（`:core` 的 `PaymentSelectionStore`）也没有（serve 这一层没有宿主磁盘）；
+- 「支付 / 扣款」这一档**上游客户端本来就没有**（`:data` 的 `PaymentCodeApi` 上一个那种方法都没有）：
+  钱是商户扫了那串号之后在学校那边扣的，所以「只拿码」不是本轮砍出来的，是这一族**本来的形状**；
+- 错误码：`401` 没会话 · `502` 上游/网络故障（含「校园卡未登录」那一档 —— `:data` 抛的是
+  `RuntimeException("校园卡未登录，无法获取付款码")`，`FriendlyError` 按「应用自己写的中文短句」
+  原样交回，与 §5.5 宿舍电费那条同口径）。**没有 `400`**：两个端点都不收参数。
+
+**反馈（`feedback`）：只读两发；提交是写路径**
+
+- 照 `:core` 的 `FeedbackScreen` 实际读的那几样端：**自己提过的工单有没有回复**（`replies`）与
+  **「大家在问」**（`publicQa`）；`tickets` 那一串工单号来自 `:core` 的 `FeedbackStore`
+  （屏自己的本地账本）；
+- `?tickets=` 是逗号分隔、**必填**（至少一个非空白）；**一次最多认 20 个**（= `:data` 里 `take(20)`
+  那个上限，本层不另定一个数），多给的不发出去也不报错；空 / 全空白 ⇒ `400`；
+- `replies` 是**数组**而不是对象（一个工单号只可能有一条：`:data` 用 `LinkedHashMap` 收敛），
+  顺序 = 请求里 `tickets` 的先后；**没人回过的那几个工单不在数组里**（`count` 是「真取到几条」）；
+  `text` 是 `:data` 的 `plainText` 把**富文本片段数组**（`[{"type":"text","text":"…"}]`）合成的
+  那一串，`time` 是上游原文（那本来就不是 ISO-8601 的时刻）；
+- ⚠️ `public-qa` 只出现上游表里**勾了「公开」**的行（`:data` 的判据），而且**绝不**退回整表拉取 ——
+  否则未公开的回复会被所有人读到（`:data` 的 KDoc 把这一条写死了）；
+- ⚠️ **提交是写路径 ⇒ 这一轮不端**：`FeedbackSource.submit`（`POST .../records`）真往多维表格里
+  加一行。serve 模式下反馈表单**没有端点**，于是「提交」那一半只能退回 GitHub 外链那条路
+  （屏本来就有这条降级）；
+- **凭据是运行期注入的**（这是这一族与别的族最不一样的一处）：反馈没有校园站点会话，「登录」是拿
+  `app_id` + `app_secret` 换一张 `tenant_access_token`（见 `:data` 的 `FeedbackApi` KDoc）。两个
+  窗口端的凭据是**构建期**烘焙的常量；serve 是部署在那台机器上的常驻进程 ⇒ `:server` 在启动时读
+  环境变量 **`FEEDBACK_APP_ID` / `FEEDBACK_APP_SECRET` / `FEEDBACK_BASE_TOKEN`**（可选
+  `FEEDBACK_TABLE_SUBMIT` / `FEEDBACK_TABLE_REPLY`；名字与 `desktop/build.gradle.kts` 那段
+  `cfg()` 推导出来的逐字相同）注入给 `:data`（实现：`ServeFeedback`，在 `Main` 里调一次）。
+  三个必填缺一个 ⇒ **如实「没配」**（`config = null`）⇒ 这两条端点按 `502` + 一句「去哪儿配」的
+  中文短句报（**不是 404**：端点**在**，是这个部署没把凭据给它）；
+- 错误码：`400` `tickets` 缺 / 空白 · `401` 无令牌（闸门那一条）· `502` 上游/网络故障，
+  含「凭据没配全」那一档。
+
+**匹配交友（`match`）：只端消费统计这一半（学工档案那一半拿不到）**
+
+- 匹配交友屏要两样：**学工档案**（年级 / 专业 / 学院 / 书院 / 校区 / 班级 / 生源地，`:core` 的
+  `MatchIdentity`）与**消费习惯**（「常在几点吃饭 / 常去哪个食堂」）。⚠️ **只有后者有源**：
+  学工档案那条链是 `hello.xjtu.edu.cn` 的 `/yingxin/user/afterLogin`，实现
+  （`HelloApi` / `HelloLogin` / `HelloProfileStore`）**只在 `:app`**（要 `Context`、要 `hello`
+  站点的会话、头像还是 `Bitmap`），`:data` 里**一个 `hello` 字面量都没有**（`grep` 可证）；
+  桌面端同一条缺口（`desktop/.../DesktopMatch.kt` 的 `identity()` 如实返回 `null`，并把那件事
+  写成了一条 TODO）⇒ **`/api/match/profile` 这一轮不端**（服务端拿不到那份档案，编一份出来
+  就是编数据；要端它得先把 `hello` 的取数与档案模型接进 `:data`）；
+- `dining` 的取数是 `/api/card/transactions` **同一个源**（校园卡流水的窗口全表，按页拉到
+  200 × 5 页封顶）—— 判据一条都不重做：小时 → 笔数、食堂名、阈值全在 `:core`
+  （`DiningHabit.hourCounts` / `canteens`），`diningHours` 那一格更是直接由 `MatchProfile.build`
+  的同一行式子给（该小时 ≥2 笔才置 1；一个 1 都没有时是**空串** —— 与分享码里那一格同义：
+  这一维没数据、不进码）；
+- ⚠️ **不含金额、不含商户全称、不含明细**（那是 `DiningHabit` 的 KDoc 写死的口径）：响应里只有
+  小时 → 笔数、归并后的食堂名（「学苑食堂」而不是「学苑食堂三楼」）、以及覆盖了几笔；
+- `?from=` 省略 = `to` 往前 **90 天**；`?to=` 省略 = **今天**（服务端系统时区）；给了但不成形 /
+  `from` 晚于 `to` ⇒ `400`；`scanned` 是**进统计的笔数**（窗口内的流水全表），`truncated` = 到页
+  上限还没拉完（`true` 时那三格只覆盖了前几页，如实说）；
+- ⚠️ **分享码那一半在浏览器端不可用**：这一族的终点是 `MatchProfile.encode` / `decode`，而它要的
+  两条平台缝（deflate、Base64）在 **wasmJs 上不存在**（两个 actual 都如实返回 null）⇒
+  `MatchProfile.codecAvailable == false` ⇒ **`:web` 上生成与解析分享码都不可用**。服务端**不**代它
+  生成：码里含昵称与课表网格，是用户自己决定给谁看的东西（`MatchProfile` 的类 KDoc 就是为这条写的）；
+- 错误码：`400` 日期形状 / `from` 晚于 `to` · `401` 没会话 · `502` 上游/网络故障。
+
+**WebVPN 转换器（`webvpn`）：纯转换，为什么放在服务端**
+
+- 转换本体是 `:data` 的 `WebVpnUtil`（AES-128-CFB，key / iv 都是 `wrdvpnisthebest!`）—— `:core` 的
+  `WebVpnConverterScreen` 认的那条缝 `WebVpnCodec` 就是它实现的（Android 与桌面注入的也是同一个
+  对象），本层**一行算法都不重做**；
+- **为什么不做成浏览器本地转换（这是这一族放在服务端的唯一理由）**：
+  1. 浏览器能白拿的对称密码只有 `crypto.subtle`，而它**只在安全上下文里存在**：serve 默认是
+     明文 HTTP，`--host 0.0.0.0` 时页面就**不是** localhost 了 ⇒ 非安全上下文 ⇒ `crypto.subtle`
+     **直接被禁**（与 §3.5 里 `navigator.clipboard` / Service Worker 那几条同一类失效：
+     「这条路根本不存在」而不是「慢一点」）；
+  2. 退一步走纯 JS 的 AES：那要引一份第三方密码学实现（几百行，还得逐字节对上网关的 CFB 行为）——
+     为一条**纯函数**的转换把一份密码学依赖塞进 wasm 产物，换来的是同一个算法在两处各写一遍；
+  3. 而服务端本来就有这份实现（`:data` + JVM），端出去的成本与风险都是零：**纯函数**，不收会话、
+     不落盘、**不改任何状态**、不碰任何上游；
+- `direction` 只认 `to_vpn`（普通网址 → 网关地址）与 `from_vpn`（网关地址 → 原网址），大小写不敏感，
+  响应里**原样回**（免得消费方猜这一次的语义）。已经是网关地址的输入、或者认不出的输入
+  （没有 `://`），`to_vpn` **原样返回**（`:data` 的老口径，本层不改）；`from_vpn` 解不出来
+  （不是网关地址 / 路径不成形）⇒ `400`（**不是** `data:null`：这不是「上游说没有」，是
+  「你给的不是网关地址」）；
+- 错误码：`400` `direction` 不认识 / `url` 空 / `from_vpn` 解不出来 / body 不是 JSON ·
+  `401` 无令牌（闸门那一条）。**没有 `502`**：它不碰任何上游。
+
+#### 消费方（`:web`）：**待接**
+
+这一批**只改了本文档 + `:testkit` 夹具两处**，`:web` 那一处**本轮不接**，按 §7 第 1 条在这里
+**指名点姓**地标出来（匹配交友那一行连「为什么整屏接不上」都写了）：
+
+| 屏（`:core`） | 要的端点 | 接的时候要注意什么 |
+|---|---|---|
+| 付款码 `PaymentCodeScreen` | `GET /api/pay/code` + `/api/pay/vouchers` | ① 条码 / 二维码那一档在 wasm 上**如实没有**：`qrCodeModules` / `code128Modules` 的 wasmJs actual 返回 `null`（`core/.../platform/CodeMatrix.wasmJs.kt` 的文件头就是为这条写的）⇒ 屏上只能画付款码**数字**（纯文本那一档，不依赖编码器），矩阵一个都不画（不是画一张假的）；要矩阵得先给 wasm 找一份编码器、或把编码器收进共享层；② 勾选券那一栏**没有写端点**（`updateVoucherStatus` 不端）⇒ 屏上「已选 N 张」只能当**只读展示**，别画成能改的；③ 那一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3） |
+| 反馈 `FeedbackScreen` | `GET /api/feedback/replies` + `/api/feedback/public-qa` | ① 工单号来自**屏自己的本地账本**（`:core` 的 `FeedbackStore`，键值缝）⇒ 浏览器端得保留那份账本，才问得出「我提的那条有没有回复」；② 「提交」那一半**没有端点**（写路径不端）⇒ 只能退回屏本来那条 GitHub 外链降级（`FeedbackSource.isConfigured` 那一档）；③ 部署要先配那三个 `FEEDBACK_*` 环境变量，否则这两条端点一律 `502`；④ 这一族**不套会话**：屏上不该有「先登录校园账号」那一步 |
+| 匹配交友 `MatchScreen` | `GET /api/match/dining`（**一个端点，不是两个**） | ① 学工档案那一半**没有端点**（`:data` 里没有 `hello` 取数）⇒ 屏上「年级 专业 校区 生源地」那一维只能**如实禁用并说明**（与桌面端同一句话：`MatchIdentity` 是 `null`）；② 课表 / 考试 / 教材那几维也没有端点（本批没端），而 `:core` 的 `MatchData.read` 读的是**宿主落盘缓存**（serve 没有那一份）⇒ 这一屏在 serve 形态下**只有消费统计那两维**；③ **最要紧的一条**：`MatchProfile.codecAvailable` 在 wasm 上是 `false` ⇒ **生成与解析分享码在浏览器端都不可用**，所以这一屏**整屏接不上** —— 要么先把 deflate / Base64 搬进 wasm（那是另一件事，`Deflate.wasmJs.kt` 的 TODO 记着两条路），要么如实画一张「这一屏要在能出码的端上用」的说明页；④ 别拿「共同空闲 100%」那种默认值顶上（`MatchProfile.build` 要求「开关开着**且**有数据」） |
+| WebVPN 转换器 `WebVpnConverterScreen` | `POST /api/webvpn/convert` | ① 屏认的那条缝是 `codec` 参数（`WebVpnCodec`）⇒ serve 形态下要给它一个**走 HTTP** 的实现（`:data` 那份 `WebVpnUtil` 在 wasm 上用不了 —— 它要 `javax.crypto`），也就是「新写一个 `WebVpnCodec` 的浏览器端实现，两个方向各打一发本端点」；② 那一屏的「用内置浏览器打开」那一跳在 `:web` 上没有对应能力（那本来就是宿主的事）；③ 这一族**不收会话**：别把「有没有登录」画进这一屏 |
+
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
 - 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的
@@ -697,7 +843,7 @@ POST /api/venue/cancel
 - MFA（短信二验）那条链需要一份**真的能走完**的上游剧本：二次认证页 + 取手机号 + 校验验证码 +
   隐藏表单回提，四步都在 `:testkit`（`CasSafetyVerifyPage` / `LibraryFakeUpstream` / `JwxtFakeUpstream`），
   默认关着开关，契约测试开它。
-- 计数（2026-10-14 核）：`:server:test` 共 **60** 例 —— 上面那 13 例之外是按域分批补的契约验收，
+- 计数（2026-10-14 核）：`:server:test` 共 **69** 例 —— 上面那 13 例之外是按域分批补的契约验收，
   上一批是只读四域的 `ServeReadonlyFourDomainsTest`（**8** 例，§5.5：每域两例 —— 成功逐字段一例、
   闸门/参数形状一例），它用的就是 `:testkit` 那四份早已存在的假上游（`DzpzFakeUpstream` /
   `AttendanceFakeUpstream` / `CouponFakeUpstream` / `DormPowerFakeUpstream`）—— 本轮只往
@@ -713,6 +859,28 @@ POST /api/venue/cancel
 每例都过 §5.2 的红线断言，而且是在**夹具里明明有那些值**的前提下证明的（学堂的教师名与本人姓名/学号、
 签到表里的姓名与学号）—— 不是「夹具没有所以没出现」。夹具沿用 `:testkit` 那几份早已存在的假上游
 （本轮只往 `LmsFakeUpstream` 提了两个常量 `USER_INDEX_NAME` / `USER_INDEX_USER_NO`，值没变）。
+
+**新增的 10 例（2026-10-14，第三批 §5.7）**：`ServePayFeedbackMatchWebvpnTest` ——
+四族每族至少两例（成功逐字段一例、闸门/参数形状一例；反馈那一族因为「凭据没配全」
+也是契约的一部分而多两例）：
+
+- **付款码两例**：① 未登录 401（且夹具计数为 0）+ 拿码那一串逐字段（就是夹具常量 `BAR_CODE`）；
+  ② 加餐券五格（`amountFen` 是分、`serverFlag` 不投影），**且写路径那一发（`voucherUpdateCalls`）必须是 0**；
+- **反馈四例**：① 没配凭据 ⇒ `502` + 指路文案（不是 404），且没令牌仍是 401；
+  ② 回复与公开问答逐字段（富文本片段数组那一档、不是我要的那条工单不进响应、没勾「公开」的不出现），
+  **提交那一发（`submitCalls`）必须是 0**；③ `tickets` 缺 / 空白 ⇒ 400 且不打上游；
+  ④ `ServeFeedback.install` 的环境变量判据（五个都在 ⇒ 可用；三个必填缺一个 ⇒ 如实「没配」）；
+- **匹配交友两例**：七格逐字段（窗口两端 / `scanned` / `truncated` / 小时升序且只有食堂类支出 /
+  食堂名归并成「学苑食堂」/ 阈值没到 ⇒ `diningHours` 是空串），**且商户全称与金额一个都不在响应里**；
+  参数形状 400（三种）+ `from` 与 `to` 的默认值（`to` 省略 = 今天、`from` 省略 = 往前 90 天）；
+- **WebVPN 两例**：① 正向转换的密文域名那一段是**定值**（与 `:desktop:test` 的
+  `DesktopWebVpnCodecJvmTest` 钉的是**同一个值** —— 两端同一份实现，所以这个值在两处各钉一次正是要
+  证明的事）+ 已经是网关地址的原样返回；② 反向 + 带端口/路径/查询/片段的来回 + 四个 400
+  （body 不是 JSON / `direction` 不认识 / `url` 空白 / 不是网关地址）+ 没令牌 401。
+
+夹具**这一轮一份都没新增**（也不该有：付款码与消费统计两族都打在早已存在的 `CampusCardFakeUpstream`
+上、反馈那一族打在 `FeedbackFakeUpstream` 上、WebVPN 是纯函数根本没有上游可打）——
+§7 第 1 条要求的「夹具」那一处**不是每次都得动，但每次都得核**，上面就是这个核的结论。
 
 ## 7. 变更纪律
 
@@ -736,6 +904,14 @@ POST /api/venue/cancel
    另外记一条接线时才浮现的事：屏上为了「不画拿不到的东西」而在**端口上**加了几格能力开关
    （`LmsSource.supportsDownload` / `supportsSubmissionList`、`JwappScoreSource.canFetchScoreDetail`），
    它们的默认值保持 Android / 桌面的原行为 —— 这是上一轮那次接线就定下的形式（§5.5）。
+7. ⏳ **第三次例外（2026-10-14，§5.7）**：第三批六个端点（付款码拿码 / 反馈读 / 匹配交友的消费统计 /
+   WebVPN 纯转换）**只改了本文档 + `:testkit` 夹具两处**，`:web` 那一处**待接**，并在 §5.7 末尾
+   **指名点姓**地标了出来（每屏要哪个端点、拿不到什么、接的时候注意什么 —— 匹配交友那一屏连
+   「为什么整屏接不上」都写了：wasm 上没有 deflate / Base64，`MatchProfile.codecAvailable == false`）。
+   与第 5 / 6 条那两个例外不同的是：这一次的「夹具」那一处是**零改动**（四族全落在早已存在的
+   假上游上：`CampusCardFakeUpstream` / `FeedbackFakeUpstream`；WebVPN 是纯函数、根本没有上游可打）
+   —— 所以这条纪律的「夹具」那一处**不是每次都得动，但每次都得核**：这一条就是这个核的结论，
+   写在 §6 末（不能因为没动就当它不存在）。
 
 ---
 
