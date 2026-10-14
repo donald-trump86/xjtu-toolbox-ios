@@ -2,17 +2,16 @@ package com.xjtu.toolbox.desktop.archive
 
 import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountStore
-import com.xjtu.toolbox.archive.ARCHIVE_FORMAT
-import com.xjtu.toolbox.archive.ARCHIVE_VERSION
 import com.xjtu.toolbox.archive.ArchiveAccount
-import com.xjtu.toolbox.archive.ArchiveCodec
+import com.xjtu.toolbox.archive.StoreSnapshot
+import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveFile
 import com.xjtu.toolbox.archive.ArchiveNames
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ArchiveFileBackend
 import com.xjtu.toolbox.archive.ExportOptions
 import com.xjtu.toolbox.archive.StoreArchive
-import com.xjtu.toolbox.archive.StoreSnapshot
+import com.xjtu.toolbox.archive.archiveSourceOf
 import com.xjtu.toolbox.archive.archiveDataRoot
 import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveStoreBackend
@@ -36,19 +35,20 @@ import kotlin.time.Clock
  * 同值 —— S2 的测试钉着这一条）。档案落在数据根下的 [ARCHIVE_DIR] 目录（目录形态，可整拷）
  * 与 `<数据根>/archive.zip`（运输形态，§2.0）。
  *
- * ## 一次性导入：本工单只做**入口 + 自校验**（与 `:app` 的 S4 同一处缺口）
+ * ## 一次性导入：本宿主只做**入口 + 自校验**（与 `:app` 的 S4、web 的 S6 同一处缺口）
  *
  * §6.2 的完整链路是「有档案才跑 → 已导入标记（端内私有项）→ staging 落地 + 自校验 → 逐 store 合并
- * → 任一步失败则端内零变化」。其中**逐 store 合并**（§6.4 的 `at` 新者胜 / 缺 `at` 本端胜 / 补写档案
- * 有而本端没有的键）要 `:core` 的 `StoreArchive.import`，而 `StoreArchive` 目前**只有 `export`**
- * （`AppArchiveUx` 的 KDoc 记着同一件事）。所以本工单：
+ * → 任一步失败则端内零变化」。其中**逐 store 合并**（§6.4）在 S1b 已经落地到 `:core`
+ * （`StoreArchive.import` + 写侧窄口 `ArchiveImportTarget`），但**这一端还没把写侧接上**
+ *（与 `:app` 的 S4 一样：那里也停在自校验，改成真合并要单独一次授权）。所以本宿主：
  *
  *  - [pendingArchives] —— 扫数据根（§6.2 桌面那一行的触发点），有档案才继续；
- *  - [checkArchive] —— 自校验：`manifest.json` 在不在 / `format` 对不对 / `version` 认不认识 /
- *    每个 `stores/` 下的 `.json` 解不解得开 / 账号后缀有没有碰撞（§6.2 第 3 条的前半）；
+ *  - [checkArchive] —— 自校验：调 `:core` 的 `StoreArchive.inspect`（S1b 收口），只补本端的
+ *    「档案路径 → 数据根文件」那一列（A13）；
  *  - **不写任何端内数据**（连"已导入标记"都不写 —— 没有合并就没有"已导入"可言）。
  *
  * 于是「坏档案不动端」（A7）在这一端是**结构性成立**的：这个方法跑完，端内键集合与值逐字未变。
+ * 接上写侧之后，这条性质改由 `StoreArchive.import` 的「先全量校验再落地」保住。
  */
 object DesktopArchiveHost {
 
@@ -176,7 +176,7 @@ object DesktopArchiveHost {
         when (check) {
             is ArchiveCheck.Ok ->
                 Log.i(TAG, "发现待导入档案 ${path.name}：format=${check.format} v${check.version}，" +
-                    "${check.stores.size} 个 store / ${check.files} 个文件；合并导入待 :core 的 StoreArchive.import")
+                    "${check.stores.size} 个 store / ${check.files} 个文件；写侧还没接上 StoreArchive.import（S1b 已落地 `:core`）")
             is ArchiveCheck.Failed ->
                 Log.w(TAG, "待导入档案 ${path.name} 不可用：${check.reason}（端内零变化）")
         }
@@ -184,43 +184,32 @@ object DesktopArchiveHost {
     }
 
     /**
-     * 自校验一份档案（§6.2 第 3 条的前半，纯读）：
-     * `manifest.json` 在不在、`format` 对不对、`version` 认不认识（不认识就**明确失败**，A7）、
-     * 每个 `stores/` 下的 `.json` 解不解得开、账号后缀有没有碰撞（§4 / A9）。
+     * 自校验一份档案（§6.2 第 3 条的前半，纯读）：`manifest.json` 在不在、`format` 对不对、
+     * `version` 认不认识（不认识就**明确失败**，A7）、每个 `stores/` 下的 `.json` 解不解得开、
+     * 账号后缀有没有碰撞（§4 / A9）。
+     *
+     * S1b：这十条判定**已经收到 `:core`**（`StoreArchive.inspect`）—— 这里只剩「目录/zip 解成字节
+     * 映射」（[DesktopArchiveIo.read]）与「档案路径 → 数据根文件」这条**本端**的映射（A13）。
      */
     fun checkArchive(path: File): ArchiveCheck {
         val entries = runCatching { DesktopArchiveIo.read(path) }.getOrElse {
             return ArchiveCheck.Failed("读不出来：${it.message ?: it::class.simpleName}")
         }
-        if (entries.isEmpty()) return ArchiveCheck.Failed("里面没有任何条目")
-
-        val manifestJson = entries["manifest.json"] ?: return ArchiveCheck.Failed("缺 manifest.json")
-        val manifest = runCatching { ArchiveCodec.decodeManifest(manifestJson) }.getOrElse {
-            return ArchiveCheck.Failed("manifest.json 解不开：${it.message ?: it::class.simpleName}")
-        }
-        if (manifest.format != ARCHIVE_FORMAT) return ArchiveCheck.Failed("format 不是 $ARCHIVE_FORMAT")
-        if (manifest.version != ARCHIVE_VERSION) return ArchiveCheck.Failed("不认识的版本 ${manifest.version}")
-
-        val collisions = ArchiveNames.detectCollision(manifest.accounts)
-        if (collisions.isNotEmpty()) return ArchiveCheck.Failed("账号后缀碰撞：${collisions.joinToString()}")
-
-        val storePaths = entries.keys.filter { it.endsWith(".json") && it.contains("/stores/") }.sorted()
-        storePaths.forEach { rel ->
-            runCatching { ArchiveCodec.decodeStore(entries.getValue(rel)) }.getOrElse {
-                return ArchiveCheck.Failed("$rel 解不开：${it.message ?: it::class.simpleName}")
+        return when (val inspection = StoreArchive.inspect(archiveSourceOf(entries))) {
+            is ArchiveInspection.Failed -> ArchiveCheck.Failed(inspection.reason)
+            is ArchiveInspection.Ok -> {
+                val root = dataRoot()
+                ArchiveCheck.Ok(
+                    format = inspection.manifest.format,
+                    version = inspection.manifest.version,
+                    stores = inspection.stores,
+                    files = inspection.files,
+                    // A13：档案里每个 store 映射到数据根下的哪个文件（纯字符串拼接）—— 只作「会落到哪儿」
+                    // 的清单，落地由导入那一半做。`files/` 那一层不在这里（见 DesktopArchiveIo.dataRootTarget）。
+                    targets = inspection.stores.mapNotNull { DesktopArchiveIo.dataRootTarget(root, it) },
+                )
             }
         }
-
-        val root = dataRoot()
-        return ArchiveCheck.Ok(
-            format = manifest.format,
-            version = manifest.version,
-            stores = storePaths,
-            files = entries.keys.count { it.contains("/files/") || it.startsWith("files/") },
-            // A13：档案里每个 store 映射到数据根下的哪个文件（纯字符串拼接）—— 只作"会落到哪儿"的清单，
-            // 本工单不落地。`files/` 那一层不在这里（见 DesktopArchiveIo.dataRootTarget）。
-            targets = entries.keys.mapNotNull { DesktopArchiveIo.dataRootTarget(root, it) },
-        )
     }
 }
 
@@ -230,7 +219,12 @@ data class ExportOutcome(val directory: File, val zip: File, val entries: Int)
 /** 数据根里发现的一份待导入档案 + 它的自校验结果。 */
 data class PendingArchive(val path: File, val check: ArchiveCheck)
 
-/** 一份档案的自校验结果（§6.2 第 3 条的前半）。 */
+/**
+ * 一份档案的自校验结果（§6.2 第 3 条的前半）。
+ *
+ * S1b：判定已经收到 `:core`（`StoreArchive.inspect`），这里是它的本端映射 —— 多出 `targets`
+ * 那一列（A13 的「档案路径 → 数据根文件」只属于桌面）。
+ */
 sealed interface ArchiveCheck {
 
     /** 自校验通过。 */

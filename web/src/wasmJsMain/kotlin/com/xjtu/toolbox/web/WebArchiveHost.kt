@@ -4,13 +4,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.archive.ARCHIVE_FORMAT
-import com.xjtu.toolbox.archive.ARCHIVE_VERSION
-import com.xjtu.toolbox.archive.ArchiveCodec
-import com.xjtu.toolbox.archive.ArchiveNames
+import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ExportOptions
 import com.xjtu.toolbox.archive.StoreArchive
 import com.xjtu.toolbox.archive.StoreSnapshot
+import com.xjtu.toolbox.archive.archiveSourceOf
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import kotlin.time.Clock
 
@@ -36,10 +35,11 @@ import kotlin.time.Clock
  * 这一端的触发点**就是**用户在设置页点一次「导入数据存档」（浏览器本来也要求文件选择由用户手势发起）；
  * 「页面加载时检查」那一档要等 D9 之后由 serve 侧给（S7a），本工单不假装它存在。
  *
- * ## 合并导入还没落地（与 `:app` 的 S4、桌面 S5 同一处缺口）
+ * ## 合并导入：`:core` 已经落地（S1b），但这一端的写侧还没接上
  *
- * §6.4 的逐 store 合并要 `:core` 的 `StoreArchive.import`，而 `StoreArchive` 目前**只有 `export`**。
- * 所以这一端拿到用户选的档案之后只做**自校验**（§6.2 第 3 条的前半）并如实报告，**不写任何端内数据**。
+ * §6.4 的逐 store 合并现在是 `:core` 的 `StoreArchive.import`（S1b）+ 写侧窄口 `ArchiveImportTarget`；
+ * 这一端还没给出那个写侧（`localStorage` 的逐键写）⇒ 拿到用户选的档案之后只做**自校验**
+ * （`StoreArchive.inspect`，§6.2 第 3 条的前半）并如实报告，**不写任何端内数据**。
  */
 internal object WebArchiveHost {
 
@@ -87,36 +87,23 @@ internal object WebArchiveHost {
     }
 
     /**
-     * 自校验一份**已解出来**的档案（§6.2 第 3 条的前半，纯读）：
-     * `manifest.json` 在不在、`format` 对不对、`version` 认不认识（不认识就明确失败，A7）、
-     * 每个 `stores/` 下的 `.json` 解不解得开、账号后缀有没有碰撞（§4 / A9）。
+     * 自校验一份**已解出来**的档案（§6.2 第 3 条的前半，纯读）：`manifest.json` 在不在、
+     * `format` 对不对、`version` 认不认识（不认识就明确失败，A7）、每个 `stores/` 下的 `.json`
+     * 解不解得开、账号后缀有没有碰撞（§4 / A9）。
+     *
+     * S1b：判定已经收到 `:core`（`StoreArchive.inspect`）—— 这里只剩「把字节映射交进去」与
+     * 本端结果类型（[WebArchiveCheck]）的映射。
      */
     fun checkArchive(entries: Map<String, String>): WebArchiveCheck {
-        if (entries.isEmpty()) return WebArchiveCheck.Failed("档案里没有任何条目")
-
-        val manifestJson = entries["manifest.json"] ?: return WebArchiveCheck.Failed("缺 manifest.json")
-        val manifest = runCatching { ArchiveCodec.decodeManifest(manifestJson) }.getOrElse {
-            return WebArchiveCheck.Failed("manifest.json 解不开：${it.message ?: it::class.simpleName}")
+        return when (val inspection = StoreArchive.inspect(archiveSourceOf(entries))) {
+            is ArchiveInspection.Failed -> WebArchiveCheck.Failed(inspection.reason)
+            is ArchiveInspection.Ok -> WebArchiveCheck.Ok(
+                version = inspection.manifest.version,
+                stores = inspection.stores,
+                files = inspection.files,
+                redacted = inspection.manifest.redacted.size,
+            )
         }
-        if (manifest.format != ARCHIVE_FORMAT) return WebArchiveCheck.Failed("format 不是 $ARCHIVE_FORMAT")
-        if (manifest.version != ARCHIVE_VERSION) return WebArchiveCheck.Failed("不认识的版本 ${manifest.version}")
-
-        val collisions = ArchiveNames.detectCollision(manifest.accounts)
-        if (collisions.isNotEmpty()) return WebArchiveCheck.Failed("账号后缀碰撞：${collisions.joinToString()}")
-
-        val storePaths = entries.keys.filter { it.endsWith(".json") && it.contains("/stores/") }
-        storePaths.forEach { rel ->
-            runCatching { ArchiveCodec.decodeStore(entries.getValue(rel)) }.getOrElse {
-                return WebArchiveCheck.Failed("$rel 解不开：${it.message ?: it::class.simpleName}")
-            }
-        }
-
-        return WebArchiveCheck.Ok(
-            version = manifest.version,
-            stores = storePaths.sorted(),
-            files = entries.keys.count { it.contains("/files/") || it.startsWith("files/") },
-            redacted = manifest.redacted.size,
-        )
     }
 
     /** 导入那一行的结论文本（纯函数，供屏与「手工点一次」共用同一份措辞）。 */
@@ -127,7 +114,7 @@ internal object WebArchiveHost {
             is WebArchiveCheck.Ok ->
                 "「${picked.fileName}」format=$ARCHIVE_FORMAT v${check.version}，" +
                     "${check.stores.size} 个 store / ${check.files} 个文件；" +
-                    "合并导入待 :core 的 StoreArchive.import 落地（本次未改动任何数据）"
+                    "写侧还没接上 StoreArchive.import（S1b 已落地 `:core`；本次未改动任何数据）"
         }
     }
 }
@@ -170,7 +157,7 @@ internal class WebArchiveActions {
             .getOrElse { "导出失败：${it.message ?: it::class.simpleName}" }
     }
 
-    /** 导入：选一份 zip → 内存里解 → 自校验并如实报告（合并待 `:core` 的 `StoreArchive.import`）。 */
+    /** 导入：选一份 zip → 内存里解 → 自校验并如实报告（写侧接上后改调 `StoreArchive.import`）。 */
     fun import() {
         WebArchiveIo.pick { picked -> status = WebArchiveHost.importStatusText(picked) }
     }
