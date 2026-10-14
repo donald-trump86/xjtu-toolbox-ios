@@ -1110,3 +1110,9 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 **参数提醒**：`S8` 之前，A1/A2/A4 的 **web 侧**与 A5 的**三端形态**跑不了 —— 因为 `:web` 没有测试源集、
 `:core` 也没声明 wasm 测试环境（`core/build.gradle.kts:45-52`）。夹具放 `:core` 的 commonTest（Kotlin 常量），**不能**放 `:testkit`（它是 `kotlin.jvm`，wasm 消费不了）。
 
+**施工坑（批②连踩 3 次，后续子代理必读）**：Kotlin 的**块注释可嵌套** —— KDoc 里只要出现 `/` + `*` 的序列
+（最典型是路径通配 `files/**` / `cache/**` / `accounts/**`），就**开了一层新的块注释**；外层 KDoc 的 `*/`
+只关掉内层 ⇒ 外层注释一路吃到 EOF，把它后面那个声明的 `}` 一起吞掉，报成 `Unclosed comment` 或
+`Missing '}'`（报错行号落在**该 KDoc 所属声明**那一行，很容易误判成括号问题）。**KDoc 里不要写 `/**`**
+（写成 `files/` + 文字说明）。自查一行：`git grep -n 'files/\*\*\|cache/\*\*\|accounts/\*\*' -- '*.kt'`。
+
