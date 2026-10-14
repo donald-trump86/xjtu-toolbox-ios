@@ -103,6 +103,11 @@ fun Application.serveModule(
             matchRoutes(session)
             webVpnRoutes()
 
+            // 多账号页那一族（只读，契约 §5.10 / D9）：账号表（与桌面共用 `xjtu_accounts`）
+            // + serve 这一侧当前会话那一条。**没有写端点** —— 切换/新增/删除/改密仍要去 App 或桌面端
+            // 做，`readOnly:true` 就是这件事的能力开关（见 `AccountRoutes.kt` 的文件头）。
+            accountRoutes(session)
+
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。
             route("{path...}") {

@@ -916,6 +916,22 @@ private fun AppPage(
             onOpenLegacyFeedback = {},
         )
 
+        // 账号管理（D9 / 工单 S7a）：**屏是 `:core` 那份 `AccountManagerScreen`**（三端同一份），
+        // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
+        // 要在 App 或桌面端做，页顶那一行写明这件事（见 `WebAccountsScreen`）。
+        // campus-api 形态下这一族不存在（那一头的账号与凭据都在它自己的进程里）⇒ 与其余只认 serve 的
+        // 那几屏同一条做法：落一张写清「切到 serve 模式就能用」的如实页，而不是一张空账号表。
+        AppRoute.Accounts -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "账号管理",
+                endpoints = "/api/accounts",
+                why = "serve 的账号表（与桌面端共用同一份 xjtu_accounts）与「当前是哪个账号」都读自 serve 进程。",
+                section = "§5.10",
+            )
+        } else {
+            WebAccountsScreen(client = client, mode = mode, onBack = back)
+        }
+
         // 设置（`AppRoute.Settings`）：与 Android / 桌面**同一个屏**（`:core` 的 `SettingsScreen`）。
         // 本端只会从 `?route=settings` 深链走到这里（底栏第五格是"我的"，落在同一个屏上）——
         // 两条路都给同一份 store 与 host，改设置的行为完全一样。
