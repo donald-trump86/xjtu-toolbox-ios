@@ -2,6 +2,9 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.jwapp.AppJwappScoreSource
 import com.xjtu.toolbox.jwapp.CjcxScore
+import com.xjtu.toolbox.jwapp.NoScoreDetailException
+import com.xjtu.toolbox.jwapp.ScoreDetail
+import com.xjtu.toolbox.jwapp.ScoreDetailItem
 import com.xjtu.toolbox.jwapp.TermScore
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -10,7 +13,7 @@ import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
 /**
- * `/api/jwapp*` —— 移动教务成绩屏的**两个只读端点**（`docs/api-contract.md` §5.6），走 `:data` 的
+ * `/api/jwapp*` —— 移动教务成绩屏的**三个只读端点**（`docs/api-contract.md` §5.6 与 §5.8），走 `:data` 的
  * [AppJwappScoreSource]（它一个类实现两个端口，取数口径一行不重做）。
  *
  * ⚠️ **这一族是「两个站点」**（不是笔误）：屏上的成绩是两份上游拼起来的 ——
@@ -19,6 +22,7 @@ import kotlinx.serialization.Serializable
  * |---|---|---|
  * | `GET /api/jwapp/scores` | `JwappScoreSource.getGrade(termCode)` | `jwapp`（移动教务） |
  * | `GET /api/jwapp/precise-scores` | `JwxtScoreSupplement.preciseScores()` | **`jwxt`（教务）** —— `CjcxApi` 的 `xscjcx.do` |
+ * | `GET /api/jwapp/score-detail` | `JwappScoreSource.getScoreDetail(courseId)` | `jwapp`（同上一站，第二枪） |
  *
  * 分成两条路径而不是一条合并的：`:core` 的 `JwappScoreViewModel` 也是**分别取、在屏上按
  * 「学期 + 课程名」替换**的（那份归一化 `normalizeCjcxCourseName` 在 `:core`、有测试钉着），
@@ -29,7 +33,7 @@ import kotlinx.serialization.Serializable
  * | 端口方法 | 本轮端不端 |
  * |---|---|
  * | `getGrade` / `preciseScores` | **端**（两个端点） |
- * | `getScoreDetail`（一门课的分项成绩） | 不端：屏上「点开一门课看分项」那一格。**如实缺口**（下一批可以照 `?courseId=` 再开一条） |
+ * | `getScoreDetail`（一门课的分项成绩） | **端**（`?courseId=`，2026-10-14 第四批补上，见 §5.8）：屏上「点开一门课看分项」那一格就是它。⚠️ 契约 §5.6 里那一行当年写的是「不端」（如实缺口），已随本批改写成「§5.8 已端」 |
  * | `unevaluatedCourseNames` | 不端：那是**评教**那一侧的名单（`:server` 里 `/api/jwxt/evaluations` 已经端了评教本体的另一半） |
  * | `reportedGrades(studentId)` | **不端**：它**要学号**（`ScoreReportApi` 按学号取报表）⇒ §5.2 红线；而且那三行是「未评教课程拿不到成绩」的补丁，属评教那一族的边角 |
  * | `reAuthenticate` / `JwappScoreCache.read` / `write` | 不端：前者是宿主凭据的写动作，后两者是宿主的落盘缓存（serve 这一层不替浏览器缓存） |
@@ -64,6 +68,10 @@ import kotlinx.serialization.Serializable
  *   请求体里是 `{"termCode":"*"}`）；给了但是空白 ⇒ 400；**不做形状校验**
  *   （学期码的合法取值就是响应里的 `termCode`，本层不另立一套判据）；
  * - `precise-scores` 不收参数；
+ * - `?courseId=`（只有 `score-detail` 收）：**必填**（取自 `scores` 里那一行的 `id`），缺 / 空白 ⇒ 400；
+ *   这门课**没有分项**时 `data.detail` 是 `null`（§4：上游明确说没有）而**不是** 502/404 —— 消费方
+ *   按 `NoScoreDetailException` 那条老规矩拿**已经拿到的那一行**自己拼一份空明细
+ *   （`:core` 的 `ScoreItem.asEmptyDetail()`，`JwappScoreViewModel.loadDetail` 就是这么接的）；
  * - 401 令牌对但没会话 · 502 上游 / 网络故障（`FriendlyError` 中文短句，含会话失效那档 ——
  *   `:data` 抛的 `SessionExpiredException` 在本层归到 502：同样的请求稍后重试可能就成）。
  *   ⚠️ 两个端点的会话是**两个站点**：`jwapp` 没会话时 `scores` 502；`jwxt` 没会话时
@@ -101,6 +109,27 @@ internal fun Route.jwappRoutes(session: ServeSession) {
                 call.respond(ApiEnvelope.ok(JwappPreciseScoresData(count = scores.size, scores = scores.map { it.toDto() })))
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载教务精确成绩")
+            }
+        }
+
+        // ── 一门课的分项成绩（同上一站，第二枪）────────────────────────
+        get(JWAPP_SCORE_DETAIL) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val courseId = call.request.queryParameters[JWAPP_PARAM_COURSE_ID]?.trim().orEmpty()
+            if (courseId.isEmpty()) {
+                return@get call.respondBadRequestMessage(
+                    "courseId 必填（取自 /api/jwapp/scores 那一行的 id）",
+                )
+            }
+            try {
+                val detail = session.jwappScoreSource().getScoreDetail(courseId)
+                call.respond(ApiEnvelope.ok(ScoreDetailData(courseId = courseId, detail = detail.toDto())))
+            } catch (e: NoScoreDetailException) {
+                // 「这门课没有分项」= 上游**明确说没有**（§4：null ≠ 字段缺失），不是故障 ——
+                // 如实回 detail:null（不编一份空明细、也不把它报成 502/404）。
+                call.respond(ApiEnvelope.ok(ScoreDetailData(courseId = courseId, detail = null)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载分项成绩")
             }
         }
     }
@@ -155,6 +184,49 @@ internal data class JwappPreciseScoreDto(
     val kclbdm: String,
 )
 
+/**
+ * `GET /api/jwapp/score-detail` 的 `data`。
+ *
+ * `detail` 可空：`null` = 上游**明确说**这门课没有分项成绩（§4），**不是**字段缺失、也不是失败 ——
+ * 消费方拿已经拿到的那一行自己拼一份空明细（`:core` 的 `ScoreItem.asEmptyDetail()`）。
+ */
+@Serializable
+internal data class ScoreDetailData(
+    /** 请求里那个课程 id，原样回（消费方靠它把结果对回某一门课）。 */
+    val courseId: String,
+    val detail: ScoreDetailDto?,
+)
+
+/** [ScoreDetail] 的线上形状：十二格 + 分项四格（字段名一个不改）。 */
+@Serializable
+internal data class ScoreDetailDto(
+    val courseName: String,
+    val coursePoint: Double,
+    val examType: String,
+    val majorFlag: String?,
+    val examProp: String,
+    val replaceFlag: Boolean,
+    val score: String,
+    val scoreValue: Double?,
+    val gpa: Double,
+    val passFlag: Boolean,
+    val specificReason: String?,
+    val itemList: List<ScoreDetailItemDto>,
+)
+
+/**
+ * 一个分项：⚠️ `itemPercent` 是**比例**（`0.3` = 30%）—— `:data` 的 `JwappApi.getDetail`
+ * 已经把上游那个 `"30%"` 字符串除成比例了（本层不除第二次），`itemScoreValue` 是
+ * `itemScore` 解析出来的数字（解析不出来是 `null`）。
+ */
+@Serializable
+internal data class ScoreDetailItemDto(
+    val itemName: String,
+    val itemPercent: Double,
+    val itemScore: String,
+    val itemScoreValue: Double?,
+)
+
 // ── 投影 helpers ─────────────────────────────────────────────────────
 
 private fun CjcxScore.toDto() = JwappPreciseScoreDto(
@@ -176,6 +248,28 @@ private fun CjcxScore.toDto() = JwappPreciseScoreDto(
     kclbdm = kclbdm,
 )
 
+private fun ScoreDetail.toDto() = ScoreDetailDto(
+    courseName = courseName,
+    coursePoint = coursePoint,
+    examType = examType,
+    majorFlag = majorFlag,
+    examProp = examProp,
+    replaceFlag = replaceFlag,
+    score = score,
+    scoreValue = scoreValue,
+    gpa = gpa,
+    passFlag = passFlag,
+    specificReason = specificReason,
+    itemList = itemList.map { it.toDto() },
+)
+
+private fun ScoreDetailItem.toDto() = ScoreDetailItemDto(
+    itemName = itemName,
+    itemPercent = itemPercent,
+    itemScore = itemScore,
+    itemScoreValue = itemScoreValue,
+)
+
 // ── 常量 ─────────────────────────────────────────────────────────────
 
 /**
@@ -187,4 +281,6 @@ internal fun ServeSession.jwappScoreSource(): AppJwappScoreSource = AppJwappScor
 internal const val JWAPP_SEGMENT = "jwapp"
 internal const val JWAPP_SCORES = "scores"
 internal const val JWAPP_PRECISE_SCORES = "precise-scores"
+internal const val JWAPP_SCORE_DETAIL = "score-detail"
 internal const val JWAPP_PARAM_TERM = "term"
+internal const val JWAPP_PARAM_COURSE_ID = "courseId"

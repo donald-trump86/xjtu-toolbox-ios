@@ -7,8 +7,11 @@ import com.xjtu.toolbox.core.net.TermStartData
 import com.xjtu.toolbox.judge.JudgeApi
 import com.xjtu.toolbox.judge.Questionnaire
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.schedule.JwxtScheduleApi
+import com.xjtu.toolbox.schedule.ScheduleChangeEvent
 import com.xjtu.toolbox.schedule.SchoolCourseQuery
+import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.schedule.isTermCode
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.score.scoreReportSource
@@ -19,7 +22,8 @@ import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
 /**
- * `/api/jwxt*` —— 八个端点（`docs/api-contract.md` §5 的 P0）：
+ * `/api/jwxt*` —— 十一个端点（`docs/api-contract.md` §5 的 P0；其中 `changes` / `exams` / `textbooks`
+ * 三个是 2026-10-14 第四批补的，见 §5.8）：
  *
  * | 端点 | 对应端口（`:core` 模型 / `:data` 实现） |
  * |---|---|
@@ -27,6 +31,9 @@ import kotlinx.serialization.Serializable
  * | `GET /api/jwxt/term` | `SchoolCourseSource.currentTerm()` |
  * | `GET /api/jwxt/term-start` | `JwxtScheduleApi.termStart()`（`:data` 的 `wdkb` 取数） |
  * | `GET /api/jwxt/schedule` | `JwxtScheduleApi.rows()`（同上） |
+ * | `GET /api/jwxt/changes` | `JwxtScheduleApi.changes()`（同一份调停课报文，只是不掺课表） |
+ * | `GET /api/jwxt/exams` | `JwxtScheduleApi.examSchedule()`（`studentWdksapApp` 的 `wdksap.do`） |
+ * | `GET /api/jwxt/textbooks` | `JwxtScheduleApi.textbooks(studentId, term)`（帆软报表 `jcgl/wdjc.cpt`） |
  * | `GET /api/jwxt/grades` | `ScoreReportSource.grades()`（`ReportedGrade`） |
  * | `GET /api/jwxt/school-courses` | `SchoolCourseSource.query()`（`SchoolCourseResult`） |
  * | `GET /api/jwxt/evaluations` `…/status` | `JudgeApi`（`Questionnaire`） |
@@ -70,10 +77,27 @@ import kotlinx.serialization.Serializable
  *   不实现也不投影 —— 契约 §5「只看不提交仍是默认」的如实写法，字段必须出现）；
  * - **evaluations/status**：`{canSubmit: false}`。
  *
+ * - **changes**：`?term=`（省略 = 当前学期，同 `schedule`）⇒ `{term, count, changes}`，行就是 `:core` 的
+ *   [ScheduleChangeEvent] 十二格（字段名一个不改，`kind` 是枚举名 `MOVED`/`CANCELLED`/`ADDED`）。
+ *   ⚠️ 这是 `:data` `JwxtChanges.apply(emptyList(), …)` 的**纯记录**那半（不掺课表）：`/api/jwxt/schedule`
+ *   端的是排课原样、这一条是「改了什么」—— 两条互不替代（屏上「这门课今天在哪上」要两条一起看）。
+ *   ⚠️ **教师名不投影**：`ScheduleChangeEvent` 上本来就没有那一格（`:data` 的 `JwxtChange` 带了
+ *   `teacher`，但它没有进事件）—— 那是 §5.2 红线，不是本层特意滤的；`appliedAt` 同理不进（那是
+ *   「什么时候申请的」，屏不读）。上游取不到记录时 `:data` 自己**当没有**（回空表，不报错）。
+ * - **exams**：`?term=`（省略 = 当前学期，同上）⇒ `{term, count, exams}`，行就 `:core` 的 [ExamItem] 六格；
+ *   `examDate` / `examTime` 是 `:data` 剥好的两格（上游把日期与时段塞在同一个键里），**不是** ISO-8601
+ *   （那是考试**安排在什么时候**的原文，按 §4 的那条例外处理）；行序 = 上游序（`*order=-KSRQ,-KSSJMS`）。
+ * - **textbooks**：`?term=`（省略 = 当前学期，同上）⇒ `{term, count, books}`，九格 = `:core` 的
+ *   [TextbookItem] 八格 + `hasTextbook`（= `hasSubstantiveTextbook`，**同一个判据不在本层重写**）。
+ *   ⚠️ **学号只在请求里**（帆软报表的 `xh=`）⇒ 响应里没有它（与 `grades` 同一条红线）；
+ *   `isbn` 原样投影：`hasTextbook:false` 那几行的占位 ISBN（`9780000000000` 那种）**不在这里滤**
+ *   —— 滤它是消费方的事（`:core` 的 `realIsbn` 已经在做，多一处只会多一个要跟着上游漂的口径）。
+ *
  * ## 错误码
  *
  * 400 参数形状不对（`page`/`size` 不是正整数、`weekday` 不是 1..7、`finished` 不是 0/1/all、`terms`
- * 超过 4 个）· 401 令牌对但没会话 · 502 上游/网络故障（`FriendlyError` 中文短句）。
+ * 超过 4 个、`changes`/`exams`/`textbooks` 的 `?term=` 不是学期号）· 401 令牌对但没会话 ·
+ * 502 上游/网络故障（`FriendlyError` 中文短句）。
  *
  * @param session 会话装配；站点与学号都从它那里取（学号 = `AccountContext.activeAccountId`，
  *   登录/恢复时由 [ServeSession] 设好 —— 只在请求教务的 URL 里用，**不进**响应）。
@@ -130,6 +154,59 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
                 call.respond(ApiEnvelope.ok(ScheduleData(term = term, rows = rows, count = rows.size)))
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载课表")
+            }
+        }
+
+        // ── 调停补课（wdkb 的 xskcb/xsdkkc.do：只是记录，不掺课表）──────────
+        get(JWXT_CHANGES) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val requested = call.request.queryParameters[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requested != null && !isTermCode(requested)) {
+                return@get call.respondBadRequestMessage(JWXT_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val term = requested ?: currentTerm(session)
+                val changes = JwxtScheduleApi(session.jwxtSite()).changes(term)
+                call.respond(ApiEnvelope.ok(ChangesData(term = term, count = changes.size, changes = changes)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载调停补课")
+            }
+        }
+
+        // ── 考试安排（studentWdksapApp 的 wdksap.do）────────────────────
+        get(JWXT_EXAMS) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val requested = call.request.queryParameters[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requested != null && !isTermCode(requested)) {
+                return@get call.respondBadRequestMessage(JWXT_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val term = requested ?: currentTerm(session)
+                val exams = JwxtScheduleApi(session.jwxtSite()).examSchedule(term)
+                call.respond(ApiEnvelope.ok(ExamsData(term = term, count = exams.size, exams = exams)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载考试安排")
+            }
+        }
+
+        // ── 本学期教材（帆软报表 frReport2/show.do 的 jcgl/wdjc.cpt）──────
+        //
+        // 学号从会话取（与 `grades` 同一处：`AccountContext.activeAccountId`）—— 它只进请求，
+        // 不进响应（§5.2 红线）。
+        get(JWXT_TEXTBOOKS) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val requested = call.request.queryParameters[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requested != null && !isTermCode(requested)) {
+                return@get call.respondBadRequestMessage(JWXT_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val studentId = AccountContext.activeAccountId
+                    ?: return@get call.respondLoginRequired()
+                val term = requested ?: currentTerm(session)
+                val books = JwxtScheduleApi(session.jwxtSite()).textbooks(studentId, term).map { it.toDto() }
+                call.respond(ApiEnvelope.ok(TextbooksData(term = term, count = books.size, books = books)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载教材")
             }
         }
 
@@ -278,6 +355,50 @@ internal data class GradeDto(
     val term: String,
 )
 
+/** `GET /api/jwxt/changes` 的 `data`：行直接用 `:core` 的 [ScheduleChangeEvent]（`@Serializable`）。 */
+@Serializable
+internal data class ChangesData(
+    val term: String,
+    val count: Int,
+    val changes: List<ScheduleChangeEvent>,
+)
+
+/** `GET /api/jwxt/exams` 的 `data`：行直接用 `:core` 的 [ExamItem]（`@Serializable`）。 */
+@Serializable
+internal data class ExamsData(
+    val term: String,
+    val count: Int,
+    val exams: List<ExamItem>,
+)
+
+/** `GET /api/jwxt/textbooks` 的 `data`。 */
+@Serializable
+internal data class TextbooksData(
+    val term: String,
+    val count: Int,
+    val books: List<TextbookDto>,
+)
+
+/**
+ * [TextbookItem] 的线上形状：八格原样（字段名一个不改）+ `hasTextbook`。
+ *
+ * `hasTextbook` ← `TextbookItem.hasSubstantiveTextbook`（`:core`/:data 的判据：书名不是「无教材」
+ * 且有点实质信息） —— 本层**不重写**那个判据，只把它如实报出来（消费方据此把「无教材」的课
+ * 排在后面 / 不画详情，与 `ScheduleViewModel` 同一条用法）。
+ */
+@Serializable
+internal data class TextbookDto(
+    val courseName: String,
+    val textbookName: String,
+    val author: String,
+    val publisher: String,
+    val isbn: String,
+    val price: String,
+    val edition: String,
+    val courseCode: String,
+    val hasTextbook: Boolean,
+)
+
 /** `GET /api/jwxt/school-courses` 的 `data`：分页形状（§4）+ 两个筛选项开关。 */
 @Serializable
 internal data class SchoolCoursePage(
@@ -352,6 +473,18 @@ internal data class EvaluationsStatusData(val canSubmit: Boolean)
 
 private fun ReportedGrade.toDto() = GradeDto(courseName, coursePoint, score, gpa, term)
 
+private fun TextbookItem.toDto() = TextbookDto(
+    courseName = courseName,
+    textbookName = textbookName,
+    author = author,
+    publisher = publisher,
+    isbn = isbn,
+    price = price,
+    edition = edition,
+    courseCode = courseCode,
+    hasTextbook = hasSubstantiveTextbook,
+)
+
 private fun com.xjtu.toolbox.schedule.SchoolCourse.toDto() = SchoolCourseDto(
     courseCode = courseCode,
     courseName = courseName,
@@ -405,6 +538,9 @@ internal const val JWXT_TERMS = "terms"
 internal const val JWXT_TERM = "term"
 internal const val JWXT_TERM_START = "term-start"
 internal const val JWXT_SCHEDULE = "schedule"
+internal const val JWXT_CHANGES = "changes"
+internal const val JWXT_EXAMS = "exams"
+internal const val JWXT_TEXTBOOKS = "textbooks"
 internal const val JWXT_GRADES = "grades"
 internal const val JWXT_SCHOOL_COURSES = "school-courses"
 internal const val JWXT_EVALUATIONS = "evaluations"
