@@ -55,10 +55,28 @@ kotlin {
             //（实测：`e: ❌ The new test {} DSL is currently not supported for wasmJs targets`）⇒ wasmJs 走的是
             // **旧**那一套 `testTask { useKarma { … } }`（任务描述自己写着 "Run all wasmJs tests inside browser
             // using karma and webpack"）。浏览器可执行文件**不钉机器路径**（仓库里不放 `/home/…` 那种东西）：
-            // `-Pchrome.bin=<路径>` 或环境变量 `CHROME_BIN` 都没给时，让 karma-chrome-launcher 自己找系统 Chrome。
+            // using karma and webpack"）。浏览器可执行文件**不钉机器路径**（仓库里不放 `/home/…` 那种东西），
+            // 解析顺序：`-Pchrome.bin=<路径>` → 环境变量 `CHROME_BIN` → **本机常见位置自动探测**
+            //（`/usr/bin/chromium*` / `/usr/lib/chromium*` / `google-chrome*` / `/snap/bin/chromium` /
+            // `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`）→ 都没找到才交给
+            // karma-chrome-launcher 自己找。**门禁自足**：新人 clone 下来直接跑，不用先知道这台机器的 Chrome 在哪。
             testTask {
                 val chromeBin = providers.gradleProperty("chrome.bin").orNull
                     ?: providers.environmentVariable("CHROME_BIN").orNull
+                    ?: listOf(
+                        "/usr/bin/chromium",
+                        "/usr/bin/chromium-browser",
+                        "/usr/lib/chromium/chromium",
+                        "/usr/bin/google-chrome",
+                        "/usr/bin/google-chrome-stable",
+                        "/snap/bin/chromium",
+                    ).firstOrNull { File(it).canExecute() }
+                    ?: File(System.getProperty("user.home"), ".cache/ms-playwright")
+                        .listFiles { f -> f.isDirectory && f.name.startsWith("chromium") }
+                        ?.sortedByDescending { it.name }
+                        ?.map { File(it, "chrome-linux64/chrome") }
+                        ?.firstOrNull { it.canExecute() }
+                        ?.absolutePath
                 if (chromeBin != null) environment("CHROME_BIN", chromeBin)
                 useKarma {
                     // `--no-sandbox`：这台机器是 Ubuntu 24.04，AppArmor 关掉了非特权 user namespace
