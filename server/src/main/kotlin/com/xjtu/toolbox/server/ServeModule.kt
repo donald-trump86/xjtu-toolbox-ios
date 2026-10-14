@@ -68,8 +68,10 @@ fun Application.serveModule(
         route(API_PREFIX) {
             install(accessTokenGate(accessToken))
 
-            // `/api/session*` 四个端点（契约 §5 的 P0）—— 挂在这里就是「自动被闸门罩住」
-            sessionRoutes(session, accessToken)
+            // `/api/session*` 四个端点（契约 §5 的 P0）—— 挂在这里就是「自动被闸门罩住」。
+            // `secureCookie`：HTTPS 形态（config.tls 非 null ⇒ 这一次是 [ServeHttps] 起的）下
+            // 令牌换来的 cookie 带 `Secure`；明文那一档是 false，**与今天逐字相同**。
+            sessionRoutes(session, accessToken, secureCookie = config.tls != null)
 
             // 契约 §5 的 P0 取数端点：组一（免登录/轻登录六域）+ 组二（需登录六域）
             // 两组各自在独立文件里实现（`serveEndpointRoutes` / `jwxtRoutes` / `libraryRoutes` /

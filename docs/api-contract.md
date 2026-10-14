@@ -29,9 +29,12 @@
 
 1. 默认**只监听 `127.0.0.1`**；
 2. 首次启动生成并**打印访问令牌**；浏览器侧必须带（`Authorization: Bearer <token>`，或令牌换 cookie 后随请求带）。
-    cookie 名固定 **`serve_token`**，由 `GET /api/session` 发出（`Path=/; HttpOnly; SameSite=Lax`，见 §5.1）；
+    cookie 名固定 **`serve_token`**，由 `GET /api/session` 发出，属性随形态变（D11 批④，实现：
+    `AccessToken.setCookieHeader(token, secure)`）：
+    - **明文形态（默认，不给新参数）**：`Path=/; HttpOnly; SameSite=Lax` —— **逐字不变**；
+    - **HTTPS 形态（`--https`）**：多一个 `Secure`。
     浏览器在地址栏里贴不了 `Authorization`，所以实际形态就是「先用 Bearer 换 cookie，之后只带 cookie」；
-    不带 `Secure` 是因为默认是明文 HTTP（浏览器会直接丢掉带 `Secure` 的 cookie）。
+    明文那一档不能带 `Secure`（浏览器会直接丢掉一个来自 http:// 的 Secure cookie）。
 3. 对外暴露必须**显式** `--host 0.0.0.0`，文档写明"自己加反代 + 鉴权，风险自负"；
 4. `/api/status` 是**唯一免令牌**端点（只报"活着 + 有没有会话"），且**不含身份信息**（不返回学号/姓名）。
 5. **`--host 0.0.0.0` + HTTP ⇒ 非安全上下文**（2026-10-10 实测，Web 外壳那边撞到的）：
@@ -40,6 +43,20 @@
    ⇒ 对外暴露时要么自己上 HTTPS（反代 + 证书），要么给复制路径留一条 `document.execCommand('copy')`
    的降级；**不要**默认就走降级 —— 那是把「不安全」常态化。同类受影响的还有 `crypto.subtle`、
    地理位置、Service Worker（`serve` 模式若打算做 PWA，先把这一条想清楚）。
+6. **serve 内置 HTTPS（D11 批④，2026-10-15 落地）**：`--https` 把 serve 切成 HTTPS 形态 ——
+   `--host/--port` 就是 HTTPS 的地址与端口，证书默认 `<数据根>/tls/serve.p12`（`--cert` / `--cert-alias`
+   可指别处，证书目录与访问令牌同一个数据根），没给 `--cert` 时**缺证书就现生成一张自签**
+   （JDK 的 keytool，SAN 含 `localhost` 与 `127.0.0.1`）。**三点口径**：
+   - 不给 `--https` ⇒ 明文 HTTP + 令牌闸门，**与今天逐字相同**（默认行为不动）；
+   - HTTPS 形态下明文监听只绑 `127.0.0.1`（本进程内部用），令牌闸门与 `/api/session` 换 cookie 的语义
+     一概不变，只多一个 `Secure`；
+   - 证书缺了 / 路径不存在 / 密码不对 / 文件不是证书库 ⇒ **一律明确报错、退出码 2**，
+     **绝不静默回落成明文**（“我以为开了 HTTPS”比“起不来”糟得多）。
+   怎么开（自签一条命令 + 自带证书库 + 证书放哪儿 + 浏览器怎么信任）：
+   `docs/linux-delivery.md` / `docs/windows-delivery.md` 的「怎么开 HTTPS」那一节。
+7. **在 HTTPS 落地用起来之前，写 / 支付端点不要挂在公网口上**（§16.4 第二条风险，P1 的判据）：
+   `0.0.0.0` + 明文 + 一枚令牌的那个口子只能自用；对外要么 `--https`，要么自己加反代。
+   今天已落地的写路径（图书馆约座 / 场馆下单，§5.3.1 / §5.3.2）与将来 D7 那一批（含真支付）都适用这一条。
 
 ## 4. 通用形状
 
@@ -144,8 +161,9 @@
 四条口径（实现见 `server/src/main/kotlin/com/xjtu/toolbox/server/SessionRoutes.kt` / `ServeSession.kt`）：
 
 1. **令牌换 cookie 只在 `GET /api/session` 发**：响应带
-   `Set-Cookie: serve_token=<令牌>; Path=/; HttpOnly; SameSite=Lax`。浏览器先用
-   `Authorization: Bearer` 打这一枪，之后**只带 cookie**（闸门两种形态都认，名字固定 `serve_token`）。
+   `Set-Cookie: serve_token=<令牌>; Path=/; HttpOnly; SameSite=Lax`（**HTTPS 形态时末尾多一个 `; Secure`**
+   —— D11 批④：`AccessToken.setCookieHeader(token, secure)`，形态由 `ServeConfig.tls` 定）。
+   浏览器先用 `Authorization: Bearer` 打这一枪，之后**只带 cookie**（闸门两种形态都认，名字固定 `serve_token`）。
    `HttpOnly` 是重点：页面脚本读不到令牌。其余三个端点**不发**这行 —— 客户端启动时必然要问一次
    「有没有会话」，cookie 顺手就拿到了。
 2. **`authenticated` 的含义是「登录跑完了」**（或冷启动从落盘凭据静默恢复过），**不是**
@@ -1194,6 +1212,27 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 ③ 表里也有当前会话那一条 ⇒ 合成成一行并带上表里的 `lastUsedAt`。夹具那一处本批**新增**了
 `AccountsFixture`（纯字符串常量，见 §5.10 末段）；`:core` 那一侧同时新增 `ServeAccountsApiTest`（**3** 例）。
 
+**新增的 8 例（2026-10-15，批④ / D11 §3 第 6/7 条）**：`ServeHttpsTest` —— 这一族也**不打上游**
+（全部是监听 / TLS / 证书 / 参数），`:server:test` **85 → 93**：
+
+- **默认那一档逐字冻结两例**：① 不给新参数 ⇒ `tls == null`、`--host/--port/--dist` 三个默认值与
+  今天逐字相同，证书默认路径就是 `<数据根>/tls/serve.p12` 而且**不建目录**，`setCookieHeader`
+  仍然只有 `Path=/; HttpOnly; SameSite=Lax`；② 同一台机器上无论怎么调，HTTPS 那个端口上发明文
+  HTTP 必须失败（不静默回落 —— 实测 CIO 的 `sslConnector` 恰恰是那个静默形态，所以这条必须是断言）；
+- **真 HTTPS 往返一例**：`--https --port 0` ⇒ `ServeHttps.start`（**生产入口**）起来、
+  `resolvedConnectors` 那个端口上真握 TLS + 收发（客户端只信那一张自签证书）、`/api/status` 200、
+  闸门还在（无令牌 401 / 对令牌过闸门后 404）；
+- **cookie 那一例**：HTTPS 形态下 `GET /api/session` 的 `Set-Cookie` 仍带 `HttpOnly + SameSite=Lax + Path=/`，
+  只多一个 `Secure`；明文那一档仍是那一行**逐字**；
+- **转发语义一例**：一条 TLS 连接上连打两发（`Connection: keep-alive`）—— 字节转发不许把
+  keep-alive 弄丢（将来 D10 的 SSE / 长连接就靠它）；
+- **自签生成一例**：默认路径上生成（两个文件 `0600`、证书 `CN=localhost` 且 SAN 含 `localhost` 与
+  `127.0.0.1`、`sanOf` 三档），第二次启动**不重签**（指纹相同）；
+- **失败语义两例**：① `--cert` / `--cert-alias` 离了 `--https` 就报错（`--https` 本身不带值、`--cert` 缺值也报错）；
+  ② 库不存在（不捂着生成）、别名不在库里、文件不是证书库、密码文件没了 —— 四种各一句中文短句。
+
+`:testkit` 本批**零改动**（这一族根本不打上游，与 §5.10 那一批「不打上游的族」同一个形态）。
+
 
 
 ## 7. 变更纪律
@@ -1267,6 +1306,19 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
     （`readOnly:true`）**加上**一条「为什么不端」的理由 —— 否则下一个人会把它读成「漏了」而去补一个
     半成品的写端点。这也是**路由差集 7 → 6** 的那一格：`AppRoute.Accounts` 从此在 `:web` 的清单里
     （§16.2 第 1 条的路由全等口径），而「清单里有」不等于「四个动作都能做」—— 那件事写在页面上。
+11. ✅ **批④（2026-10-15，D11）三处同改齐了**：serve 内置 HTTPS（§3 第 6/7 条 + §3.2 的 cookie 属性 + §5.1）。
+    这一批**不动任何端点的请求/响应形状**（还是那几个信封），所以 §7 第 1 条的「三处」是：
+    - **本文档**：§3（新增第 6/7 条、改第 2 条）、§3.2（cookie 的 `Secure` 随形态）、§5.1（`Set-Cookie` 那行）、§6（计数）；
+    - **夹具**：**零改动** —— 这一批不打任何上游（验的是监听/TLS/证书/参数，`ServeHttpsTest` 一次没碰
+      `:testkit`）。「夹具那一处不是每次都得动，但每次都得核」：这次核的结论就是这一句；
+    - **`:web`**：**零改动** —— 形状没变，`Secure` 是 cookie 属性、由浏览器自己带（`web/.../ServeSession.kt`
+      那边不需要知道这件事）。将来浏览器靠 HTTPS 换成**安全上下文**才能用的那些能力（剪贴板 /
+      `crypto.subtle` / Service Worker）属 D12，不在这一批。
+    这一批多出来的一条规矩：**「默认那一档逐字冻结」还要管命令行** —— 不给新参数时 `serve` 的行为
+    不只是「端点的形状不变」，还包括启动横幅、`--host/--port` 的语义、cookie 属性一个都不多；
+    `ServeHttpsTest` 的第一条与第三条（明文默认值 / HTTPS 端口上发明文必须失败）就是干这个的。
+    另：`--https` 下「证书缺了 / 路径不存在 / 密码不对 / 不是证书库」一律报错退出（码 2），
+    **不许静默回落成明文** —— 这条也是用例钉住的（`ServeTlsException` 四条）。
 
 ---
 
