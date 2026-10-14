@@ -1091,3 +1091,22 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | **P4** | (b) 类里**工程与合规**：`#33`（`miuix = "latest.release"` 破坏可重现性 —— 这是**构建**问题，不是安卓行为，属于重构现场）、`#34`（workflow 内联 `${{ }}` 与 token 拼 URL） | 与 CI 同批 |
 | **—** | **(a) 类全部：不写代码**（城区门槛 / 真名分享码 / 文案口径 / 无障碍 / 首屏性能 / 内存历史 / 工具 schema 全量 / N+1 / 小组件冷启动 / 更新摘要 / 大文件拆分 / 覆盖率 / `latest.release` 之外的库存建议） | 只出现在 `docs/audit-response.md` |
 
+### 16.7 批②（统一存档层 + 三端多账号）的工单与裁定（2026-10-14 定）
+
+**工单真源 = `docs/storage-layout-plan.md`**（602 行，S0→S8，每个工单都能独立提交、独立跑门禁；判据挂在
+`docs/storage-layout.md` §7 的 A1–A13 上）。本节只记主代理替用户对设计里那些"待拍板"点的裁定，以及几处与审计分类相关的更正。
+
+| # | 议题 | 裁定 | 理由 |
+|---|---|---|---|
+| **R1** | 档案容器：JSON 目录 vs `.properties` 目录（规格未决 #1） | **JSON 目录** | wasm 没有 `java.util.Properties`，要在 commonMain 重写它的转义规则（`\uXXXX`、ISO-8859-1、行续接、`= : # !`）并与 JVM 逐字节往返一致 —— 一份新增的易错代码，而值类型标签（long/float/set）在 Properties 里还得另解决 |
+| **R2** | 规格未决 #2：「旧形状只读」在 Android 上做不到 | 口径定为 **「键名逐字 + 档案是端内 store 的投影」** | D8 已拍板 Android 内部仍走 SharedPreferences/Room（不动 `:app` 红线）；旧形状仍要能**读**（一次性导入），但端内**写**路径不变 |
+| **R3** | Android 档案落地通道（规格未决 #3） | **SAF**（零权限、零 manifest 改动） | 已核 `file_provider_paths.xml` 里没有 `archive/` 条目；若走分享导出则需追加 `archive/` |
+| **R4** | 审计 `#02`（切账号屁岱串号并写盘污染） | **Android 侧不改**（D15 (a) 类）；`:core` 只加可选槽位 `AgentHost.onAccountChanged()`（Android 空实现） | `AgentViewModel` 在 `:core`，真修就是三端一起变、直撞 C1 红线（D15 已明确：安卓侧行为一律不动） |
+| **R5** | 审计 `#07` 的三端不一致侧 | **不存在** —— 三端今天**都是无后缀**（已复核 `AppPaymentCode.kt:48` / `ToolboxDesktopApp.kt:759` / `ToolboxWebApp.kt:824`）⇒ 整条归 (a) 类，本次只在 registry 里标 `global` | 回应文档 `docs/audit-response.md` 里 #07 的归类要按此更正 |
+| **R6** | `data_extraction_rules.xml` | **追加 `archive*` 排除** | 这是 `:app` 侧**唯一**必动的地方（纯安全排除，不改可见行为）：否则含学号的档案会进云备份 |
+| **R7** | `CredentialStore.cached_nickname` 不在规格键清单里 | **回写规格**（补进 `docs/storage-layout.md` §3.2） | 规格是唯一真源，漏键就是将来跨端丢东西 |
+| **R8** | 施工序 | `S0`（桌面落盘 0 号前置）→ `S1` → {`S2`,`S3`} → {`S4`,`S5`,`S6`} → `S7a` → `S7b` → `S8` | `S0` 是"档案可直接拷过去用"的前提（桌面那一整族 store 现在只在内存）；`S8`（`:web` 测试源集 + 三端互认）放批末最省 |
+
+**参数提醒**：`S8` 之前，A1/A2/A4 的 **web 侧**与 A5 的**三端形态**跑不了 —— 因为 `:web` 没有测试源集、
+`:core` 也没声明 wasm 测试环境（`core/build.gradle.kts:45-52`）。夹具放 `:core` 的 commonTest（Kotlin 常量），**不能**放 `:testkit`（它是 `kotlin.jvm`，wasm 消费不了）。
+
