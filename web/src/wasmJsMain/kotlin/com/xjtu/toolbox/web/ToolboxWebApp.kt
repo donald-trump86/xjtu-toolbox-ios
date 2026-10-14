@@ -146,7 +146,11 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     var mode by remember { mutableStateOf<ApiMode?>(null) }
     val initial = remember { initialWebTarget() }
     var target: WebTarget by remember { mutableStateOf(initial) }
-
+    // 归档那两个入口动作（S6）：导出要开浏览器下载锚点、导入要开 `<input type=file>` 选一份 zip，
+    // 两者都是**页面级**的动作 ⇒ 外壳建一份、两处设置屏共用（切走再回来还能看到上一次的结果）。
+    // 页面加载时**没有**「扫一遍待导入档案」那一步：浏览器没有可扫的位置（§6.2 web 那一行说的
+    // 「D9 之后 = serve 侧」），见 `WebArchiveHost` 的 KDoc。
+    val archiveActions = remember { WebArchiveActions() }
     LaunchedEffect(Unit) {
         // `?token=<令牌>`：**一次性入口**（今天唯一能从地址栏进来的东西）。贴进内存持有者、
         // 立刻把地址栏抹干净（免得它进历史/截图），下面那一发 `sessionState()` 顺手换成 cookie。
@@ -210,6 +214,7 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
                             session = session,
                             insets = insets,
                             onAppearanceChanged = onAppearanceChanged,
+                            archiveActions = archiveActions,
                             onNavigate = { target = it },
                         )
 
@@ -233,7 +238,9 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
 
                             WebRoutes.PROFILE -> SettingsScreen(
                                 store = remember { SettingsStore() },
-                                host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged) },
+                                host = remember(onAppearanceChanged) {
+                                    WebSettingsHost(onAppearanceChanged, archiveActions)
+                                },
                                 // 本端没有返回栈（底栏就是导航）⇒ 返回回日程，与"默认落点"同一条口径。
                                 onBack = { target = WebTarget.App(AppRoute.Schedule) },
                             )
@@ -308,6 +315,11 @@ private fun AppPage(
     insets: ShellPageInsets,
     /** 外观改完之后戳一下主题那一层（只有设置屏用得上）。 */
     onAppearanceChanged: () -> Unit,
+    /**
+     * 设置屏「数据与隐私」那两行归档动作的宿主（S6，外壳建一份）：屏自己不开浏览器下载锚点
+     * 与文件选择框，只把点击转给这里 —— 与 `:app` / 桌面同一条分工（见 [WebArchiveActions]）。
+     */
+    archiveActions: WebArchiveActions,
     onNavigate: (WebTarget) -> Unit,
 ) {
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
@@ -909,7 +921,7 @@ private fun AppPage(
         // 两条路都给同一份 store 与 host，改设置的行为完全一样。
         AppRoute.Settings -> SettingsScreen(
             store = remember { SettingsStore() },
-            host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged) },
+            host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged, archiveActions) },
             onBack = back,
         )
 
