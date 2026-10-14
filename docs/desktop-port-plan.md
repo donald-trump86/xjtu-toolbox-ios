@@ -1116,3 +1116,30 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 `Missing '}'`（报错行号落在**该 KDoc 所属声明**那一行，很容易误判成括号问题）。**KDoc 里不要写 `/**`**
 （写成 `files/` + 文字说明）。自查一行：`git grep -n 'files/\*\*\|cache/\*\*\|accounts/\*\*' -- '*.kt'`。
 
+### 16.8 批②（统一存档层 + 三端多账号）与批④（serve HTTPS）完工记录（2026-10-15）
+
+| 工单 | 提交 | 一件事实 |
+|---|---|---|
+| S0 | `47cc75cd` | 桌面键值存储从**内存**改成**真落盘**（0 号前置；隔离根里真出现 0600 的 `.properties`） |
+| S1 / S1b | `65567894` / `6ed4adda` | 档案模型 + codec + 纯函数；**S1b 补上导入合并语义**（§6.4）与 `inspect` 收口 |
+| S2 / S3 | `73c4a829` / `4abc4bb0` | 三端只读投影（prefs / 文件 / localStorage）+ `files/` 层与 §2.3 行数组排序 |
+| S4 | `1261913b` | `:app` 接线点（Room 三表适配器 / 导入触发 / 导出动作 / SAF 通道 / 备份排除）——`:app` 侧 **+635/−0 纯追加** |
+| S5 / S6 | `05ee3a9e` / `07720a6d` | 桌面宿主（数据根扫描 + zip/doc 导出 + 设置页）与 web 宿主（下载/上传） |
+| S7a / S7b | `2d0a6f7d` / `f3a75616` | `/api/accounts`（打码学号，与 `SessionRoutes` 既有的 `138****0000` 同形）+ web 账号页（**路由差集 7 → 6**）；桌面 store 名补后缀 |
+| S8 | `732f8b17` | **`:web` 首个测试源集**：真 ChromeHeadless 跑，A5 三端互认 + 路由差集覆盖 |
+| 门禁自足 | `263b5405` | `:web:wasmJsBrowserTest` 的 Chrome 路径自动探测（原来不设 `CHROME_BIN` 直接失败） |
+| **批④** | `ded4c65f` | serve 内置 HTTPS + 收紧鉴权（`--https` 开箱可启用，默认行为逐字不变） |
+
+**我逐个强制重跑复算过的门禁（2026-10-15）**：`:core:jvmTest` **515** · `:server:test` **93** ·
+`:desktop:test` **117** · `:data:jvmTest` **259** · `:app:testDebugUnitTest` **444**（一条未减）·
+`:web:wasmJsBrowserTest` **5 例 / 0 失败**；web 产物重建 `:web:wasmJsBrowserDistribution` 26m36s，
+三份流式 md5 与盘上一致、js 只引用新 wasm 名、新 wasm 里能搜到 `accounts`/`archive` 指纹。
+
+**批④的引擎裁定（写在这里免得后人重踩）**：Ktor 的 **CIO 引擎不接受 `sslConnector`**——配上去会在那个端口
+继续讲明文（静默降级）。为了不引 `ktor-server-netty`（`:server` 选 CIO 的理由写在 `server/build.gradle.kts` 文件头），
+采用 **JDK 终结 TLS（`SSLServerSocket`）+ 回环字节级转发给 CIO**；keep-alive / 分块编码 / 将来的 SSE 在这一层都是
+一段字节流。备选方案（换 Netty、只给 HTTPS 用）记在 `ServeHttps.kt` 的文件头，改动是局部的。
+
+**仍未接（如实）**：`StoreArchive.import` 已经在 `:core`（S1b），但**三端的导入写侧**还只到「自校验 → 如实报告」——
+真合并要后续工单把 S4/S5/S6 的导入接到它上（`:app` 侧要单独授权）。
+
