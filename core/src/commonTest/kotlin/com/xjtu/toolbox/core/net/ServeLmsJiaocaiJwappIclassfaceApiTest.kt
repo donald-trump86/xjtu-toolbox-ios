@@ -377,9 +377,9 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertNull(noSubItems.pscj, "服务端归一过的哨兵值 ⇒ null")
         assertNull(noSubItems.qmcj)
 
-        // 分项成绩没有端点：屏按 canFetchScoreDetail = false 不展开那一格
-        assertFalse(api.canFetchScoreDetail, "分项成绩不端 ⇒ 屏上不再展开")
-        assertFailsWith<UnsupportedOperationException> { api.getScoreDetail("S1") }
+        // 分项成绩已于 2026-10-14 端出（§5.8）：serve 形态下这个开关报 true，屏上那一格能展开，
+        // 取数（含「detail:null ⇒ 空明细」那一支）钉在 ServeJwappScoreDetailApiTest 里
+        assertTrue(api.canFetchScoreDetail, "§5.8 端了分项成绩 ⇒ serve 形态下屏上那一格能展开")
         assertFailsWith<UnsupportedOperationException> { api.unevaluatedCourseNames() }
         assertFailsWith<UnsupportedOperationException> { api.reportedGrades("20260001") }
 

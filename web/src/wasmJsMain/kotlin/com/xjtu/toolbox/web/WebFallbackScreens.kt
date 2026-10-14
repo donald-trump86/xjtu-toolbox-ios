@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.home.AppService
 import com.xjtu.toolbox.home.ServiceCategory
 import com.xjtu.toolbox.nav.AppRoute
@@ -41,8 +42,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *   （见 `WebSupport` 的 KDoc：清单与分支必须同时改）；
  * - [WebServicesScreen]：「学辅」那一格 —— **可点目录**（`:app` 那格是学业服务目录 + 每项此刻的
  *   状态摘要，本端没有后一半，于是列同一份目录里本端真能点开的那些，点一行进一屏）；
- * - [WebScheduleGapNote]：**日程页顶部那一行**。日程是本端真接上的共享屏，
- *   但它缺三个端点（见那段 KDoc），这一行把它写在屏幕上而不是只写在代码注释里；
+ * - [WebScheduleGapNote]：**日程页顶部那一行**。日程是本端真接上的共享屏，但它残余的缺口
+ *（排课原样、campus-api 形态下那两栏）不能只写在代码注释里 —— 这一行把它写在屏幕上；
  * - [WebMatchGapScreen]：**匹配交友那一屏的落点**。它与上面几张不同：那一屏的屏**就在 `:core`**
  *   （不是"还没搬过来"），用不了的是它的能力（wasm 上没有 deflate / Base64 ⇒ 分享码不可用）
  *   —— 所以这一张写的是"这一端缺哪两件能力"，而不是"缺哪个宿主面"。
@@ -338,26 +339,35 @@ internal fun WebMatchGapScreen(onNavigate: (WebTarget) -> Unit) {
 }
 
 /**
- * 日程页顶部那一行**如实说明**（不是装饰：它说的是这一页少掉的三样）。
+ * 日程页顶部那一行**如实说明**（不是装饰：它写的是这一页此刻真正拿不到的东西）。
  *
- * 为什么要有它：日程是本端唯一接上共享屏的一格，`ScheduleHost` 的三条缝里
- * [com.xjtu.toolbox.schedule.ScheduleHost.cache] / `customCourses` / `login` 都是真的
- *（前两条用 `:core` 的 `keyValueStore` 缝，在 wasm 上是 **localStorage**，见
- * `core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`），但 `source`（教务取数）只能靠
- * **服务端契约里真有的那四个端点**拼：`/api/jwxt/term`、`/api/jwxt/term-start`、
- * `/api/jwxt/terms`、`/api/jwxt/schedule`。另外三个端点（调停补课 / 考试 / 教材）在
- * `docs/api-contract.md` §5 的八个端点清单里**不存在**（实测 serve 直接 404），
- * campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端没有对应客户端，
- * 而 `/api/jwxt/schedule` 端出去的是**排课原样**（契约里写明：调停补课没有合进这些行）。
+ * 为什么要有它：日程是本端接上共享屏的一格，`ScheduleHost` 的缝里 `cache` / `customCourses` /
+ * `login` / `session` 都是真的（前两条用 `:core` 的 `keyValueStore` 缝，在 wasm 上是
+ * **localStorage**，见 `core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`），`source`（教务取数）靠
+ * **服务端契约里的端点**拼。2026-10-14（§5.8 接线）之后它要说的是两件事，**两种形态各说各的**：
  *
- * 于是这一页显示的是**排课原样**：调课 / 停课 / 换教室不会体现在格子上，考试与教材两栏空着。
+ * - **serve 形态**：调停补课 / 考试 / 教材三条端点都读得到 —— 考试与教材两栏有内容了；但
+ *   `/api/jwxt/schedule` 端出去的是**排课原样**，而合并那一步本端做不了（`:core` 的
+ *   `JwxtChanges.apply` 要 `jxbid`（教学班号）与 `appliedAt`（申请时间）两格，`/api/jwxt/changes`
+ *   端的是说明面的 `ScheduleChangeEvent`，那两格不在它身上）⇒ **调课 / 停课 / 换教室仍不体现在
+ *   格子上**。合并要等 `:server` 把这两格端出来（或直接端已合并的课表）—— 本端不按课程名猜着合
+ *   （多班同课同时段会改错格子）；
+ * - **campus-api 形态**：那三条端点在这一头没有（本端也不认它的字段名，契约 §7 第 2 条）⇒
+ *   考试与教材两栏空着、详情里「N座」也不画，格子同样只有排课原样。
+ *
  * 这一句不能只写在代码里 —— 用户看着一张"没有调课的课表"会以为教务就长这样。
  */
 @Composable
-internal fun WebScheduleGapNote() {
+internal fun WebScheduleGapNote(mode: ApiMode) {
     WebGapNote(
-        "Web 这一份的日程只显示排课原样：调停补课 / 考试 / 教材三个端点不在服务端契约里" +
-            "（`docs/api-contract.md` §5 只有八个端点，实测 serve 对它们答 404），" +
-            "所以调课、停课、换教室不体现在格子上，考试与教材两栏空着。",
+        if (mode == ApiMode.SERVE) {
+            "这一份日程仍是**排课原样**：调课 / 停课 / 换教室不体现在格子上。原因不是缺端点 —— " +
+                "调停补课的记录现在取得到（/api/jwxt/changes），但把它合进格子要教学班号与申请时间那两格，" +
+                "服务端这条端点没端它们（本端不按课程名猜着合，那会改错格子）。考试与教材两栏已接上。"
+        } else {
+            "这一份日程只有排课原样，而且后端不是 serve 模式：调停补课 / 考试 / 教材这三条端点" +
+                "本端只认 serve 契约里的那一种面（campus-api 的同名路径字段名不同，本端不认，§7 第 2 条）" +
+                "⇒ 考试与教材两栏空着、详情里的「N座」也不画；调课 / 停课 / 换教室同样不体现在格子上。"
+        },
     )
 }

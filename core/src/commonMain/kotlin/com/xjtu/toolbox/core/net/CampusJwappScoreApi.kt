@@ -3,11 +3,14 @@ package com.xjtu.toolbox.core.net
 import com.xjtu.toolbox.jwapp.CjcxScore
 import com.xjtu.toolbox.jwapp.JwappScoreSource
 import com.xjtu.toolbox.jwapp.JwxtScoreSupplement
+import com.xjtu.toolbox.jwapp.NoScoreDetailException
 import com.xjtu.toolbox.jwapp.ScoreDetail
+import com.xjtu.toolbox.jwapp.ScoreDetailItem
 import com.xjtu.toolbox.jwapp.TermScore
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeDoubleOrNull
@@ -25,8 +28,9 @@ import kotlinx.serialization.json.decodeFromJsonElement
  * |---|---|---|
  * | `GET /api/jwapp/scores?term=` | `jwapp` | [getGrade] |
  * | `GET /api/jwapp/precise-scores` | **`jwxt`（教务）** | [preciseScores] |
+ * | `GET /api/jwapp/score-detail?courseId=` | `jwapp` | [getScoreDetail]（2026-10-14 第四批，§5.8） |
  *
- * 契约 §5.6；`:server` 那一侧是 `JwappRoutes.kt`。⚠️ **两条端点各自打一个站点**（不是笔误）：
+ * 契约 §5.6 / §5.8；`:server` 那一侧是 `JwappRoutes.kt`。⚠️ **前两条端点各自打一个站点**（不是笔误）：
  * `scores` 没会话时 502、`precise-scores` 没会话时也 502 —— 而 `:core` 的 `JwappScoreViewModel`
  * 对后者是**容忍**的（`catch` 住就用 jwapp 那一份），所以后者的 502 **不会让整屏失败**。
  * 本类把异常如实抛出去就行（[serveData] 那一层已经把 `message` 拼成一句中文），对齐不做合并：
@@ -36,8 +40,8 @@ import kotlinx.serialization.json.decodeFromJsonElement
  *
  * | 端口方法 | 端不端 |
  * |---|---|
- * | [getGrade] / [preciseScores] | **端**（上表两个端点） |
- * | [getScoreDetail] | 不端：一门课的**分项**成绩（屏上「点开一门课」那一格）⇒ [canFetchScoreDetail] 报 `false`，屏上点开不再展开（也不画「无法加载详细成绩」那句假话） |
+ * | [getGrade] / [preciseScores] | **端**（上表前两条端点） |
+ * | [getScoreDetail] | **端**（§5.8 的 `score-detail`，2026-10-14 第四批）：一门课的分项成绩 ⇒ serve 形态下 [canFetchScoreDetail] 报 `true`，卡片点了真能展开；「这门课没有分项」= `detail:null` ⇒ 本类抛 [NoScoreDetailException]（与 `:data` 的 `JwappApi.getDetail` 同一个异常）—— 屏拿它走「自己拼一份空明细」那条老分支 |
  * | [unevaluatedCourseNames] | 不端：那是**评教**那一侧的名单 |
  * | [reportedGrades] | **不端**：它**要学号**（§5.2 红线）。本端 [JwappScoreSource] 的 `studentId` 传空串 ⇒ VM 根本不会调它（`if (studentId.isNotEmpty())` 那一行）；真调到了也是这一条抛错（VM 容忍，成绩照旧） |
  * | [reAuthenticate] / 落盘缓存 | 不端：前者是宿主凭据的写动作（本类用端口上的默认实现 = 什么都不做），后者是宿主的缓存（屏那边 `cache = null`） |
@@ -65,8 +69,11 @@ class CampusJwappScoreApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : JwappScoreSource, JwxtScoreSupplement {
 
-    /** 见类 KDoc：分项成绩没有端点 ⇒ 屏上那一格不再展开。 */
-    override val canFetchScoreDetail: Boolean get() = false
+    /**
+     * 本端能不能拿分项成绩：**serve 形态能**（§5.8 端了 `score-detail`），campus-api 形态不能
+     * （移动教务在 campus-api 里没有对应端点，那个上游就没有这条）⇒ 屏在那形态下不展开那一格。
+     */
+    override val canFetchScoreDetail: Boolean get() = mode == ApiMode.SERVE
 
     override suspend fun getGrade(termCode: String?): List<TermScore> {
         requireServe()
@@ -92,11 +99,32 @@ class CampusJwappScoreApi(
         }
     }
 
-    /** 见类 KDoc：分项成绩没有端点（屏按 [canFetchScoreDetail] 不展开那一格）。 */
-    override suspend fun getScoreDetail(courseId: String): ScoreDetail = throw UnsupportedOperationException(
-        "serve 契约没有「分项成绩」的端点：屏上「点开一门课」那一格拿不到数据" +
-            "（docs/api-contract.md §5.6）—— 屏按 JwappScoreSource.canFetchScoreDetail = false 不展开",
-    )
+    /**
+     * 分项成绩（§5.8 的 `GET /api/jwapp/score-detail?courseId=`）。
+     *
+     * 三件事在这里定死：
+     *  - `courseId` 取自 [getGrade] 那一行的 `id`，缺了就抛（服务端同样 400）—— 不猜一个课程 id；
+     *  - ⚠️ **「这门课没有分项」写成 `detail:null`**（§4：上游明确说没有）⇒ 本类抛
+     *    [NoScoreDetailException]（与 `:data` 的 `JwappApi.getDetail` 同一个异常），屏据此拼空明细；
+     *  - `itemPercent` 已经是**比例**（`0.3` = 30%）：`:data` 早把上游那个 `"30%"` 除过 100 了，
+     *    本端不除第二次（屏上乘 100 再显示）。
+     */
+    override suspend fun getScoreDetail(courseId: String): ScoreDetail {
+        requireServe()
+        val id = courseId.trim()
+        if (id.isEmpty()) throw IllegalArgumentException("courseId 不能为空（取自 scores 那一行的 id）")
+        val data = client.serveData(
+            "加载分项成绩",
+            baseUrl,
+            SCORE_DETAIL_PATH,
+            listOf(COURSE_ID_PARAM to id),
+        )
+        // 字段缺失 = 「形状没对上」；显式 null = 上游说这门课没有分项（两件事，§4）
+        val detail = data["detail"] ?: error("serve 分项成绩响应缺少 detail（$id）")
+        if (detail.isNull) throw NoScoreDetailException()
+        return (detail as? JsonObject)?.toScoreDetail()
+            ?: error("serve 分项成绩响应的 detail 不是对象（$id）")
+    }
 
     /** 见类 KDoc：那是评教那一侧的名单（评教本体的另一半在 `/api/jwxt/evaluations`）。 */
     override suspend fun unevaluatedCourseNames(): Set<String> = throw UnsupportedOperationException(
@@ -111,7 +139,7 @@ class CampusJwappScoreApi(
     )
 
     private fun requireServe() {
-        if (mode != ApiMode.SERVE) serveOnly("移动教务成绩取数", "$SCORES_PATH + $PRECISE_SCORES_PATH")
+        if (mode != ApiMode.SERVE) serveOnly("移动教务成绩取数", "$SCORES_PATH + $PRECISE_SCORES_PATH + $SCORE_DETAIL_PATH")
     }
 }
 
@@ -147,10 +175,48 @@ private fun JsonObject.toCjcxScore(): CjcxScore? {
     )
 }
 
+/**
+ * `detail` 对象（[ScoreDetail] 的线上形状，字段名一个不改）→ `:core` 的模型。
+ *
+ * `ScoreDetail` 不在 `:core` 的 `@Serializable` 那一族里（它是屏与 `:data` 共用的模型，
+ * 形状不能在服务端那一层被注解钉住）⇒ 逐字段抄下来，与 `toCjcxScore` 同一个写法。
+ */
+private fun JsonObject.toScoreDetail(): ScoreDetail = ScoreDetail(
+    courseName = this["courseName"].safeString(),
+    coursePoint = this["coursePoint"].safeDouble(),
+    examType = this["examType"].safeString(),
+    majorFlag = this["majorFlag"].safeStringOrNull()?.takeIf { it.isNotBlank() },
+    examProp = this["examProp"].safeString(),
+    replaceFlag = this["replaceFlag"].safeBoolean(),
+    score = this["score"].safeString(),
+    scoreValue = this["scoreValue"].safeDoubleOrNull(),
+    gpa = this["gpa"].safeDouble(),
+    passFlag = this["passFlag"].safeBoolean(),
+    specificReason = this["specificReason"].safeStringOrNull()?.takeIf { it.isNotBlank() },
+    // 分项列表：不是对象的元素、连名字都没有的那几项丢掉（列出来只会多一行空表格）
+    itemList = this.arr("itemList").orEmpty().mapNotNull { element ->
+        val item = element as? JsonObject ?: return@mapNotNull null
+        val name = item["itemName"].safeString().trim()
+        if (name.isEmpty()) return@mapNotNull null
+        ScoreDetailItem(
+            itemName = name,
+            // 见类 KDoc：比例（`0.3` = 30%），服务端已经除过 100，本端不除第二次
+            itemPercent = item["itemPercent"].safeDouble(),
+            itemScore = item["itemScore"].safeString(),
+            itemScoreValue = item["itemScoreValue"].safeDoubleOrNull(),
+        )
+    },
+)
+
 /** 移动教务的学期成绩（粗分）。 */
 private const val SCORES_PATH = "/api/jwapp/scores"
 
 /** 教务的精确成绩（第二站点）。 */
 private const val PRECISE_SCORES_PATH = "/api/jwapp/precise-scores"
+
+/** 一门课的分项成绩（屏上「点开一门课」那一格；§5.8）。 */
+private const val SCORE_DETAIL_PATH = "/api/jwapp/score-detail"
+
+private const val COURSE_ID_PARAM = "courseId"
 
 private const val TERM_PARAM = "term"

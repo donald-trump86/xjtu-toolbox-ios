@@ -312,13 +312,13 @@ private fun AppPage(
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
         // 日程：与 Android / 桌面**同一个屏**（`:core` 的 `ScheduleScreen`），本端只提供宿主面
-        //（`WebScheduleHost`：键值缝 + 教务取数 + 那份如实的能力清单），并把它缺的三样写在页顶
-        //（那三个端点在服务端契约里不存在，见 `WebScheduleSource` 的 KDoc）。
+        //（`WebScheduleHost`：键值缝 + 教务取数 + 那份如实的能力清单），并把它残余的缺口写在页顶
+        //（排课原样那一半，与 campus-api 形态下缺的那两栏，见 `WebScheduleSource` 的 KDoc）。
         //
         // 页内自己要去别的功能页（教材全文 / 课程回放 / 考勤那些下钻）：能走到的时候按 `WebTarget`
         // 转回来；本端没接的那两档（`LMS_LINK` / `ATTENDANCE`）不列进 honored，所以屏上不会出现。
         AppRoute.Schedule -> Column(Modifier.fillMaxSize()) {
-            WebScheduleGapNote()
+            WebScheduleGapNote(mode)
             Box(Modifier.weight(1f)) {
                 ScheduleScreen(
                     host = remember(client, mode) { WebScheduleHost(client, mode) },
@@ -735,17 +735,17 @@ private fun AppPage(
         AppRoute.JwappScore -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "成绩",
-                endpoints = "GET /api/jwapp/scores + /api/jwapp/precise-scores",
-                why = "两条端点各自打一个站点（移动教务与教务），两个站点各要自己的会话。",
+                endpoints = "GET /api/jwapp/scores + /api/jwapp/precise-scores + /api/jwapp/score-detail",
+                why = "三条端点分属两个站点（`scores` 与 `score-detail` 打移动教务，`precise-scores` 打教务），两个站点各要自己的会话。",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "两处如实缺口：①「点开一门课看分项」那一栏 —— 分项成绩（`getScoreDetail`）没有" +
-                        "端点 ⇒ 卡片点了不再展开；② 未评教名单与「按学号补的报表」那两路 —— 一个属评教" +
-                        "那一侧、一个要学号（红线），本端都不调（学号那一格传空串）。成绩是两份上游拼的：" +
-                        "移动教务的粗分 + 教务的精确成绩，**后者拿不到时只出前一份**（那条端点的失败被" +
-                        "屏的 VM 容忍），所以整屏照常可用。",
+                    "一处如实缺口：未评教名单与「按学号补的报表」那两路 —— 一个属评教那一侧、" +
+                        "一个要学号（红线），本端都不调（学号那一格传空串）。其余都真读：学期成绩 + GPA + " +
+                        "「点开一门课」的分项（`/api/jwapp/score-detail`，课程没有分项时出的是空明细而不是" +
+                        "「加载失败」）。成绩是两份上游拼的：移动教务的粗分 + 教务的精确成绩，**后者拿不到时" +
+                        "只出前一份**（那条端点的失败被屏的 VM 容忍），所以整屏照常可用。",
                 )
                 Box(Modifier.weight(1f)) {
                     val scoreSource = remember(client, mode) { CampusJwappScoreApi(client, API_BASE, mode) }
