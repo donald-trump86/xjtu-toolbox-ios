@@ -16,10 +16,10 @@ import com.xjtu.toolbox.settings.SettingsStore
  * **逐字相同**（`app_settings`）—— 桌面端没有老数据要继承，保持一致是为了两端的键名能一眼对上
  *（与 `JvmCredentialStore` 同一条纪律）。
  *
- * ⚠️ 为什么不用 `:core` 的 `keyValueStore(name)`：jvm 那份是**进程内内存**实现
- *（`:core` 的 KDoc 写着「刻意不落盘 —— 免得测试之间互相污染」），设置项存进去重开就没了。
- * 设计文档 §5.3 把「`KeyValueStore` → 落盘」列在 jvm 侧要「真化」的那一项里；
- * 在这一端先按 store 逐个接上落盘实现（凭据 / cookie 已经是这么做的）。
+ * ⚠️ 为什么这里仍用 `secureKeyValueStore` 而不是 `keyValueStore(name)`：`app_settings` 与凭据族
+ * 同住一个数据根，走密文那一套 0600 文件；S0 起 `keyValueStore` 的 jvm actual 也真落盘了
+ *（同一个根、同一套 `.properties` 形状），但「同一 store 名不得同时以 plain 与 secure 打开」
+ *（见 `:core` 的 `KeyValueStoreJvmTest`），这一端按 store 逐个接上落盘实现（凭据 / cookie 已经是这么做的）。
  */
 internal val desktopSettings: SettingsStore by lazy {
     SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE))

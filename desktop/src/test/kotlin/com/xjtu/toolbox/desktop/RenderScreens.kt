@@ -656,7 +656,7 @@ fun main(args: Array<String>) {
 
         // ⚠️ 先把「使用声明读过了没」置成已读：那个弹窗用的是 miuix 的 `WindowDialog`，在离屏场景里
         // 是独立 AWT 窗口（建不出来 —— 与 lms 的说明弹窗同一条坑）。置已读就不会弹，图上才是屏本身。
-        // 桌面那份键值缝是进程内内存实现 ⇒ 这次置值只活在这一次证据运行里（真机上是它自己记的）。
+        // 桌面那份键值缝现在真落盘（证据运行的根由 Gradle 系统属性隔离）⇒ 置值只活在这一次证据运行里。
         keyValueStore("feature_hints").putBoolean("jiaocai1_hint_shown", true)
 
         // 教材全文库（第 22 批里的 `jiaocai1`）：走**真路由**（外壳 → `AppRoute.Jiaocai1` →
