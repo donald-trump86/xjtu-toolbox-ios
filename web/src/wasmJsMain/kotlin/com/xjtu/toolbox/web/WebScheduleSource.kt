@@ -27,7 +27,7 @@ import io.ktor.client.HttpClient
  * | [currentTerm] | `GET /api/jwxt/term` | 两个后端形状相同 |
  * | [termStart] | `GET /api/jwxt/term-start?term=` | `?term=` 是契约里就有的参数（省略 = 当前学期） |
  * | [termList] / [termNames] / [termWeeksOf] | `GET /api/jwxt/terms` | 走 `:core` 的 `CampusSchoolCourseApi.terms()`（两种信封的读法它都写了） |
- * | [schedule] | `GET /api/jwxt/schedule?term=` | 行是上游原始列（`ScheduleRow` 那八列）—— **排课原样** |
+ * | [schedule] | `GET /api/jwxt/schedule?term=&merged=1` | serve 形态：**已合过调停补课**的课表（九格 `CourseItem` + 同一批 `ScheduleChangeEvent`，契约 §5.9）；campus-api 形态：行是上游原始列（`ScheduleRow` 那八列）—— **排课原样** |
  * | [changes] | `GET /api/jwxt/changes?term=` | 调停补课的**说明面记录**（`ScheduleChangeEvent`，第四批 §5.8） |
  * | [examSchedule] | `GET /api/jwxt/exams?term=` | 考试六格原样（`ExamItem`，同上） |
  * | [textbooks] | `GET /api/jwxt/textbooks?term=` | 九格 = `TextbookItem` 八格 + `hasTextbook`；**学号由服务端从会话取**（请求参数里没有那一格） |
@@ -37,15 +37,19 @@ import io.ktor.client.HttpClient
  *（同一个路径在那边的字段名不同，而契约 §7 第 2 条写明 `:web` 只认本文档、不认 campus-api 的字段名）
  * ⇒ 非 serve 形态下照旧回空表 / 空记录，屏上那两栏因此仍是空的。
  *
- * ## 合并不了这一半：格子仍是**排课原样**（如实缺口，不是「还没接」）
+ * ## 格子已经是「合过调停补课」的那一张（与 Android 同口径）
  *
- * 「今天这门课在哪上」要把 [schedule] 那一份排课原样与调停补课记录合起来（`:core` 的
- * `JwxtChanges.apply`）。本端**做不到那一步，而理由不是缺端点，是缺字段**：`apply` 吃的是
- * `JwxtChange` —— 那上面有 `jxbid`（教学班号，用来认原课）、`appliedAt`（申请时间，用来定先后）
- * 与 `teacher` 三格，而 `/api/jwxt/changes` 端出来的是 `ScheduleChangeEvent`（契约 §5.8 写明它是
- * **说明面**记录，那三格不在它身上）。拿它去 `apply`，认原课只能退化成「按课程名 + 时段猜」：
- * 多班同课同时段会**改错格子**，先后也只能用响应顺序充数。**少画（格子给排课原样）比画错强** ——
- * 要合就只能等 `:server` 把 `jxbid`/`appliedAt` 也端出来（或直接端已合并的课表），本端不自己造一份。
+ * 「今天这门课在哪上」要把排课原样与调停补课记录合起来（`:core` 的 `JwxtChanges.apply`）。本端
+ * **不自己合**，也不按课程名猜 —— 直接问 §5.9 的那一档（`?merged=1`）：服务端端的就是 `:data`
+ * 的 `JwxtScheduleApi.schedule()`，合并已经在那一层做完（Android / 桌面端吃的就是它）。
+ *
+ * 为什么不是「拿 `/api/jwxt/changes` 在本端自己 apply」：那个端点端的是**说明面**的
+ * `ScheduleChangeEvent`，而 `apply` 吃的是带 `jxbid`（认原课）与 `appliedAt`（定先后）的
+ * `JwxtChange` —— 按课程名 + 时段猜着合会在多班同课同时段时**改错格子**。契约里那一档就是为
+ * 这件事开的（§5.9 写明了这一点），所以本端只用它。
+ *
+ * campus-api 形态下没有这一档（那一头不认 `merged`）⇒ 格子照旧是**排课原样**，日程页顶部
+ * 那行说明写的就是它。
  *
  * ⚠️ [changes] 在本端**目前没有屏上消费方**：`:app` 里它是屁岱回答「最近调了什么课」的输入，
  * 而 web 的屁岱是降级页（没有 `AgentHost`）。它是接口的一格，读法接上，等那一屏落地才有人读。
@@ -69,7 +73,7 @@ internal class WebScheduleSource(
 
     private val api = CampusApi(client, API_BASE, mode)
 
-    /** §5.8 那三条只读端点（调停补课 / 考试 / 教材）—— 它们只存在于 serve 契约里。 */
+    /** §5.8 那三条只读端点（调停补课 / 考试 / 教材）+ §5.9 的 `?merged=1` —— 它们只存在于 serve 契约里。 */
     private val jwxt = CampusJwxtScheduleApi(client, API_BASE, mode)
 
     /** 学期号 → 可读名（`/api/jwxt/terms`；serve 给名字，campus-api 只给号 ⇒ 由库里那份按号推）。 */
@@ -88,15 +92,17 @@ internal class WebScheduleSource(
 
     override suspend fun schedule(term: String?): SourceSchedule {
         val code = term?.trim().orEmpty().ifEmpty { currentTerm() }
+        // serve 形态：直接问 `/api/jwxt/schedule?merged=1` —— 服务端端的是 `:data` 的
+        // `JwxtScheduleApi.schedule()`，调停补课（调/停/补）已经合进格子（见类 KDoc）。
+        if (serve) return jwxt.mergedSchedule(code)
+        // campus-api 形态：那一头不认 `merged`，只拿得到排课原样（行是上游那八列）。
         val data = api.schedule(code)
         // 总周数只用来定 weekBits 的长度（课表行自己是「第几周」的文本，见下面的映射）
         val totalWeeks = runCatching { termStart(code).totalWeeks }.getOrDefault(0)
         return SourceSchedule(
             courses = data.rows.map { it.toCourseItem(totalWeeks) },
-            // ⚠️ 这里仍给空表，且 [schedule] 给的课表仍是**排课原样**（见类 KDoc 的「合并不了这一半」）：
-            // `JwxtChanges.apply` 要的是 `JwxtChange`（含 `jxbid`/`appliedAt`/`teacher`），而
-            // `/api/jwxt/changes` 端的是给人看的 `ScheduleChangeEvent`。这一格也没有任何消费方
-            //（`ScheduleViewModel` 只用 `.courses`）⇒ 不为它多发一发请求。
+            // 这一格在本端**没有任何消费方**（`ScheduleViewModel` 只用 `.courses`；serve 形态下那
+            // 一批事件随 [schedule] 一起回来的就够），不为它多发一发请求。
             changes = emptyList(),
         )
     }
@@ -108,7 +114,8 @@ internal class WebScheduleSource(
     /**
      * 调停补课（`/api/jwxt/changes?term=`，§5.8）：**说明面**记录（`ScheduleChangeEvent`）。
      *
-     * 它**不改课表格子**（见类 KDoc）。campus-api 形态取不到这一条（字段面本端不认，§7 第 2 条）⇒ 空表。
+     * 它**不改课表格子** —— 改格子的是 [schedule] 那一档（`?merged=1`，见类 KDoc）。
+     * campus-api 形态取不到这一条（字段面本端不认，§7 第 2 条）⇒ 空表。
      */
     override suspend fun changes(term: String): List<ScheduleChangeEvent> =
         if (serve) jwxt.changes(term) else emptyList()

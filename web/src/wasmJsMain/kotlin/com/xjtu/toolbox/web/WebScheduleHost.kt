@@ -2,6 +2,8 @@ package com.xjtu.toolbox.web
 
 import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.inbox.OwnInbox
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.schedule.CourseLinkAccess
 import com.xjtu.toolbox.schedule.CustomCourseStore
@@ -35,7 +37,7 @@ import kotlinx.datetime.LocalDate
  * [cache] 没有按账号分文件：这一端没有账号（凭据在 campus-api / serve 进程里），
  * `:app` / 桌面那份按账号加后缀是为了多账号互不串数据，本端只有一个"当前"。
  *
- * ## [honored]：自建日程那一格（两种形态都有）+ serve 形态下的座位数
+ * ## [honored]：自建日程 + 课表变更气泡（两种形态都有）+ serve 形态下的座位数
  *
  * - [ScheduleCapability.CUSTOM_COURSE_EDIT]：`KeyValueCustomCourseStore` 真落盘 ⇒ 工具栏那个
  *   「+」与「编辑日程」是真能干的事（两种形态都一样）；
@@ -44,6 +46,11 @@ import kotlinx.datetime.LocalDate
  *   没有这条端点，本端的座位数取数只剩「自己拉过的那一份当天 CDN」那一档，而课表详情页与空闲教室
  *   那一屏是两个实例 ⇒ 永远查不到 ⇒ 不列它（列了做不到的就是假开关：`ScheduleScreen` 只按这张表
  *   决定画不画「N座」）。
+ * - [ScheduleCapability.SCHEDULE_CHANGE_BUBBLE]：调课/停课的气泡写进 `:core` 的 `InboxStore`
+ *   （[postScheduleChange] 就是 `InboxStore.post(OwnInbox.scheduleChange(…))`，与 `:app` 那一手
+ *   逐字同一行）—— 它要的工厂 `OwnInbox` 2026-10-14 已搬进 `:core`（`docs/desktop-port-plan.md`
+ *   §16.5 的第 2 条），而收纳那一份 `InboxStore` 早就在 `:core`（wasm 上落 `localStorage`）；
+ *   首页那一格（`HomeCard.INBOX`）与消息收纳那一屏读的就是同一份 ⇒ 两种形态下都真会照着办。
  *
  * 没列的都是这一端**没有**的东西，屏上**一个字都不画**：
  * - `SHARE_FILE` —— 浏览器里没有系统分享面板（`:app` 是 `Intent.ACTION_SEND`、桌面是
@@ -53,21 +60,16 @@ import kotlinx.datetime.LocalDate
  *   （`:data` 的 `CourseLinks`）⇒ [courseLinks] 传 null，两档都不画；
  * - `DUE_HOMEWORK` —— 思源作业截止那份落盘缓存（`:app` 的 `LmsDueStore`）本端没有
  *   ⇒ 今日栏的「接下来」只有考试；
- * - `WIDGET_REFRESH` / `HOME_SIGNALS` —— 浏览器里没有桌面小组件，本端「首页」那一格也还是
- *   降级页（见 `WebFallbackScreens`）⇒ 课表落地后没有谁要通知；
+ * - `WIDGET_REFRESH` / `HOME_SIGNALS` —— 浏览器里没有桌面小组件；而首页那一格（`WebHomeScreen`）
+ *   每次进屏都重读一次 `localStorage`（浏览器里每次刷新页面本来就是一次冷启动）⇒ 课表落地后
+ *   没有谁要通知；
  * - `ONLINE_CHECK` —— 浏览器没有"校内外"判定 ⇒ 走默认 `true`（真发请求失败自然会被当成失败）；
- * - `SCHEDULE_CHANGE_BUBBLE` —— 调课/停课的气泡在 `:app` 里走「自己的提醒 → 收纳条目」那一手
- *   （`InboxStore.post(OwnInbox.scheduleChange(…))`），而那个工厂 **`OwnInbox` 住在 `:app`**
- *   （它的类 KDoc 写明：**Web 端不产生这些提醒**，只把拉来的学校消息写进 `InboxStore`）⇒ 本端不列。
- *   ⚠️ 它与「调停补课端点有没有」是两件事：那个端点（§5.8）已接上（[WebScheduleSource.changes] 真读得到），
- *   但这条气泡来自共享屏自己的课表比对（`ScheduleDiff`），它要的是「把一条自己的提醒写进收纳」；
- *   要在本端做就得把 `OwnInbox` 搬进 `:core`（那一份 id 形状与 `:app` 必须逐字一致）—— 不属本批。
  *
  * ## 还剩什么缺口（同一份判断，写在屏幕上那份是 `WebScheduleGapNote`）
  *
- * 学期 / 课表 / 考试 / 教材四条在 **serve 形态**下都真取数（[WebScheduleSource]）；campus-api
- * 形态里那三条端点的字段面本端不认（契约 §7 第 2 条）⇒ 考试与教材两栏空着、座位数那一格也不画。
- * 日程页顶部那行说明把两种形态分开写明了。
+ * 学期 / 课表（**已合过调停补课**）/ 考试 / 教材四条在 **serve 形态**下都真取数（[WebScheduleSource]）；
+ * campus-api 形态里那三条端点的字段面本端不认（契约 §7 第 2 条）⇒ 考试与教材两栏空着、格子仍是
+ * 排课原样、座位数那一格也不画。日程页顶部那行说明把两种形态分开写明了。
  *
  * @param client 与整页同一个客户端（serve 模式下它带着 `Authorization` 头）
  * @param mode 这一份 `:web` 在对谁说话（[ApiMode]）—— 决定 [WebScheduleSource] 的信封读法
@@ -77,11 +79,24 @@ internal class WebScheduleHost(
     private val mode: ApiMode,
 ) : ScheduleHost {
 
-    /** 见类 KDoc：自建日程两种形态都有；座位数只在 serve 形态下真有取数。 */
-    override val honored: Set<ScheduleCapability> = if (mode == ApiMode.SERVE) {
-        setOf(ScheduleCapability.CUSTOM_COURSE_EDIT, ScheduleCapability.SEAT_COUNT)
-    } else {
-        setOf(ScheduleCapability.CUSTOM_COURSE_EDIT)
+    /** 见类 KDoc：自建日程与课表变更气泡两种形态都有；座位数只在 serve 形态下真有取数。 */
+    override val honored: Set<ScheduleCapability> = buildSet {
+        add(ScheduleCapability.CUSTOM_COURSE_EDIT)
+        // 调课/停课的气泡：一条自己的提醒写进 `:core` 的收纳（见类 KDoc 与 [postScheduleChange]）
+        add(ScheduleCapability.SCHEDULE_CHANGE_BUBBLE)
+        if (mode == ApiMode.SERVE) add(ScheduleCapability.SEAT_COUNT)
+    }
+
+    /**
+     * 课表变更（调课/停课/换教室）冒一条气泡 —— 与 `:app` 的 `AppScheduleHost` **逐字同一行**：
+     * `InboxStore.post(OwnInbox.scheduleChange(message))`。
+     *
+     * 落点是这一端真有的那份收纳：`InboxStore` 在 wasm 上是 `localStorage`（前缀 `xjtu-toolbox.`），
+     * 首页那一格（`HomeCard.INBOX`）与消息收纳那一屏读的就是它 —— 所以这条气泡在本端**看得见**，
+     * 不是写进一份没人读的存储（那种“列了做不到”的开关不发：见类 KDoc 的 [honored] 那一段）。
+     */
+    override fun postScheduleChange(message: String) {
+        InboxStore.post(OwnInbox.scheduleChange(message))
     }
 
     override fun cache(accountId: String?): ScheduleCacheStore =

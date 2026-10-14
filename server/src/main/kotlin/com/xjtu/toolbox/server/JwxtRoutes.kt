@@ -7,6 +7,7 @@ import com.xjtu.toolbox.core.net.TermStartData
 import com.xjtu.toolbox.judge.JudgeApi
 import com.xjtu.toolbox.judge.Questionnaire
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleChangeEvent
@@ -30,7 +31,7 @@ import kotlinx.serialization.Serializable
  * | `GET /api/jwxt/terms` | `SchoolCourseSource.terms()`（`TermOption`） |
  * | `GET /api/jwxt/term` | `SchoolCourseSource.currentTerm()` |
  * | `GET /api/jwxt/term-start` | `JwxtScheduleApi.termStart()`（`:data` 的 `wdkb` 取数） |
- * | `GET /api/jwxt/schedule` | `JwxtScheduleApi.rows()`（同上） |
+ * | `GET /api/jwxt/schedule` | `JwxtScheduleApi.rows()`（不带 `?merged=`）/ 同一个类的 `.schedule()`（带 `?merged=1`） |
  * | `GET /api/jwxt/changes` | `JwxtScheduleApi.changes()`（同一份调停课报文，只是不掺课表） |
  * | `GET /api/jwxt/exams` | `JwxtScheduleApi.examSchedule()`（`studentWdksapApp` 的 `wdksap.do`） |
  * | `GET /api/jwxt/textbooks` | `JwxtScheduleApi.textbooks(studentId, term)`（帆软报表 `jcgl/wdjc.cpt`） |
@@ -55,12 +56,20 @@ import kotlinx.serialization.Serializable
  *   日期那一段、`totalWeeks` = `ZZC`（只在 `1..TermWeeks.MAX_REASONABLE` 里算数，否则 0）。
  *   刻意**没有**「今天是第几周」那种服务端算出来的字段：那是消费方拿 `startDate` 自己算的
  *   （契约 §4 的模型分工），端出去只会多一个要同步的口径；
- * - **schedule**：`?term=`（省略 = 当前学期，同上）。数据是 `:core` 的
- *   `ScheduleData(term, rows, count)` —— `rows` 就是 `ScheduleRow` 钉住的那 8 列，键名 = 上游列名
- *   （`KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID`），上游给数字的三格读成文本、
- *   缺键是空串（口径在 `JwxtScheduleApi.rows`）。两个端点的 `?term=` 形状不对都答 400。
- *   ⚠️ 调停补课**没有**合进这些行（`:app` 的 `ScheduleApi.getSchedule` 会合）—— 见
- *   `JwxtScheduleApi.rows` 的 TODO，不要当成两端已经一致；
+ * - **schedule**：`?term=`（省略 = 当前学期，同上）+ 可选的 `?merged=1`。**默认（不带 `merged`）那一档
+ *   一字未改**：数据是 `:core` 的 `ScheduleData(term, rows, count)` —— `rows` 就是 `ScheduleRow` 钉住的那 8 列，
+ *   键名 = 上游列名（`KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID`），上游给数字的三格读成文本、
+ *   缺键是空串（口径在 `JwxtScheduleApi.rows`）；`?term=` 形状不对答 400。
+ *   `merged` 给了但不是 `1` ⇒ 400（与 `grades` 的 `all` 同一条读法），空白串也算「不是 1」。
+ *   ⚠️ 默认那一档**是排课原样**：调停补课一条都不反映（`:app` 的 `ScheduleApi.getSchedule` 会合）。
+ *   要合并后的那一份用 **`?merged=1`**（2026-10-14 批①收尾落地，见下一条与契约 §5.9）；
+ * - **schedule（`?merged=1`）**：数据是 `JwxtScheduleApi.schedule(term)` 的返回值 —— `:data` 那一层
+ *   已经把 `xskcb/xsdkkc.do` 的调停补课经 `JwxtChanges.apply` **合进课表**（Android / 桌面端吃的
+ *   就是这一份）。形状 `{term, count, courses, changes}`：`courses` = `:core` `CourseItem` 的九格
+ *   （`courseName`/`teacher`/`location`/`weekBits`/`dayOfWeek`/`startSection`/`endSection`/
+ *   `courseCode`/`courseType`；那两格分钟级时间**不投影** —— 它们只属于自建日程，教务行上没有，
+ *   §4 的「字段缺失 = 本端不投影」），`changes` = 与 `/api/jwxt/changes` 同一族十二格的事件。
+ *   `count` = `courses.size`。⚠️ 合并那一步**只在服务端做这一处**：本层是薄包装，一行合并规则都不重写。
  * - **grades**：`ReportedGrade(courseName, coursePoint, score, gpa, term)` 原样投影。
  *   `gpa` 是**可空的**：等级制课程（如「优秀」）不参与绩点 ⇒ `null`（§4：null = 上游明确说没有）。
  *   学号只在**请求教务报表的 URL**（`xh=`）里出现，响应里**没有** —— 红线（不投影身份）；
@@ -141,17 +150,41 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
             }
         }
 
-        // ── 本学期课表（wdkb 的 xskcb.do，调停补课未合并：见类 KDoc）────────
+        // ── 本学期课表（wdkb 的 xskcb.do；`?merged=1` 额外合进 xsdkkc.do 的调停补课）──
         get(JWXT_SCHEDULE) {
             if (!session.authenticated) return@get call.respondLoginRequired()
-            val requested = call.request.queryParameters[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            val params = call.request.queryParameters
+            val requested = params[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
             if (requested != null && !isTermCode(requested)) {
                 return@get call.respondBadRequestMessage(JWXT_TERM_SHAPE_MESSAGE)
             }
+            // 与 `grades` 的 `all` 同一条读法：给了但不是 `1` 就是参数形状不对（不静默当成默认那一档）
+            val merged = params[JWXT_PARAM_MERGED]
+            if (merged != null && merged != "1") {
+                return@get call.respondBadRequestMessage(JWXT_MERGED_SHAPE_MESSAGE)
+            }
             try {
                 val term = requested ?: currentTerm(session)
-                val rows = JwxtScheduleApi(session.jwxtSite()).rows(term)
-                call.respond(ApiEnvelope.ok(ScheduleData(term = term, rows = rows, count = rows.size)))
+                val api = JwxtScheduleApi(session.jwxtSite())
+                if (merged == "1") {
+                    // 已合并的那一份（调停补课已合进课表）。合并规则在 `:data` 的 `JwxtChanges.apply`，
+                    // 本层只投影、一行合并规则都不重写；`term` 是已经解析好的学期号 ⇒ 不再问一次当前学期。
+                    val schedule = api.schedule(term)
+                    call.respond(
+                        ApiEnvelope.ok(
+                            MergedScheduleData(
+                                term = term,
+                                count = schedule.courses.size,
+                                courses = schedule.courses.map { it.toDto() },
+                                changes = schedule.changes,
+                            ),
+                        ),
+                    )
+                } else {
+                    // 默认那一档：排课原样（契约面逐字冻结，一字未改）
+                    val rows = api.rows(term)
+                    call.respond(ApiEnvelope.ok(ScheduleData(term = term, rows = rows, count = rows.size)))
+                }
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载课表")
             }
@@ -363,6 +396,42 @@ internal data class ChangesData(
     val changes: List<ScheduleChangeEvent>,
 )
 
+/**
+ * `GET /api/jwxt/schedule?merged=1` 的 `data`：`:data` 的 `JwxtScheduleApi.schedule(term)` 那一份
+ *（= 已合过调停补课的课表 + 同一批调停课记录）。逐字段见 `docs/api-contract.md` §5.9。
+ *
+ * 两个列表都在：`courses` 是屏上要画的那张表，`changes` 是同一个 `JwxtChanges.apply` 顺手算出来的
+ * 事件（与 `/api/jwxt/changes` 同一族十二格），不另发一次请求。
+ */
+@Serializable
+internal data class MergedScheduleData(
+    val term: String,
+    val count: Int,
+    val courses: List<MergedCourseDto>,
+    val changes: List<ScheduleChangeEvent>,
+)
+
+/**
+ * [CourseItem] 的线上形状：**九格**（`docs/api-contract.md` §5.9，本层不重写合并口径）。
+ *
+ * 那两格分钟级时间（`startMinuteOfDay` / `endMinuteOfDay`）**不投影**：它们只有自建日程会填
+ *（`:app` 的 `CustomCourse`），教务的课表行上恒为 `-1` ⇒ 端出去就是「投影了本端不投的东西」
+ *（§4：字段缺失 = 本端不投影）。消费方解回 [CourseItem] 时那两格自动落到同一个默认值 `-1`，
+ * 所以两端拿到的是同一张表 —— 不是两个口径。
+ */
+@Serializable
+internal data class MergedCourseDto(
+    val courseName: String,
+    val teacher: String,
+    val location: String,
+    val weekBits: String,
+    val dayOfWeek: Int,
+    val startSection: Int,
+    val endSection: Int,
+    val courseCode: String,
+    val courseType: String,
+)
+
 /** `GET /api/jwxt/exams` 的 `data`：行直接用 `:core` 的 [ExamItem]（`@Serializable`）。 */
 @Serializable
 internal data class ExamsData(
@@ -473,6 +542,18 @@ internal data class EvaluationsStatusData(val canSubmit: Boolean)
 
 private fun ReportedGrade.toDto() = GradeDto(courseName, coursePoint, score, gpa, term)
 
+private fun CourseItem.toDto() = MergedCourseDto(
+    courseName = courseName,
+    teacher = teacher,
+    location = location,
+    weekBits = weekBits,
+    dayOfWeek = dayOfWeek,
+    startSection = startSection,
+    endSection = endSection,
+    courseCode = courseCode,
+    courseType = courseType,
+)
+
 private fun TextbookItem.toDto() = TextbookDto(
     courseName = courseName,
     textbookName = textbookName,
@@ -547,6 +628,9 @@ internal const val JWXT_EVALUATIONS = "evaluations"
 internal const val JWXT_EVALUATIONS_STATUS = "evaluations/status"
 internal const val JWXT_PARAM_TERM = "term"
 
+/** `?merged=`：只有 `1` 算数（`/api/jwxt/schedule` 那一条，见 §5.9）。 */
+internal const val JWXT_PARAM_MERGED = "merged"
+
 /**
  * 本层有没有提交评教的能力。
  *
@@ -589,6 +673,9 @@ private suspend fun currentTerm(session: ServeSession): String {
     return term
 }
 
-/** `?term=` 的形状（两个新端点共用一条口径）：`2026-2027-1`，不对就 400。 */
+/** `?term=` 的形状（各端点共用一条口径）：`2026-2027-1`，不对就 400。 */
 private const val JWXT_TERM_SHAPE_MESSAGE = "term 需要形如 2026-2027-1"
+
+/** `?merged=` 的形状（`/api/jwxt/schedule` 那一条）：给了但不是 `1` 就 400，不静默当成默认那一档。 */
+private const val JWXT_MERGED_SHAPE_MESSAGE = "merged 参数只能是 1"
 

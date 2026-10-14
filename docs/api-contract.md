@@ -66,7 +66,7 @@
 | `/api/status` | ——（探活，裸对象） | （外壳） | P0 | 沿用（但见 §3.4：不含身份） |
 | `/api/session` `/api/session/login` `/api/session/logout` `/api/session/mfa` | 新（`:data` 的 `SessionManager`） | 登录屏 / MFA 弹窗 | **P0（新）** | 无旧形状可沿用（逐条形状见 §5.1） |
 | `/api/calendar/school` | `SchoolCalendarSource` | 校历 | P0 | 沿用（`UpstreamSchoolCalendar` 已有解析） |
-| `/api/jwxt/terms` `/api/jwxt/term` `/api/jwxt/term-start` `/api/jwxt/schedule` | `ScheduleSource` 一族（`:data` 侧：`AppSchoolCourseSource` + `JwxtScheduleApi`） | 课表 | P0 | 沿用 |
+| `/api/jwxt/terms` `/api/jwxt/term` `/api/jwxt/term-start` `/api/jwxt/schedule`（**`?merged=1` 那一档 2026-10-14 批①收尾新开**，见 §5.9） | `ScheduleSource` 一族（`:data` 侧：`AppSchoolCourseSource` + `JwxtScheduleApi`） | 课表 | P0 | 沿用（`?merged=1` 是**新形状**：直接端 `:data` 已合并的那一份） |
 | `/api/jwxt/changes` `/api/jwxt/exams` `/api/jwxt/textbooks` | `JwxtScheduleSource`（`:data` 侧 `JwxtScheduleApi`） | 课表（调停补课 / 考试 / 教材） | **P0 · 已落地 2026-10-14** | **新形状**：三条都是**只读**；`changes` 只是记录、**不掺课表**（合并那一层在 `:core` 的 `JwxtChanges.apply`），`textbooks` 要学号但**学号只进请求不进响应**；逐字段见 §5.8 |
 | `/api/jwxt/grades` | `ScoreReportSource` | 成绩报表 | P0 | 沿用 |
 | `/api/jwxt/school-courses` | `SchoolCourseSource` | 全校课表 | P0 | **要改**：campus-api 的投影少一批字段（人数/学时、`YPSJDD`、开课单位、公选筛选）⇒ 屏把筛不了的控件隐藏了。服务端自己直连教务后**能补齐**，补齐后 `:web` 可以把那两档控件放回来 |
@@ -210,7 +210,7 @@
 | `GET /api/jwxt/terms` | —— | `[{name,startDate,endDate,current?}]` | 学期名兜底 = `DM` 字段 |
 | `GET /api/jwxt/term` | —— | 当前学期对象（形状同上） | `ScheduleSource` 一族 |
 | `GET /api/jwxt/term-start` | `?term=`（省略 = 当前学期） | `{term,startDate,totalWeeks}` | 2026-10-11 落地：`startDate` = 上游 `XQKSRQ` 的**日期那一段**（第 1 周周一）、`totalWeeks` = `ZZC`（只在 `1..30` 里算数，否则 `0`）。`:data` 侧 `JwxtScheduleApi.termStart()`。**没有**「今天是第几周」这种服务端算出来的字段（那是消费方拿 `startDate` 自己算的）；`?term=` 形状不对 ⇒ `400` |
-| `GET /api/jwxt/schedule` | `?term=`（省略 = 当前学期） | `{term,count,rows:[…]}`；行的键名 = 上游列名，只投影 `KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID` 八列，值一律是**字符串**（上游给数字的三格也按文本给）、缺键是**空串** | 2026-10-11 落地：`:data` 侧 `JwxtScheduleApi.rows()`（`wdkb` 的 `xskcb.do`）。周次看 `ZCMC` 文本、**不看** `SKZC` 位串；`?term=` 形状不对 ⇒ `400`。⚠️ **调停补课没有合进这些行**，而且这已经**是有意为之、不是缺口**（2026-10-13 核）：`:data` 的 `JwxtScheduleApi` 现在两条都在 —— `rows()` = 排课原样（本端点端出去的就是它，契约面逐字冻结），`schedule()` = **已合并**调停补课（合并那一层由 `7a5590da` 落地，Android 与桌面端吃的就是它）；两条路「别混用」写在 `rows` 的 KDoc 里。要不要给本端点再加一档（把合并后的那一份也端出去）是**下一个决定**（TODO：待用户拍板） |
+| `GET /api/jwxt/schedule` | `?term=`（省略 = 当前学期）+ 可选 `?merged=1` | 不带 `merged`：`{term,count,rows:[…]}`；行的键名 = 上游列名，只投影 `KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID` 八列，值一律是**字符串**（上游给数字的三格也按文本给）、缺键是**空串**。带 `merged=1`：`{term,count,courses,changes}`（见 §5.9） | 2026-10-11 落地：`:data` 侧 `JwxtScheduleApi.rows()`（`wdkb` 的 `xskcb.do`），**这一档至今一字未改**。周次看 `ZCMC` 文本；`?term=` 形状不对 ⇒ `400`。⚠️ **调停补课没有合进这些行**，而且这仍然是**有意为之、不是缺口**（2026-10-13 核）：`:data` 的 `JwxtScheduleApi` 两条都在 —— `rows()` = 排课原样（本档端出去的就是它，契约面逐字冻结），`schedule()` = **已合并**调停补课（合并那一层由 `7a5590da` 落地，Android 与桌面端吃的就是它）；两条路「别混用」写在 `rows` 的 KDoc 里。 **那一档已于 2026-10-14 拍板并落地（§5.9）**：`?merged=1` 端 `schedule()` 那一份，本档（不带 `merged`）仍一字未改 —— 要合并后的课表请用 §5.9 |
 | `GET /api/jwxt/grades` | `?term=&all=1` | `{page,size,total,grades:[…]}` | 默认全量；`:data` `ScoreReportSource` |
 | `GET /api/jwxt/school-courses` | `?course=&code=&teacher=&campus=&weekday=&from=&to=&page=&size=` | 见下节 | **要改**（契约§5）：补人数/学时、`YPSJDD`、开课单位、公选筛选（`:data` `AppSchoolCourseSource` 已能取的投影，取不到标 TODO）。消费方 2026-10-11 把 `supportsDepartmentFilter` / `supportsElectiveFilter` 读进去了（§5.4 的两个「不画」） |
 | `GET /api/jwxt/evaluations` | `?terms=&type=&finished=` | `{canSubmit:false,items:[…]}` | `canSubmit` 必须出现、如实 `false`（本实现只看不认不投） |
@@ -675,7 +675,7 @@ POST /api/venue/cancel
 | 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
 |---|---|---|---|
 | 思源学堂 `LmsScreen` | `GET /api/lms/courses` + `/activities?courseId=` + `/activity?courseId=&activityId=` | 课程卡（名称 / 课程号 / 学分 / 学期 / 教学班 / 人数）+ 活动列表（按类型筛、勾选批量下载）+ 详情页（正文、附件卡、作业信息与截止时间） | ① 教师姓名：`instructors` / `liveInstructorNames` 不投影 ⇒ `instructorNames` 显示「未知」；② 附件的预览与下载、以及「批量下载」那一整档（`LmsSource.supportsDownload = false`）：附件的三个地址都不投影，浏览器直接打开只会拿到登录页；③ 回放与直播的**播放地址**（`lesson.replayVideos` / `live.liveStreams` 不端）⇒ 屏上没有可点的播放动作；④ 作业的**提交记录**（`LmsSource.supportsSubmissionList = false`，那块里有提交人姓名与学号）—— 别拿「还没有提交记录」那张卡冒充它；⑤ 正文按本端的纯文本近似显示（`htmlToPlainText` 这个纯函数契约不端，`:data` 那份用 jsoup，wasm 上没有） |
-| 教材查询 `TextbookScreen` | `GET /api/jiaocai/search?keyword=` + `/ssno?id=&appId=&engineInstanceId=` | 「查教材」那一栏：一个关键词输入 + 结果卡 + 详情卡（字段表 / 书目号补齐） | ① 「本学期我的教材」那一段（那一份数据在**教务**的报表里，宿主端口 `WebJiaocaiTermTextbooks` 如实回空表，那一段整段不显示）—— ⚠️ §5.8 已端出同一条数据的端点 `GET /api/jwxt/textbooks`，但本端**还没把它接到这一屏**（日程那一栏接了，见 §5.8 的消费方表）：这一屏的宿主端口吃的是教材中心的模型，接它要再写一次映射，不属那一批（现在空着是缺口，不是「要学号取不到」）；② 「书架」「全文库」两栏与各处的「读全文 / 阅读全文」入口（`jiaocai1` 是另一个域名、另一套会话 ⇒ `TextbookScreen` 的两个 jiaocai1 端口传 `null`，屏只留一栏）；③ 检索结果里 `ssno` 恒 `null`（上游口径，要它进详情再补一枪） |
+| 教材查询 `TextbookScreen` | `GET /api/jiaocai/search?keyword=` + `/ssno?id=&appId=&engineInstanceId=`（+ 「本学期我的教材」那一段走 §5.8 的 `GET /api/jwxt/textbooks`） | 「查教材」那一栏：一个关键词输入 + 结果卡 + 详情卡（字段表 / 书目号补齐），以及【本学期我的教材】那一段（课程 + 书名，无教材的不列） | ① 「本学期我的教材」那一段 —— **2026-10-14 批①收尾已接上**（数据在**教务**的报表里，端点是 §5.8 的 `GET /api/jwxt/textbooks`，学号由服务端从会话里取）：宿主端口 `WebJiaocaiTermTextbooks` 读那一发，中间的映射在 `:core` 的 `toJiaocaiTermTextbooks()`（滤掉「无教材」那些行 + 只搬五格，与 `:app` 的 `AppJiaocaiTermTextbooks` 逐字同口径）—— 接线当时那句「本端还没把它接到这一屏」到此为止；② 「书架」「全文库」两栏与各处的「读全文 / 阅读全文」入口（`jiaocai1` 是另一个域名、另一套会话 ⇒ `TextbookScreen` 的两个 jiaocai1 端口传 `null`，屏只留一栏）；③ 检索结果里 `ssno` 恒 `null`（上游口径，要它进详情再补一枪） |
 | 成绩 `JwappScoreScreen` | `GET /api/jwapp/scores?term=` + `/precise-scores` + `/score-detail?courseId=` | 学期成绩 + GPA 卡 + 选课算均分（两份上游在屏上按「学期 + 课程名」合并，与 `:data` / 桌面同一条 VM） | ① 「点开一门课看分项」那一栏：**§5.8 接线后 serve 形态下真能展开**（`/api/jwapp/score-detail`，`canFetchScoreDetail` 报 `true`）；campus-api 形态下仍是 `false`（那个上游没有这一条）⇒ 卡片点了不展开 —— 逐条见 §5.8 的消费方表；② 未评教名单与「按学号补的报表」两路（前者属评教那一侧、后者要学号 ⇒ 本端 `studentId` 传空串，VM 根本不调）；③ 落盘缓存（宿主能力，屏传 `cache = null`）；④ `precise-scores` 的 `502` **可容忍**：拿不到就只出 jwapp 那一份，**不让整屏失败**；⑤ `-1.0` 那个哨兵值在**服务端那一侧**就归一成 `null`（`:data` 的 `takeIf { it > -100 }`），消费方不再判一次、也不拿 `0` 冒充 |
 | 快速考勤流水 `IclassfaceScreen` | `GET /api/iclassface/records?date=` | **整屏复用**：日期条 + 一天一张卡（时刻 / 地点 / 类型） | 姓名与学号（`name` / `studentNo` 不投影 ⇒ 空串；屏本来也不画那两格）；照片（上游根本没有这个字段）；⚠️ `time` 是**服务端时区的墙上时间**（上游原文，不是 ISO-8601）⇒ 消费方原样显示，**不** `parse` 成 UTC 再本地化（那会整体平移）；没有分页（上游一天一枪） |
 
@@ -958,7 +958,7 @@ POST /api/venue/cancel
 
 | 屏（`:core`） | 用了哪个端点 | 真画了什么 | 如实不画 / 做不到（缺口） |
 |---|---|---|---|
-| 日程 `ScheduleScreen`<br>（取数 `WebScheduleSource`，新客户端 `:core/net` 的 `CampusJwxtScheduleApi`） | `GET /api/jwxt/exams?term=` + `GET /api/jwxt/textbooks?term=` + `GET /api/jwxt/changes?term=` | 考试那一栏（`ExamItem` 六格：考试倒计时横幅 + 完整考试列表）、学期栏与课程详情里的教材那一栏（八格 +「有教材的在前」那条排序）与调停补课记录（`ScheduleChangeEvent` 十二格） | ① **格子仍是排课原样**：`/api/jwxt/schedule` 端的是排课原样，而合并那一步（`:core` 的 `JwxtChanges.apply`）要 `JwxtChange` 上的 `jxbid`（认原课）与 `appliedAt`（定先后）两格；`/api/jwxt/changes` 端的是说明面的 `ScheduleChangeEvent`，**那两格不在它身上** ⇒ 本端**不按课程名猜着合**（多班同课同时段会改错格子）；要合只能等 `:server` 把这两格端出来（或直接端已合并的课表）；② `changes` 这一发**目前没有屏上消费方**（`:app` 里它是屁岱回答「最近调了什么课」的输入，而 web 的屁岱是降级页）—— 接口那一格照读，只是现在没人读；③ campus-api 形态下这三条端点**取不到**（本端只认 serve 契约里那一种字段面，同名路径在 campus-api 那一头的字段名不同 —— §7 第 2 条）⇒ 考试与教材两栏空着 |
+| 日程 `ScheduleScreen`<br>（取数 `WebScheduleSource`，新客户端 `:core/net` 的 `CampusJwxtScheduleApi`） | `GET /api/jwxt/exams?term=` + `GET /api/jwxt/textbooks?term=` + `GET /api/jwxt/changes?term=` + `GET /api/jwxt/schedule?merged=1`（**批①收尾**加的那一档） | 考试那一栏（`ExamItem` 六格：考试倒计时横幅 + 完整考试列表）、学期栏与课程详情里的教材那一栏（八格 +「有教材的在前」那条排序）、调停补课记录（`ScheduleChangeEvent` 十二格），以及**格子里的课**（`?merged=1` 那一档⇒已合过调停补课，与 Android / 桌面同一张表） | ① **接线当时那句「格子仍是排课原样」已于 2026-10-14 批①收尾收掉**（合并走 `?merged=1`，本端一行都没自己合 —— 逐条见 §5.9）；② `changes` 这一发**目前没有屏上消费方**（`:app` 里它是屁岱回答「最近调了什么课」的输入，而 web 的屁岱是降级页）—— 接口那一格照读，只是现在没人读；③ campus-api 形态下这三条端点**取不到**（本端只认 serve 契约里那一种字段面，同名路径在 campus-api 那一头的字段名不同 —— §7 第 2 条）⇒ 考试与教材两栏空着、格子仍是排课原样 |
 | 日程详情里的「N 座」<br>（`ScheduleCapability.SEAT_COUNT`） | `GET /api/emptyroom/seat-count?room=` | 详情里那一格「N座」（`WebScheduleHost.roomSeatCount` → `CampusEmptyRoomApi.seatCount` 的 serve 那一支） | ① `seats:null` = 这间房查不到 ⇒ **不画那一格**（不写成「0 座」）；`seats` **字段缺失**是形状没对上 ⇒ 抛错；② 这条端点**不套会话**（与 `/cdn` 同档）；③ campus-api 形态下 `honored` 里**不列** `SEAT_COUNT`（本端只认 serve 契约里那一条、而那一形态下那份 `seatCount` 只剩「自己拉过的那一份当天 CDN」而课表详情页是另一个实例 ⇒ 列了就是假开关）⇒ 那一格不画；④ 本端不为一个座位数拉整校区那份 `/cdn` |
 | 教材（日程的学期栏 / 课程详情） | 同上那一发 `GET /api/jwxt/textbooks?term=` | 见上一行：教材那一栏真画（含「无教材」排在后面） | ⚠️ **学号不由本端传**：契约里学号只进服务端的请求、不进响应（§5.2）⇒ 这条端点**不要**学号，本端为此在 `JwxtScheduleSource` 上多了一格 `textbooksWithoutStudentId`（默认 `false` = 老行为，`:app` / 桌面一行未改）—— 不读它，屏上那个「未获取到学号」的拦门会把「教材已接」变成看不见的效果；campus-api 形态下那一条仍按老样子拦（那一头确实没有这条） |
 | 成绩 `JwappScoreScreen` | `GET /api/jwapp/score-detail?courseId=` | 「点开一门课」的分项（十二格 + 分项四格）—— `JwappScoreSource.canFetchScoreDetail` 在 serve 形态下翻 `true`，卡片点了真能展开 | ① 「这门课没有分项」= `200` + `detail:null` ⇒ 本端抛 `NoScoreDetailException`（与 `:data` 的 `JwappApi.getDetail` 同一个异常）⇒ 屏走「自己拼一份空明细」（`ScoreItem.asEmptyDetail()`）那条老分支，**不是**「加载失败」；② campus-api 形态下开关仍是 `false`（那个上游没有这一条）⇒ 卡片点了不展开；③ `itemPercent` 是比例：本端不除第二次（屏上乘 100）；④ 未评教名单与 `reportedGrades(studentId)` 两路仍未接（前者属评教那一侧、后者要学号，红线） |
@@ -967,18 +967,68 @@ POST /api/venue/cancel
 
 1. **本批一个新屏都没加** ⇒ `WebSupport.openableRouteIds` 与 `ToolboxWebApp.kt` 的 `AppPage` 的
    `when` **两者都未动**（日程与成绩两屏早在清单与分支里，这一批接的是它们**屏内**的取数与能力开关）；
-2. **`SCHEDULE_CHANGE_BUBBLE` 仍不列进 `honored`**：那一条气泡在 `:app` 里是
-   `InboxStore.post(OwnInbox.scheduleChange(…))`，而那个工厂 **`OwnInbox` 住在 `:app`** —— 它的类 KDoc
-   写明「**Web 端不产生这些提醒**，只把拉来的学校消息写进 `InboxStore`」⇒ 本端不列（`:desktop` 也不列）。
-   ⚠️ 这与「调停补课端点有没有」是两件事：端点接上了，而气泡来自共享屏自己的课表比对
-   （`ScheduleDiff`），要的是「把一条自己的提醒写进收纳」—— 要在本端做，得先把 `OwnInbox` 搬进 `:core`
-   （那一份 id 形状必须与 `:app` 逐字一致），不属本批；
+2. **`SCHEDULE_CHANGE_BUBBLE` 已翻（2026-10-14 批①收尾）**：那一条气泡在 `:app` 里是
+   `InboxStore.post(OwnInbox.scheduleChange(…))`，而那个工厂当时**住在 `:app`** ⇒ 本端不列（`:desktop`
+   至今不列）。本批把 `OwnInbox` **搬进了 `:core`**（包名与每一个 `id` 的形状逐字不变；`:app` 那侧
+   只少了一个文件、引用一行未改，`InboxTest` 一句未动）⇒ `:web` 真能照着办：`honored` 里补上了它
+   （**两种形态都列** —— `InboxStore` 在 wasm 上是 `localStorage`，首页那一格 `HomeCard.INBOX` 与
+   消息收纳那一屏读的就是它），`WebScheduleHost.postScheduleChange` 与 `:app` 接成同一行。
+   ⚠️ 它与「调停补课端点有没有」仍是两件事：气泡来自共享屏自己的课表比对（`ScheduleDiff`）；
 3. **`SEAT_COUNT` 只在 serve 形态列**（见上表那一条）：列了做不到的就是假开关。
 
 夹具与用例：`JwxtFakeUpstream`（新增教材报表那一枪：POST + `reportlets=[…]`，**既有常量一个没动**）、
 `JwappFakeUpstream`（新增「这门课没有分项」那一档）、`EmptyRoomFakeUpstream`（**零改动** ——
 `seatCount` 读的就是它早就有的那份当天 CDN 课表）；`changes` / `exams` 用的也是早就有的样本。
 用例见 §6 的 `ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest`（**10** 例）。
+
+
+### 5.9 批①收尾（2026-10-14 落地）：`GET /api/jwxt/schedule?merged=1` —— 已合并调停补课的那一份
+
+**同一个端点，多一档参数**：不带 `merged` 的那一档**一字未改**（§5.3 那行，排课原样、契约面逐字冻结）。
+决策来源：`docs/desktop-port-plan.md` §16.5 的「由复核带出来的、需要跟着修的接口缺口」第 1 条
+（接线批如实不合并，缺口写在日程页顶部；用户拍板走「让 `/api/jwxt/schedule?merged=1` 直接端已合并的
+那一份」，**不给说明面端点硬加字段**）。统一口径照 §5.2（信封、`code == HTTP 状态码`、`401` 指路
+「先登录」、`400` 参数形状、`502` 上游/网络故障）。
+**会话**：一个新站点都没注册（还是 `jwxt`，与 §5.3 / §5.8 同一份会话）。
+
+| 端点 | 请求 | 响应 `data`（逐字段） |
+|---|---|---|
+| `GET /api/jwxt/schedule?merged=1` | `?term=`（省略 = 当前学期，与不带 `merged` 时同一条读法）+ `merged=1`（本档必给 `1`） | `{term:string, count:int, courses:[{courseName,teacher,location,weekBits,dayOfWeek,startSection,endSection,courseCode,courseType}], changes:[{courseName,courseCode,kind,fromDay,fromStartSection,fromEndSection,toDay,toStartSection,toEndSection,toLocation,weeks:[int],toWeeks:[int]}]}` |
+
+- 端的是 `:data` 的 `JwxtScheduleApi.schedule(term)` —— **合并那一层就在 `:data`**（`JwxtChanges.apply`，
+  搬迁前 Android 用的就是它）；本层是**薄包装，一行合并规则都不重写**；
+- `courses` 是 `:core` 的 `CourseItem`，**九格**：`weekBits` 是位串（上游 `SKZC` —— `:data` 那条路用的
+  就是它），`dayOfWeek`/`startSection`/`endSection` 是数字，`courseCode`/`courseType` 有值
+  （非 `merged` 那一档的八列里没有这两格）。⚠️ `CourseItem` 上那两格分钟级时间
+  （`startMinuteOfDay`/`endMinuteOfDay`）**不投影**：它们只有自建日程会填，教务行上恒为 `-1`
+  （§4「字段缺失 = 本端不投影」）—— 消费方解回 `CourseItem` 时那两格自动落到同一个默认值，
+  两端拿到的是同一张表，不是两个口径；
+- `changes` 与 `/api/jwxt/changes`（§5.8）**同一族十二格**：同一个 `JwxtChanges.apply` 顺手算出来的
+  事件（不是第二份解析、也不另发一次请求）；
+- `count` = `courses.size`。行序 = `JwxtChanges.apply` 给的顺序（被拆出来的那几条先于新位置那一条）；
+- 错误码：`400` `?term=` 不是学期号 · `400` `merged` 给了但不是 `1`（空白串也算「不是 1」；读法与
+  `/api/jwxt/grades` 的 `all` 同一条 —— **不静默当成默认那一档**） · `401` 没会话 ·
+  `502` 上游/网络故障。
+
+#### 消费方（`:web`）：**已落地**（2026-10-14，本批）
+
+| 屏（`:core`） | 用了哪一档 | 真画了什么 | 如实不画 / 做不到（缺口） |
+|---|---|---|---|
+| 日程 `ScheduleScreen`（取数 `WebScheduleSource.schedule` → `:core/net` 的 `CampusJwxtScheduleApi.mergedSchedule`） | `GET /api/jwxt/schedule?merged=1` | **格子里的课与 Android / 桌面同一张表**：调课 / 停课 / 补课都在（原周次被挖掉、新位置那一条也在）；教材与考试那两栏照旧（见 §5.8） | ① campus-api 形态下**没有这一档**（那一头不认 `merged`）⇒ 格子仍是排课原样，日程页顶部那行说明写明了；② 与取数无关的三处能力缺口（导出日历 ICS / 课程详情里的「思源学堂」与「本次考勤」/ 今日栏「接下来」的作业截止）**两种形态下都不画** —— 逐条见 `WebScheduleHost` 的 `honored` 那一段与页顶那行说明 |
+
+页顶那条「如实说明」（`WebScheduleGapNote`）本批**收紧了**：serve 形态那一句不再是「格子仍是排课
+原样」（已经合了），改成「与 Android / 桌面同口径」，并把两种形态下**同样做不到的三处**逐条留在
+同一行里（不写的话，用户看着一张比 App 短的日程页只能猜）。
+
+同一次提交里还收掉了 §16.5 的第 2、3 条（都与本节同源，处置见各自的节）：**教材中心屏的
+「本学期我的教材」接上了**（`GET /api/jwxt/textbooks` 早已在 §5.8，本批补的是 `:web` 那一层映射
+—— `:core` 的 `toJiaocaiTermTextbooks()`）与 **`OwnInbox` 搬进 `:core`**（`SCHEDULE_CHANGE_BUBBLE`
+因此在 `:web` 上翻成 true，见 §5.8 末段第 2 条）。
+
+夹具与用例：本批 `:testkit` **零改动**（`merged=1` 用的就是早就有的 `xskcb.do` + `xsdkkc.do` 两份
+样本）；`:server:test` 新增 `ServeJwxtScheduleMergedTest`（**2** 例：真合并那一档 + 默认那一档行为
+不变与 `merged` 形状 400），`:core` 新增 `ServeJwxtScheduleMergedApiTest`（**3** 例：解回
+`SourceSchedule` / 参数读法 / 形状没对上与非 serve 形态抛错）。
 
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
@@ -1071,6 +1121,13 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 新增（**3** 例）—— serve 座位数那一发（`seats:null` ⇒ `null`、字段缺失 ⇒ 抛错、空白教室名不问）、
 以及 campus-api 那一档「座位数不自己发请求」（旧行为钉住）。
 
+**批①收尾（2026-10-14）**：`:server:test` 80 → **82**（新增 `ServeJwxtScheduleMergedTest` 两例：
+§5.9 那一档的真合并 + 默认那一档行为不变与参数形状 400）；**客户端那一侧**的 `:core:jvmTest`
+新增 `ServeJwxtScheduleMergedApiTest`（**3** 例）、`TermTextbooksTest`（**2** 例，教材中心那一段的映射）、
+`OwnInboxTest`（**2** 例，`OwnInbox` 搬进 `:core` 之后 id 形状与公告时间不变）。
+`:testkit` **零改动**（本批三个件全落在早已存在的夹具上）—— 「夹具那一处不是每次都得动，但每次都得核」：
+这次的核就是这一句。
+
 
 ## 7. 变更纪律
 
@@ -1127,6 +1184,13 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
      按课程名猜着合会在多班同课同时段时**改错格子**，那比少画糟。
    - 本批**夹具那一处零改动**（五条端点全落在早已存在的假上游上，`:testkit` 本批一次都没开）——
      所以「夹具」那一处**不是每次都得动，但每次都得核**：这次的核写在 §6 末。
+9. ✅ **那一例外也补位了（2026-10-14 批①收尾）**：§5.9 那一档落地的**同一次提交**里就带上了
+   本文档 + `:testkit` 夹具（**零改动** —— 用的就是早就有的 `xskcb.do` + `xsdkkc.do` 两份样本）+
+   `:web` 实现（`CampusJwxtScheduleApi.mergedSchedule` + `WebScheduleSource.schedule` + 页顶那行说明
+    + `honored`）⇒ 三处本来就是齐的。同一次提交还收掉了 §16.5 的第 2、3 条（与它同源）：教材中心屏的
+   「本学期我的教材」接上、`OwnInbox` 搬进 `:core`（`SCHEDULE_CHANGE_BUBBLE` 因此在 `:web` 上翻 true）。
+   **这一批要记的新纪律**：「同一个端点加一档参数」也算契约变更 —— 默认那一档要**逐字冻结**并由用例
+   钉住（`ServeJwxtScheduleMergedTest` 里那条 `changesCalls == 0` 的断言就是干这个的）。
 
 ---
 

@@ -23,6 +23,7 @@ import com.xjtu.toolbox.core.net.CampusLmsApi
 import com.xjtu.toolbox.core.net.CampusFeedbackApi
 import com.xjtu.toolbox.core.net.CampusPayApi
 import com.xjtu.toolbox.core.net.CampusWebVpnApi
+import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
 import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
@@ -660,7 +661,8 @@ private fun AppPage(
         // 「还没搬到 Web」—— 后者是假话（屏就在 `:core`，而且这一段刚刚接上）。
         //
         // 每屏页顶那条 `WebGapNote` 说的是这张屏**拿不到什么**（照 §5.6 逐条，不编）：
-        // 学堂的教师名 / 附件预览与下载 / 播放与回放地址 / 提交记录；教材的「本学期我的教材」与全文阅读；
+        // 学堂的教师名 / 附件预览与下载 / 播放与回放地址 / 提交记录；教材的**全文阅读**（「本学期我的
+        // 教材」那一段 2026-10-14 批①收尾已接上，取数见 `WebJiaocaiTermTextbooks`）；
         // 成绩的分项成绩；签到的姓名与学号（屏本来也不画那两格）。
         // ⚠️ 必须写 `is`：`AppRoute.Lms` 带一个默认参数，裸写它会被当成「构造一个 Lms(null) 再比相等」
         // （与下面浏览器那一条同一条坑）。
@@ -710,18 +712,21 @@ private fun AppPage(
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "这一屏只有「查教材」那一栏：【本学期我的教材】那一段的数据在**教务**的报表里、" +
-                        "要学号（红线）⇒ 那一段不画；全文阅读（`jiaocai1` 的页图与阅读器）是另一个域名、" +
-                        "另一套会话，本轮没有端点 ⇒ 书架与全文库两栏不画，各处的「读全文 / 阅读全文」入口" +
-                        "也不画（拿了书目号只够显示「这本书有本地全文」）。检索只有一个关键词输入：" +
-                        "没有院系/教师筛选，也没有翻页；结果里的书目号（ssno）在列表里恒为空，要它进详情才补。",
+                    "这一屏真接上了两处（2026-10-14 批①收尾）：「查教材」那一栏与【本学期我的教材】那一段" +
+                        "（那一段的数据在**教务**的报表里，serve 契约 §5.8 已端出它：`GET /api/jwxt/textbooks`，" +
+                        "学号由服务端从会话里取 ⇒ 与日程屏的教材那一栏同一个端点）。「查教材」那一栏检索只有一个关键词输入：" +
+                        "没有院系/教师筛选，也没有翻页；结果里的书目号（ssno）在列表里恒为空，要它进详情才补。" +
+                        "全文阅读（`jiaocai1` 的页图与阅读器）是另一个域名、另一套会话，本轮没有端点 ⇒ 书架与" +
+                        "全文库两栏不画，各处的「读全文 / 阅读全文」入口也不画（拿了书目号只够显示「这本书有本地全文」）。",
                 )
                 Box(Modifier.weight(1f)) {
                     TextbookScreen(
                         source = remember(client, mode) { CampusJiaocaiApi(client, API_BASE, mode) },
-                        // 「本学期我的教材」那一段的宿主端口：本端**没有**那份教务缓存（它要学号）
-                        // ⇒ 如实回空表，那一段整段不显示（见 [WebJiaocaiTermTextbooks] 的 KDoc）。
-                        termTextbooks = WebJiaocaiTermTextbooks,
+                        // 「本学期我的教材」那一段的宿主端口：serve 形态下走 `GET /api/jwxt/textbooks`
+                        // （学号由服务端取，本端不传）—— 见 [WebJiaocaiTermTextbooks] 的 KDoc。
+                        termTextbooks = remember(client, mode) {
+                            WebJiaocaiTermTextbooks(CampusJwxtScheduleApi(client, API_BASE, mode))
+                        },
                         // 全文库那一半（`jiaocai1Source` / `jiaocai1Shelf`）一个都不传 = 本端没有那一档
                         // ⇒ 屏上只留「查教材」一栏，也不画任何阅读全文的入口（见那个参数的 KDoc）。
                         onBack = back,
