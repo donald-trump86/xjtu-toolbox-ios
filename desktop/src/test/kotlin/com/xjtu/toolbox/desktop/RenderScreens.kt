@@ -50,6 +50,7 @@ import com.xjtu.toolbox.media.DownloadItem
 import com.xjtu.toolbox.media.DownloadStatus
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.desktop.media.DesktopDownloads
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
@@ -1274,8 +1275,10 @@ private lateinit var fake: FakeCampusProxy
  */
 private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
     // 下载队列（`:desktop` 那份 0600 的 JSON）也清一下：`DesktopDownloads.manager` 是进程级单例，
-    // 它那份存储的根在**第一次碰它时**才定下来（见下面 `download_manager.png` 那一段）。
-    wipeSecureStore("download_tasks")
+    // 它那份存储的根与**端内名**都在第一次碰它时定下来（S7b 之后名里带账号后缀 ⇒ 两个可能的
+    // 命名空间都清，跑两次仍是同一种起点；见下面 `download_manager.png` 那一段）。
+    wipeSecureStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, null))
+    wipeSecureStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, LibraryFakeUpstream.USERNAME))
     // 账号表（`AccountStore`，存储名 `xjtu_accounts`）同样清一下：多账号之后它会在「真登录」那一步
     // 长出一条夹具账号，而 `restore()` 会直接拿它恢复成已登录 —— 跑两次就该是同一种起点。
     wipeSecureStore(AccountStore.FILE_NAME)
