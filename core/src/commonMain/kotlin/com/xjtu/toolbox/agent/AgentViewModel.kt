@@ -55,7 +55,7 @@ object AgentThinkingHost {
     var isThinking by mutableStateOf(false)
 }
 
-class AgentViewModel(private val host: AgentHost) : ViewModel() {
+class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSession {
     companion object {
         /** 流式分片合并写入的间隔：约 3 帧，肉眼仍是连续输出，重组和解析次数降一两个数量级。 */
         private const val STREAM_FLUSH_MS = 50L
@@ -63,8 +63,8 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         const val CONTEXT_EXHAUSTED_MESSAGE = AGENT_CONTEXT_EXHAUSTED_MESSAGE
     }
 
-    val messages = mutableStateListOf<ChatMessage>()
-    var isLoading by mutableStateOf(false)
+    override val messages = mutableStateListOf<ChatMessage>()
+    override var isLoading by mutableStateOf(false)
         private set
 
     /** 加载态的唯一写入口：UI 加载与底栏思考动画共用同一信号，不会各走各的。 */
@@ -72,27 +72,27 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         isLoading = loading
         AgentThinkingHost.isThinking = loading
     }
-    var errorMessage by mutableStateOf<String?>(null)
+    override var errorMessage by mutableStateOf<String?>(null)
     /**
      * 上下文耗尽标记。变 true 时 UI 应主动弹窗提醒用户"请新开对话"，
      * 而不是悄悄把输入框禁用 + 文字提示里藏一句。
      */
-    var contextExhausted by mutableStateOf(false)
+    override var contextExhausted by mutableStateOf(false)
         private set
     private var lastTotalTokens: Long? = null
 
     /** contextExhausted 刚刚由 false 变 true 的一次性事件：UI 用 LaunchedEffect 弹窗。 */
-    var contextExhaustedJustTriggered by mutableStateOf(false)
+    override var contextExhaustedJustTriggered by mutableStateOf(false)
         private set
-    fun consumeContextExhaustedTrigger(): Boolean {
+    override fun consumeContextExhaustedTrigger(): Boolean {
         val v = contextExhaustedJustTriggered
         contextExhaustedJustTriggered = false
         return v
     }
 
     // ── 多会话状态 ──────────────────────────────────────────────────────
-    val sessions = mutableStateListOf<AgentSession>()
-    var currentSessionId by mutableStateOf<String?>(null)
+    override val sessions = mutableStateListOf<AgentSession>()
+    override var currentSessionId by mutableStateOf<String?>(null)
         private set
     private var store: AgentSessionPersistence? = null
 
@@ -116,9 +116,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
     private var currentJob: kotlinx.coroutines.Job? = null
 
     /** 停止正在进行的生成。 */
-    fun stop() { currentJob?.cancel() }
+    override fun stop() { currentJob?.cancel() }
 
-    fun replaceLastUserAndSend(
+    override fun replaceLastUserAndSend(
         newText: String,
         config: AgentConfig,
     ) {
@@ -165,7 +165,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
     // ── 会话管理 ────────────────────────────────────────────────────────
 
     /** 绑定持久化存储并加载会话列表（仅一次）。空则自动建首个会话。 */
-    fun bind(store: AgentSessionPersistence) {
+    override fun bind(store: AgentSessionPersistence) {
         if (this.store != null) return
         this.store = store
         sessions.addAll(store.list())
@@ -173,7 +173,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         if (first != null) switchSession(first.id) else newSession()
     }
 
-    fun newSession() {
+    override fun newSession() {
         val store = store ?: return
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
         val s = store.create()
@@ -183,7 +183,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         refreshSessions()
     }
 
-    fun switchSession(id: String) {
+    override fun switchSession(id: String) {
         val store = store ?: return
         if (id == currentSessionId && messages.isNotEmpty() && !isLoading) return
         currentJob?.cancel(); applyLoading(false)   // 切换前停掉旧生成，避免两个会话内容串台
@@ -213,7 +213,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         tools = null; errorMessage = null
     }
 
-    fun deleteSession(id: String) {
+    override fun deleteSession(id: String) {
         val store = store ?: return
         store.delete(id)
         refreshSessions()
@@ -294,13 +294,13 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         }
     }
 
-    fun sendMessage(
+    override fun sendMessage(
         userText: String,
         config: AgentConfig,
-        /** 不进聊天气泡，只进发给模型的 user 消息。见屁岱提醒快照。 */
-        llmAnnex: String? = null,
+        /** 不进聊天气泡，只进发给模型的 user 消息（默认值写在 [AgentChatSession] 那条接口上）。 */
+        llmAnnex: String?,
         /** 随消息发送的图片路径，见 [AgentVision.attach]。 */
-        images: List<String> = emptyList(),
+        images: List<String>,
     ) {
         // 只发图不打字是合理的（「这是什么」），所以有图时允许正文为空。
         if ((userText.isBlank() && images.isEmpty()) || isLoading) return

@@ -141,8 +141,13 @@ internal class ProtectedKeyValueStore(
  *
  * @param name 文件名（不含目录与 `.properties` 后缀），一般带账号后缀。
  * @param legacyFallbackName 老明文文件的名字，只用于「第一次读时迁进来」，不传就没有这一步。
+ * @param protector 凭据保护器。默认 = 本机那一档（[secretProtectorForPlatform]：Windows ⇒ DPAPI，
+ *   其余平台没有）。**收成参数只为一件事**：Windows 那条密封路在 Linux / macOS 上跑不到，
+ *   而它是「读了就密封、解不开就抛」这条契约的一半 —— 单测传一份夹具保护器就能在本机把它钉住
+ *（照 [secretProtectorForPlatform] 的 `osName` 参数那一处先例）。生产调用点一个都不传。
  */
 fun protectedSecureKeyValueStore(
     name: String,
     legacyFallbackName: String? = null,
-): KeyValueStore = ProtectedKeyValueStore(secureKeyValueStore(name, legacyFallbackName), secretProtectorForPlatform())
+    protector: SecretProtector? = secretProtectorForPlatform(),
+): KeyValueStore = ProtectedKeyValueStore(secureKeyValueStore(name, legacyFallbackName), protector)
