@@ -86,7 +86,20 @@ class AttendanceFakeUpstream {
         const val LEAVE_REASON = "发烧（假样例）"
 
         const val EVIDENCE_ID = "E-假-0001"
+
+        /** 上游拒收一次请假提交时给的那句 message（[leaveCreateRejected] 打开后用）。 */
+        const val LEAVE_CREATE_REJECTED_MSG = "当前不在可请假时段（夹具）"
     }
+
+    /**
+     * 打开后：提交请假那一发回 `{"code":500,"message":…}`（HTTP 仍是 200）—— 演「到了上游、
+     * 上游说不给提」（比如不在可请假时段 / 审批人已失效）。
+     *
+     * `KqHttp.execute` 看的是 JSON 里那个 `code`（不是 HTTP 码）⇒ 它抛成 `RuntimeException(message)`
+     * ⇒ serve 那一层按 502 报。
+     */
+    @Volatile
+    var leaveCreateRejected: Boolean = false
 
     // ── 断言用：请求原文与计数 ──
 
@@ -173,6 +186,10 @@ class AttendanceFakeUpstream {
             }
             path == "/sa/student/leaves" && exchange.requestMethod == "POST" -> {
                 createLeaveBodies += exchange.requestBody.readBytes().decodeToString()
+                if (leaveCreateRejected) {
+                    respondJson(exchange, """{"code":500,"message":"$LEAVE_CREATE_REJECTED_MSG"}""")
+                    return
+                }
                 captureHeaders(exchange)
                 respondJson(exchange, """{"code":0,"data":{"leaveId":"$LEAVE_ID"}}""")
             }

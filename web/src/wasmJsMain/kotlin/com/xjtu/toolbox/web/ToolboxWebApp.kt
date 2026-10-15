@@ -582,17 +582,18 @@ private fun AppPage(
         AppRoute.Attendance -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "考勤",
-                endpoints = "GET /api/attendance/terms + /api/attendance/records",
+                endpoints = "GET /api/attendance/{terms,records} + /api/attendance/leave/{window,preview,records} + POST /api/attendance/leave{,/withdraw,/cancel}",
                 why = "考勤走 `new_attendance` 站点的会话。",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "这一屏只有「学期选择 + 流水表」两样：serve 契约 §5.5 只端了这两个端点。如实不画的三处：" +
-                        "① 上课教师名（记录里有这个名字，但 §5.2 的例外清单里没有它 —— 红线）；" +
-                        "②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords 没有端点，" +
-                        "本端也不拿流水在本机算第二份口径）；③「打卡流水」与「请假」两栏（打卡原始流水没有端点，" +
-                        "请假 / 销假是写路径、一律不端）。姓名那一格同理不画（getStudentInfo 不端）。",
+                    "三处如实不画：① 上课教师名（考勤流水与请假单里都有这个名字，但 §5.2 的例外清单里" +
+                        "没有它 —— 红线）；②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords " +
+                        "没有端点，本端也不拿流水在本机算第二份口径）；③「打卡流水」那一栏（打卡原始流水没有端点）。" +
+                        "姓名那一格同理不画（getStudentInfo 不端）。" +
+                        "「请假」那一栏**已经真能用了**（窗口 / 审批人 / 列表 / 提交 / 撤回 / 销假六条端点）；" +
+                        "只有**附件**没端 —— 本端没有文件选择宿主，与桌面同一条（不发附件）。",
                 )
                 Box(Modifier.weight(1f)) {
                     AttendanceScreen(

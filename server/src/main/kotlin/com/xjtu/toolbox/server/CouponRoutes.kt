@@ -223,11 +223,6 @@ private fun CouponDetail.toDto() = CouponDetailDto(
     openPacketImageUrl = openPacketImageUrl,
 )
 
-/** `?page=&size=` 的正整数读法；不是正整数（或没给）返回 null。 */
-private fun io.ktor.http.Parameters.positiveInt(name: String, default: Int): Int? {
-    val raw = get(name)?.trim() ?: return default
-    return raw.toIntOrNull()?.takeIf { it > 0 }
-}
 
 // ── 常量 ─────────────────────────────────────────────────────────────
 

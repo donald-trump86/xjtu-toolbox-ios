@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.core.net
 
+import com.xjtu.toolbox.attendance.LeaveType
 import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.coupon.CouponFilter
 import io.ktor.client.engine.mock.MockEngine
@@ -166,18 +167,119 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("2026-09-01", calls[2]["from"])
         assertEquals("2026-09-30", calls[2]["to"])
 
-        // 三栏（统计 / 打卡流水 / 请假）契约 §5.5 都没有端点：能力开关全 false，屏据此不画「暂无…」
+        // 只剩统计 / 打卡流水两栏没有端点（`leave` 已于批③-b / D7 ② 翻 true）：
+        // 屏据此不画「暂无…」而是写「本端拿不到 …」。
         assertEquals(
-            com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = false, streams = false, leave = false),
+            com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = false, streams = false, leave = true),
             api.capabilities,
         )
         assertTrue(api.getKqtjCurrentWeek().isEmpty(), "统计不端 ⇒ 空表（不拿流水在本机算第二份口径）")
         assertTrue(api.computeCourseStatsFromRecords(records).isEmpty())
         assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
         assertTrue(api.getStudentInfo().isEmpty(), "姓名那格不端 ⇒ 空表（屏上姓名那一行自然不画）")
-        val leavePage = api.getLeavePage()
-        assertTrue(leavePage.records.isEmpty())
-        assertFailsWith<UnsupportedOperationException> { api.getSemesterWindow() }
+    }
+
+    /**
+     * 请假那一半（批③-b / D7 ②）：三读 + 三写都真走；附件上传仍然没有端点。
+     *
+     * 钉的四件事：① 窗口 / 预览 / 列表三格逐格投影（含 `teacherNames` **红线不投影**）；
+     * ② 提交真发一枪、`requestId` 空串时本端补一枚（幂等键），而且**不发** `evidenceFiles`；
+     * ③ 撤回 / 销假各一枪，body 只有契约那三格 / 两格；④ `uploadEvidence` 照旧抛错（屏上那个槽位
+     * 给的是空表，不会调到这里）。
+     */
+    @Test
+    fun serveAttendanceLeaveReadsAndWritesFollowContract() = runTest {
+        val windowBody =
+            """{"code":0,"data":{"semesterId":"646","academicYear":"2026-2027",""" +
+                """"semesterName":"第一学期","startDate":"2026-09-14","endDate":"2027-02-21",""" +
+                """"maxStudentLeaveMinutes":2880}}"""
+        val previewBody =
+            """{"code":0,"data":{"nextNodeNo":1,"nextApprovers":[{"userId":"A1","name":"老师甲"}],""" +
+                """"nodes":[{"nodeNo":1,"nodeRole":"TEACHER","nodeName":"辅导员","configured":true,""" +
+                """"approvers":[{"userId":"A1","name":"老师甲"}]}]}}"""
+        val recordsBody =
+            """{"code":0,"data":{"page":1,"size":20,"total":1,"records":[""" +
+                """{"leaveId":"L1","leaveType":"SICK","reason":"发烧","applyTime":"2026-10-10 08:00",""" +
+                """"startTime":"2026-10-11 08:00:00","endTime":"2026-10-11 12:00:00",""" +
+                """"status":"PENDING","displayStatus":"","approvalStatus":"PENDING","cancelStatus":"",""" +
+                """"sourceType":"STUDENT","durationMinutes":240,"durationText":"4 小时","archiveId":"AR1",""" +
+                """"withdrawable":true,"cancellable":false,"evidenceFiles":[],"approvalNodes":[],""" +
+                """"courses":[{"courseId":"C1","courseName":"光电子学","courseDate":"2026-10-11",""" +
+                """"startSection":1,"endSection":2,"teacherNames":"高宏（不该出现）"}]}]}}"""
+        val paths = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            val path = request.url.encodedPath
+            paths += path
+            val body = when {
+                path.endsWith("/api/attendance/leave/window") -> windowBody
+                path.endsWith("/api/attendance/leave/preview") -> previewBody
+                path.endsWith("/api/attendance/leave/records") -> recordsBody
+                path.endsWith("/api/attendance/leave/withdraw") || path.endsWith("/api/attendance/leave/cancel") -> {
+                    bodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"ok":true,"message":"ok"}}"""
+                }
+                path.endsWith("/api/attendance/leave") -> {
+                    bodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"leaveId":"L-NEW"}}"""
+                }
+                else -> error("没有为 $path 准备响应")
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
+        }
+        val api = CampusAttendanceApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
+
+        val window = api.getSemesterWindow()
+        assertEquals("646", window.semesterId)
+        assertEquals(2880, window.maxStudentLeaveMinutes)
+
+        val preview = api.getFlowPreview(LeaveType.SICK)
+        assertEquals(1, preview.nextNodeNo)
+        assertEquals("A1", preview.nextApprovers.single().userId)
+        assertTrue(preview.nodes.single().configured)
+
+        val page = api.getLeavePage()
+        assertEquals(1, page.total)
+        val record = page.records.single()
+        assertEquals("L1", record.leaveId)
+        assertEquals("发烧", record.reason)
+        assertTrue(record.withdrawable)
+        assertEquals(
+            "",
+            record.courses.single().teacherNames,
+            "任课教师名是姓名 ⇒ 同一条红线不投影（形状里那一格仍在，值是空串）",
+        )
+
+        val leaveId = api.createLeave(
+            type = LeaveType.SICK,
+            startTime = "2026-10-20 08:00:00",
+            endTime = "2026-10-20 12:00:00",
+            reason = "发烧",
+            nextApproverUserId = "A1",
+            evidenceFiles = emptyList(),
+            requestId = "",
+        )
+        assertEquals("L-NEW", leaveId, "服务端给的单号原样带回")
+        assertEquals("/api/attendance/leave", paths.last())
+        val createBody = bodies.first()
+        assertTrue(createBody.contains(""""type":"SICK""""), "type 发的是枚举码：$createBody")
+        assertTrue(createBody.contains(""""startTime":"2026-10-20 08:00:00""""), createBody)
+        assertTrue(createBody.contains(""""nextApproverUserId":"A1""""), createBody)
+        assertTrue(createBody.contains("requestId"), createBody)
+        assertTrue(!createBody.contains("evidenceFiles"), "附件那一格不发出去（本端没有那个端点）：$createBody")
+        val requestId = Regex(""""requestId":"([0-9A-F]+)""").find(createBody)?.groupValues?.get(1)
+        assertTrue(requestId != null && requestId.length == 16, "补出来的幂等键是 16 位十六进制：$requestId")
+
+        api.withdrawLeave("L1", "学生撤回")
+        assertEquals("/api/attendance/leave/withdraw", paths.last())
+        api.cancelLeave("L1")
+        assertEquals("/api/attendance/leave/cancel", paths.last())
+        assertEquals(3, bodies.size, "提交 / 撤回 / 销假各一发")
+
+        // 附件上传：本端没有端点（屏上那个槽位给的是空表，不会调到这里）
+        assertFailsWith<UnsupportedOperationException> { api.uploadEvidence("a.pdf", "application/pdf", byteArrayOf()) }
+        // 打卡流水那一栏不是「抛错」而是「如实空表」（屏按 `capabilities.streams` 不画那一栏）
+        assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
     }
 
     /**

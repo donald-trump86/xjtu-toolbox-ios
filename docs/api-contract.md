@@ -102,7 +102,7 @@
 | `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
 | `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
 | `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
-| `/api/attendance/terms` `/api/attendance/records` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi`） | 考勤 | **P0 · 已落地 2026-10-13** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次），`teacher` 按红线不端，见 §5.5 |
+| `/api/attendance/terms` `/api/attendance/records` `/api/attendance/leave/{window,preview,records}` `POST /api/attendance/leave{,/withdraw,/cancel}` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi` / `LeaveApi`） | 考勤（**流水 + 请假 / 销假**） | **P0 读 · 2026-10-13 已落地**；**请假那一族（三读 + 三写）于 2026-10-15 批③-b / D7 ② 落地** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次）；**三处姓名不投影**（流水里的 `teacher`、请假单里的 `teacherNames`、审批人的 `name`）—— 最后一处是本批新碰上的、要上一级拍板的事；附件上传没有端点，见 §5.5.1 |
 | `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收与会话失效**都落 `502`**（`:data` 那一层分不出业务拒绝，见 §5.5） |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
 | `/api/lms/courses` `/api/lms/activities` `/api/lms/activity` | `LmsSource`（`:data` 侧 `AppLmsSource` + `LmsApi`） | 思源学堂 | **P0 · 已落地 2026-10-14** | **要改**：`instructors` / `liveInstructorNames`（**教师姓名**）按红线不投影；附件的三个下载/预览地址与回放、直播地址**不端**（要站点会话）；`type` 是 `LmsActivityType.value` 那个小写字符串，见 §5.6 |
@@ -145,10 +145,14 @@
 > 只把浏览器 302 送到 80 端口那台站点上的**支付页地址**（`:data` 的 `VenueApi.paymentUrl` 拼的）。
 > ⚠️ **那一页要不要再登录、能不能直接付，本端不担保** —— 浏览器这一侧没有场馆站的会话，判据与逐条依据
 > 见 §5.3.2 第 6 条。它是本文档里**唯一**一条不当信封答的端点（§4 的第二条例外）。
-> **批③-b / D7（2026-10-15 新增）**：D7 写的「剩下的写路径」逐条落地，**①反馈提交**
-> （`POST /api/feedback/submit`，§5.7）与 **③领券**（`POST /api/coupon/activate`，§5.5）已落地；
-> 每一族的消费方都跟着翻了（`canSubmit` / `canActivate` 从 `false` 回到默认的 `true`）——
-> 两条都是**真写、真改上游状态**，所以逐条都写了「它到底改了谁的东西」与「能挡住滥用的只有什么」。
+> **批③-b / D7（2026-10-15 新增）**：D7 写的「剩下的写路径」逐条落地：
+> **①反馈提交**（`POST /api/feedback/submit`，§5.7）· **②考勤请假 / 销假**（§5.5.1，三读 + 三写）·
+> **③领券**（`POST /api/coupon/activate`，§5.5）· **④加餐券勾选同步**（`POST /api/pay/vouchers/select`，§5.7）——
+> 每一族的消费方都跟着翻了（`canSubmit` / `canActivate` / `canSelectVouchers` 从 `false` 回到默认的
+> `true`，`AttendanceCapabilities.leave` 从 `false` 翻 `true`）。⚠️ **D7 ⑤（成绩单 PDF 落盘）本轮
+> 没有端**：`:data` 侧确实有 PDF 能力（`generatePreviewPdf` / `downloadPdf`），但第 2~7 步是**真的
+> 往学校提交一份申请**（签章 + 审批）、第 2 步的返回值里有学号、而且「把字节落成文件」在契约的
+> 信封形状里没有位置（§4 只有两条例外）—— 结论与最小可行方案写在 §5.5 的成绩单那一段末尾。
 > ⚠️ **D7 ④ 的结论是「做不到」那一档**：付款码的「支付 / 扣款」**上游客户端本来就没有**（`grep`
 > `:data` 的 `PaymentCodeApi` 可证）⇒ 没东西可端；这一族唯一的写是加餐券勾选同步
 > （`POST /api/pay/vouchers/select`），本轮端了它、并把「为什么没有支付」写进 §5.7。
@@ -564,6 +568,38 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   出 PDF 那半条链是**如实缺口**（不是 bug）；
 - 错误码：`401` 令牌对但没会话 · `502` 上游/网络故障。**没有 `400`**：本端点不收参数（URL 写错只能是 `404`）。
 
+**D7 ⑤「成绩单 PDF 落盘」的结论（2026-10-15 批③-b，如实报告：本轮不做）**
+
+先回答“`:data` 侧到底有没有 PDF 能力”这个问题：**有**。`TranscriptApi` 上就有
+`generatePreviewPdf(workflowId, typeValue): String`（第 3 步，服务端生成预览 PDF、回一个 docId）
+与 `downloadPdf(url): ByteArray`（第 7 步，下载字节）。**所以不是“做不到”，是“不能这么做”**，三条理由：
+
+1. **那是真的往学校提交一份申请，不是下载一个文件**：七步链的第 4、5 步是两次提交（`submitCreate`
+   → `checksubmit` → `reloadAndForward`）、第 4 步还要签章（`FormContext` 里有 `signatureAttributesStr`
+   / `signatureSecretKey`）。它会在学校那边留下一条**真的申请记录**（要审批）。而契约 §2 对写路径
+   的要求是「能力开关 + 用户可见的二次确认」—— 服务端拿不到「用户按了确认」这个信号，浏览器点一下
+   就等于替他交了。这不是加一个端点能解决的事，是**两段式流程**（先生成预览、用户看完再确认提交）；
+2. **第 2 步的返回值里有学号**（§5.5 开头就写了）—— 整条编排必须在服务端跑（`:data` 的表单字段名
+   就是 `"${userId}_${ctx.workflowId}_addrequest_submit_token"` 拼的），而**响应里一个字段都不能带它**。
+   技术上做得到（本层只把最终字节端出去），但这是一条**只在服务端存在**的链：
+   与其余二十多族「`:data` 已有实现、本层只做投影」的形状不同；
+3. **「把字节落成文件」在契约的响应形状里没有位置**：§4 说每一个 `/api/…` 响应都是信封
+   （`{code,data,message}`），两条例外（`/api/status` 裸对象、`venue/pay` 302）都不是这种。一份成绩单
+   PDF 几百 KB～MB，塞进 `data` 只能 base64（体积乘 1.33、整体进内存），而开一条
+   `application/pdf` 的**第三条例外**是契约变更（§4 明文写的“要开新例外就写进这一条”）。
+   而浏览器侧的**落盘**（`Content-Disposition: attachment`）与 Android 的「保存到下载目录」是两件事。
+
+**最小可行方案（分两步，本轮都不做，列在这里给下一批拍板）**：
+
+- **第一步（风险最小）**：只端「第 1~3 步」——即 `POST /api/dzpz/transcript/preview`（联动 + 生成预览
+  PDF），**不提交、不签章**：它不产生学校的申请记录，也有确定的尽头。它仍要开一次
+  `application/pdf` 的例外（或者用一个临时端点把 docId 换成一次性下载链接）；
+- **第二步（要先有产品决定）**：完整七步。它必须先是**两段式**（预览 → 确认提交），并且要在 §2 的
+  能力开关里加一格（`canSubmitApplication`）——“点了会失败的按钮一个都不画”那条口径在写路径上
+  就是它。没拍这个板之前，`:web` 的成绩单屏**保持现状**（只画「选类型」那一步 + 页顶那句“要出 PDF
+  请在 App 或桌面端申请”）。
+
+
 **`GET /api/attendance/terms` / `GET /api/attendance/records`（考勤）**
 
 - `?term=` 是**学期号 `bh`**（形如 `646`，取自 `/api/attendance/terms` 的 `bh`），**不是**教务风格学期码；
@@ -646,7 +682,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 | 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
 |---|---|---|---|
 | 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`） | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
-| 考勤 | `GET /api/attendance/terms` + `/records` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期） | 上课教师名（记录里有，但不投影 —— 红线）、姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假那一栏（写路径）。那三栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 三档 `false`）；统计也不拿流水在本机重算 |
+| 考勤 | `GET /api/attendance/terms` + `/records` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉 / 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名与请假单里的任课教师名（都不投影 —— 红线）、审批人**姓名**（同一条红线，下拉框退化成一行 id）、姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假附件（本端没有文件选择宿主）。剩下那几栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 现在只剩 `stats` / `streams` 两档 `false`）；统计也不拿流水在本机重算 |
 | 加餐券 | `GET /api/coupon/list` + `/detail` + `POST /activate` | 四档 + 翻页 + 金额（分）+ 有效期；**「领取」按钮真画、真能领**（领完重拉当前那一档，与两端同一条编排） | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；金额不换算成元（除 100 是屏的事）；领券**分不出「上游说不能领」与「上游坏了」**（都落 502，见上） |
 | 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
 
@@ -663,6 +699,84 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 夹具与用例：`:server:test` 的 `ServeReadonlyFourDomainsTest` 8 例（形状那一侧）之外，本轮补了
 `:core:jvmTest` 的 `ServeReadonlyFourDomainsApiTest` **6** 例 —— 逐字段、错误信封、`status=-1` → 「未知」、
 缺字段不编造、`kwh` 缺失 vs `null`、以及「campus-api 分支抛错而不是返回空数据」。
+
+
+### 5.5.1 考勤请假 / 销假（2026-10-15 落地，批③-b / D7 ②）：三读 + 三写
+
+六个端点（`:server` 的 `AttendanceRoutes.kt` 里 `attendance/leave*` 那一段），全是「`:data` 里已有
+实现在取数 / 写数」的**薄包装**（`AppAttendanceSource` 包住 `LeaveApi`，解析口径一行不重做）。
+决策来源：`docs/desktop-port-plan.md` §16.1 的 **D7**（写操作三端全等，Android 现成的写路径就是基准）。
+统一口径照 §5.2：信封 `{code,data,message}`、`code == HTTP 状态码`、`401` =「请先登录：POST /api/session/login」、
+`400` 参数形状、`404` 未实现、`502` 上游/网络故障。
+
+**会话**：打的是 `new_attendance` 站（`:data` 的 `AttendanceSession`，它早就在登录预热清单里）——
+与 §5.5 的 `/terms`、`/records` 同一个站点，**一个新站点都没注册**。
+
+| 端点 | 请求 | 响应 `data`（逐字段） |
+|---|---|---|
+| `GET /api/attendance/leave/window` | ——（不收参数） | `{semesterId,academicYear,semesterName,startDate,endDate,maxStudentLeaveMinutes:int}` |
+| `GET /api/attendance/leave/preview` | `?type=SICK\|PERSONAL`（**必填**） | `{nextNodeNo:int, nextApprovers:[{userId,name}], nodes:[{nodeNo,nodeRole,nodeName,configured,approvers:[…]}]}` |
+| `GET /api/attendance/leave/records` | `?page=&size=&status=&type=`（都可省） | `{page:int,size:int,total:int,records:[{…十九格…}]}` |
+| `POST /api/attendance/leave` | body `{type,startTime,endTime,reason,nextApproverUserId,requestId}` | `{leaveId:string}` |
+| `POST /api/attendance/leave/withdraw` | body `{leaveId,reason,requestId}` | `{ok:bool, message:string}` |
+| `POST /api/attendance/leave/cancel` | body `{leaveId,requestId}` | `{ok:bool, message:string}` |
+
+**为什么是这六条**：`:core` 那张请假屏要的就这几样 —— **窗口**（表单上的日期范围与单次上限）、
+**流程预览**（那个审批人下拉框）、**列表**（「请假」那一栏的卡）+ 提交 / 撤回 / 销假三个写。
+编排一字未改：`AttendanceViewModel` 与 `LeaveFormDialog` 那份编排（窗口 → 审批人 → 表单 → 提交）
+在两端是同一条 `:core` 代码路径（`:web` 只换了一个 `AttendanceSource` 实现）。
+
+**逐字段与几处刻意做法**
+
+- `window` 六格原样投影（`:data` 的解析结果，本层不拼第二份）；
+- `preview` 的 `?type=` 只认 `SICK` / `PERSONAL`（**大小写不敏感**），**缺了或认不出 ⇒ `400`**：
+  `:data` 的 `LeaveType.fromCode` 会把认不出的值静默当成「私事假」，而这是**参数**（不是上游数据）
+  ⇒ 本层不沿用它那个降级（拿一个默认值回一份看起来对的流程，用户根本不知道发错了）；
+- `records` 的 `page` / `size` 默认与校验与其余各族同一条（`/api/coupon/list` 那一套，`positiveInt`
+  已经收进 `ServeRouteSupport.kt`）；**回的是请求给的那两个**（上游回显的 `pageNum`/`pageSize`
+  本层不回 —— 消费方一个都不读）；`status` / `type` 是**透传**给 `:data` 的（它那两档的映射
+  —— `APPROVED` 要配 `cancelStatus=PENDING_CANCEL` 那一套 —— 在 `:data` 里，本层不重做）；
+- `records[].leaveId` 为空、`preview.nextApprovers[].userId` 为空的那几条**丢掉**（它们是屏上
+  可点击的句柄，空值等于一个点了没反应的卡）；
+- ⚠️ **三处不投影**（不是漏）：① `records[].courses[].teacherNames`（**任课教师姓名**）；
+  ② `preview.nextApprovers[].name` 与 `nodes[].approvers[].name`（**审批人姓名**，学校工作人员）；
+  ③ 考勤流水那一条本来就不投影的 `teacher`（§5.5）。三处都保留**字段**（形状与 `:core` 的模型
+  逐字对齐）、值是**空串**。理由是同一条红线：§5.2 的例外清单里没有它们。
+  ⚠️ **审批人那两处是本批新碰上的、需要上一级拍板的事**：`:core` 的屏写的是
+  `DropdownItem(text = it.name.ifBlank { it.userId })` ⇒ 留空不丢功能（下拉框退化成一行 id，
+  而提交要的就是那个 `userId`），但**用户体验上少了一个人名**。要把它端出去得先把它加进 §5.2
+  的例外清单（**那是改契约**）；实测数据在夹具里（`辅导员甲（假）`）；
+- **附件上传不端**：`uploadEvidence`（`multipart/form-data`）**没有**端点，而提交那一发的请求体里也
+  **没有** `evidenceFiles` 这一格（`:data` 那一层收下来直接发空表）。理由不是
+  「难做」而是**这一端根本没有文件来源**：`:web` 的 `AttendanceScreen` 用的是 `pickEvidenceFiles`
+  的默认值（空表），Android 的 SAF 多选与桌面那份宿主都不在浏览器里 ⇒ 与桌面同一条（不发附件）；
+- **二次确认在屏上**：撤回 / 销假各有一次 `OverlayDialog`，提交前有一整套表单校验（时间必须晚于
+  此刻 / 必须整点 / 单次上限 / 病假超一天要附件……）。本层**没有再加一层** —— 服务端没有「用户按了
+  确定」这个信号，编一个只会变成第二个口径；
+- **幂等键**：`requestId` 由**调用方**给（与两端接口签名一致）；`:server` 这一层**缺了就 `400`**
+  （重发两次不该变成两条请假）。`:core` 的 `CampusAttendanceApi` 在空串时自己补一枚 16 位十六进制
+  随机串（`secureRandomInt`，与 `FeedbackStore` 同一个字母表）；
+- **两个时间的形状**：`yyyy-MM-dd HH:mm:ss`（`LeaveFormDialog.formatLeaveTime` 拼的就是它），
+  不成形 ⇒ `400`。**不转 ISO-8601**：这一格是上游要的表单值，不是契约 §4 那种「时刻」（转了反而
+  会被上游当格式错）；
+- **错误码**：`400` 上面那几格形状不对 · `401` 令牌对但没会话 · `502` 上游/网络故障（**含「上游拒收
+  这次提交」那一档** —— `:data` 的 `KqHttp.execute` 把 JSON 里 `code != 0` 抛成一句
+  `RuntimeException(message)`，本层按 502 报并把那句中文交回用户；要分 `409` 得先改 `:data`）。
+
+#### 消费方（`:web`）：**已落地**（2026-10-15，本批）
+
+`:core/net` 的 `CampusAttendanceApi` 补上那六条（三读 + 三写），`AttendanceCapabilities.leave`
+从 `false` **翻 `true`** —— 屏上「请假」那一栏（页签 / 列表 / 表单 / 撤回 / 销假）就此真的可用，
+不再是「本端拿不到请假记录」。`:web` 那一分支的页顶说明与 `docs/serve-visual-checklist.md`
+的考勤那一行同步改了。
+
+| 真画了什么 | 如实不画什么 |
+|---|---|
+| 学期 + 流水表（原有）；**「请假」页签真能用**：窗口上限与日期范围、审批人下拉、记录卡、提交表单、撤回 / 销假两个确认弹窗 | 教师名（流水与请假单两处，红线）；统计栏；打卡原始流水；**附件**（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件） |
+
+夹具与用例：`:testkit` 的 `AttendanceFakeUpstream` 新增 `leaveCreateRejected` 开关（那六条路由
+**早就在**）；`:server:test` 新增 `ServeAttendanceLeaveTest` **4** 例，`:core:jvmTest` 的
+`ServeReadonlyFourDomainsApiTest` 新增一例（三读三写真走 + `teacherNames` 留空 + 补幂等键）。
 
 
 ### 5.6 第二批只读域（2026-10-14 落地）：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到
@@ -1519,6 +1633,28 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
     另一条要记的是**写端点的参数默认值**：`showCardIds` 刻意**不带**默认值 —— 缺了与「传了个空表」
     在写端点上不是一回事（后者是「取消全部勾选」），有默认值就会把一次笔误变成「把用户的勾选全清掉」
     （服务端 `PayVoucherSelectRequest` 与 `:core` 两处都按这条写的）。
+
+12e. ✅ **批③-b / D7 ②（2026-10-15）三处同改齐了**：考勤请假 / 销假（§5.5.1）——
+    这一族从「学期 + 流水两个只读端点」变「六条（三读 + 三写）」。同一次提交里的三处：
+    - **本文档**：§5 的表（`attendance` 那一行 + 状态收口）、新增 **§5.5.1**（端点表 + 逐字段 +
+      消费方段）、§5.5 消费方表那一格、§8 无改动；
+    - **夹具**：`:testkit` 的 `AttendanceFakeUpstream` 新增 `leaveCreateRejected` 开关与一个常量
+      —— 请假那一族六条路由**早就在**（两端一直在用），本批加的是**失败那一档**；
+    - **`:web`**：`:core/net` 的 `CampusAttendanceApi` 补上六条（并给 `:server` 那一侧的
+      `ServeRouteSupport.positiveInt` 搬了一次家：它原本是 `CouponRoutes` 的 private）+ 那个类里
+      的 `AttendanceCapabilities.leave` 翻 `true` + `ToolboxWebApp` 那条分支的页顶说明重写。
+    ⚠️ **本批碰到一个需要上一级拍板的事：审批人姓名**。`:data` 的 `LeaveApprover.name` 与
+    `LeaveCourse.teacherNames` 都是**真人姓名**，而 §5.2 的例外清单里没有它们（例外只有 ① 本人数据
+    ② 公开通讯录 ③ emptyroom 实时档的教师名）⇒ 本层按红线**不投影**（形状里留着、值是空串），
+    屏上那个下拉框退化成一行 `userId`（`:core` 写的就是 `it.name.ifBlank { it.userId }`）——
+    表单照样能用，但少了一个人名。**要把人名端出去，得先把它们加进 §5.2 的例外清单**（那是改契约）；
+    默认值／幂等键那两条新纪律写在 §5.5.1 里（`requestId` 缺了就 400；`:core` 空串时自己补一枚）。
+
+12f. ⚠️ **批③-b / D7 ⑤（2026-10-15）本轮没做 —— 如实报告，不是漏**：成绩单 PDF 落盘。
+    `:data` 侧**有** PDF 能力（`generatePreviewPdf` / `downloadPdf`），但第 2~7 步是**真的往学校提交
+    一份申请**（签章 + 审批）、第 2 步的返回值里有学号、而且“把字节落成文件”在契约的信封形状里没有
+    位置 ⇒ 三条理由与两步式最小可行方案都写在 **§5.5 的成绩单那一段末尾**。这一格**没做任何代码
+    改动**（三处同改里一处都没动）：`:web` 的成绩单屏保持「只画选类型 + 页顶说明」的现状。
 
 ---
 
