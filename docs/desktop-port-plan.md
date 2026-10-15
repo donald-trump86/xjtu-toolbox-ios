@@ -1019,7 +1019,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | **D9** | 多账号 | **三端都支持** | Android 用现状（keystore）；桌面 DPAPI（`docs/windows-delivery.md` 那条缝）；**web = serve 进程**（DPAPI 保护），浏览器上「切换账号」= 让 serve 换一套凭据。账号页在 web 上要与 App 同一套层级（不再落「本端没有账号这回事」） |
 | **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层。**⇒ 实做现状（2026-10-15，工单 **S-a → S-d 四件全部落地**）**：serve 侧的 **14 个端点 + SSE** 已落地（契约 **§5.11**），key 确实落在 serve 那一侧（`:data` 的 `protectedSecureKeyValueStore`，Windows = DPAPI；Linux/macOS 无保护器 ⇒ 仍是明文 `0600`，与今天逐字相同）；**白名单工具层（S-c）**交给模型的是那九件（`toolAllowlist` 从真下发的定义里读出来）；**`:web` 接线（S-d）**把浏览器那一格换成 `:core` 的 `AgentScreen` 本身（驱动是本端的 `WebAgentSession` + `@JsFun` 的 fetch/SSE 桥），**路由差集 5 → 4**。逐条现状与「还剩哪几件没做」写在契约 §5.11 |
 | **D11** | HTTPS / 部署 / 鉴权 | **serve 内置 HTTPS + 鉴权，开箱可启用** | 证书目录（含自签选项）+ 令牌鉴权 + 写进交付文档；反代仍可由用户自己接。**这是相机扫码 / 剪贴板 / WebCrypto / PWA 的前置**（HTTP 非 localhost = 非安全上下文，浏览器一律禁） |
-| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-16）**：①② 见 §16.10；⑤ 见 §16.11（web 端真能玩、桌面仍卡载体）；③ **已收口**（见 §16.12）：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码/选图识别做出来了**（解码链按 ① 同一套做法搬进 `:core` 的 commonMain，匹配交友那一屏的「扫一扫 / 从相册选图」在 `:web` 上真能扫）、**WebCrypto 没有消费方**；④ **仍未做**（缺什么与最小可行方案在 §16.11 末段；本批也没做） |
+| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-16）**：①② 见 §16.10；⑤ 见 §16.11（web 端真能玩、桌面仍卡载体）；③ **已收口**（见 §16.12）：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码/选图识别做出来了**（解码链按 ① 同一套做法搬进 `:core` 的 commonMain，匹配交友那一屏的「扫一扫 / 从相册选图」在 `:web` 上真能扫）、**WebCrypto 没有消费方**；④ **已做**（2026-10-16，见 §16.12）：`manifest.webmanifest` + 图标（`display: standalone` ⇒ 装成 App）、`sw.js`（Service Worker，**只在安全上下文里注册**；离线壳用**网络优先**）、Notification 权限（用户手势）+ 经 SW 的 `showNotification` 与 `notificationclick`；**Android 小组件在浏览器里没有对应物 ⇒ 那一档不做**（屏上 `?route=probe` 的 PWA 卡与本文档都如实写着），后台定时（`periodicSync`）同理基本不给 |
 | **D13** | 补端点清单 | **一律「端」**（不再逐条请示） | 我课表三端点 `/api/jwxt/changes`（调停补课）+ `exams`（考试）+ `textbooks`（教材）；教材全文库 `jiaocai1` 页图；学堂附件图片代理；成绩分项 `score-detail`；教室座位数（点亮 web 日程/详情里的 `SEAT_COUNT`）；场馆支付（D11b） |
 | **D14** | `:web` 测试源集 | **建** | 丙口径下「没人肉眼点过」不能当验收。目标：路由清单覆盖测试（与 `DesktopRouteCoverageJvmTest` 同型，钉住「清单 = 分支」）+ 存档层互认测试 + 关键屏的 wasmJs 测试 |
 
@@ -1348,16 +1348,26 @@ Type 'IntArray' cannot be used as return type of JS interop function.
 | 桌面 3 处 `is AppRoute.Browser ->` 丢 `then` | 与 f38c2fc8 同一口径：日程 / 消息收纳 / 通知公告那三处改成 `desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }`。**今天的行为一字未变**（那三处收到的路由 `then` 都是空串 —— 课表那一族根本不造 `AppRoute.Browser`，别的几处造它时只传 url）⇒ 修的是**口径**。`DesktopBrowserJvmTest` 加一条源码断言钉住「四处都走同一个判据」 |
 | 点位清单 ⑩ 里 `Accounts` 那条陈旧行 | 改成事实：那一行原本写着「落『这一屏还没搬到 Web』」，而 `AppRoute.Accounts` 自批②（2026-10-15）起就在 `WebSupport.openableRouteIds` 里、也不在 §16.2 第 1 条那 4 条差集里 ⇒ 按它的真实形状（**跟形态走**：serve 落真账号页、campus-api 落「需要 serve 模式」页）挪进 ⑨ |
 
-#### ④ PWA（D12 ④）：**本批仍未做**（如实）
+#### ④ PWA（D12 ④）：**做出来了**，按 §16.11 末段那个「按收益排序」的顺序
 
-缺什么、按收益排序的最小可行方案，一字不改地记在 §16.11 末段：① `manifest.webmanifest` + 图标 + `display: standalone`；② 一个 Service Worker（**只在安全上下文里能注册** ⇒ 与相机同一条前置）；③ 系统通知要 `Notification.requestPermission()` + 用户手势 + SW 里 `showNotification`；④ `periodicSync` 在桌面浏览器基本没有，而 **Android 小组件在浏览器里没有对应物**（不做，与桌面那张 `HostUnavailableScreen` 同一种诚实写法）。本批把预算花在 ①（解码链是这一批里最大的一块），PWA 整档留待下一批。
+| 那一档 | 落地内容 |
+|---|---|
+| `manifest`（装成 App） | `web/src/wasmJsMain/resources/manifest.webmanifest`：名称 / `short_name` / `display: standalone` / `start_url` `./` / `theme_color` / 3 条 `icons`（192、512、以及一张 `maskable`）；图标四张在 `resources/icons/`（**从 `:app` 的 `mipmap-xxxhdpi/ic_launcher.webp` 转出来的**：192 那张 1:1，512 与 maskable 是从 192 放大的 ⇒ 装到桌面大图会略糊，`:app` 里最大就 192）。`index.html` 里加 `<link rel="manifest">` + `theme-color` + `apple-touch-icon` |
+| Service Worker（离线壳 + 装到桌面） | `resources/sw.js`：**网络优先**（在线时永远拿新产物 —— 不然「装成 App」= 再也收不到更新），拿不到才回落到最近一次成功抓到的那一份；不碰 `/api/…` 与跨域；`install` 里 `skipWaiting()`、`activate` 里清旧缓存 + `clients.claim()`（换代不用等）。注册在 `resources/pwa.js`（页面加载时）：**只在安全上下文里试注册**，结果写进 `globalThis.__xjtuToolboxPwa` |
+| Notification（权限与手势） | `?route=probe` 上新增一张「装成 App / 系统通知（PWA）」卡：三行事实（manifest / Service Worker / 通知权限）+ 两颗按钮（「要一下通知权限」= **用户手势**里调 `Notification.requestPermission()`；「发一条测试通知」= 经 `ServiceWorkerRegistration.showNotification` 发一条真通知，顺带证明 `sw.js` 活着）+ 一颗「重查」。`notificationclick` 在 `sw.js` 里（点通知把窗口拉到前台） |
+| `:server` | 静态 mime 表加一条 `webmanifest` → `application/manifest+json`（**不带 charset**）：发成 `octet-stream` 时 Chrome 会拒掉那份 manifest，装成 App 那一步直接没了。`ServeServerTest` 里一条断言钉住（**例数不变**：加在同一发里） |
+| **不做的那一档** | **Android 小组件在浏览器里没有对应物** ⇒ 不做（不是没做，是没有载体），与桌面那张 `HostUnavailableScreen` 同一种诚实写法；后台定时（`periodicSync`）同理：Chrome 桌面普通页面里那个权限就是 `denied`，只在「已装成 PWA 且站点参与度够」之后才可能给 ⇒ **基本不给**。这两句都写在屏上那张卡里（`WebPwa.widgetNote`） |
+
+**四处如实（都不在屏幕上许诺）**：① **不做自定义的「安装」按钮** —— `beforeinstallprompt` 只被记下来（`WebPwa.installable()`），装不装由用户点浏览器自己那条入口说了算（`pwa.js` 里**没有** `preventDefault()`）；② **小组件 / 后台定时那两句**见上表最后一行（屏上写着）；③ **「真注册成功」与「真弹出一条通知」没在 CI 里验过**（karma 那一页不是我们的 `index.html`；agent 自己那颗浏览器里 `navigator.serviceWorker.register()` 的 Promise 一直挂着、`isSecureContext` 还是 `undefined` —— §16.11 记过它画不出渐变，**别拿它当判据**）；ci 里验到的是「`sw.js` / `pwa.js` / `manifest.webmanifest` / `icons/…` 真随 `wasmJsProcessResources` 进产物」+「这张卡读的是**这一份页面**的事实」+「Service Worker / Notification 在这一份部署里都在、权限是个真值」；④ **manifest 的 mime 与 JSON 手工核过**（用与 `:server` 同一张 mime 表起一个静态服务：`application/manifest+json`、JSON 合法、3 条图标都在、`index.html` 里那个 link 在）
 
 #### 本批的门禁与复核计数（XML 实测）
 
 | 任务 | 结果 |
 |---|---|
 | `:core:jvmTest` | **537 → 541 例**（新增 `QrDecodeParityJvmTest` 4 例）；0 失败 |
-| `:web:wasmJsBrowserTest` | **58 → 61 例**（新增 `WebMatchScanTest` 3 例；`WebBrowserCapabilitiesTest` 的 canary 照旧）；0 失败 |
+| `:web:wasmJsBrowserTest` | **58 → 65 例**（新增 `WebMatchScanTest` 3 例 + `WebPwaTest` 4 例）；0 失败 |
+| `:server:test` | 144 例（`ServeServerTest` 里加一条 `webmanifest` mime 断言，**例数不变**）；0 失败 |
+| `:web:wasmJsProcessResources` | 产物里真出现 `manifest.webmanifest` / `sw.js` / `pwa.js` / `icons/{icon-192,icon-512,maskable-512,apple-touch-icon}.png` |
 | `:desktop:test` | **128 → 129 例**（`DesktopBrowserJvmTest` 加一条源码断言）；0 失败 |
 | `:web:compileKotlinWasmJs` / `:desktop:compileKotlin` | **BUILD SUCCESSFUL** |
 | `:server:test` / `:data:jvmTest` / `:app:testDebugUnitTest` | 本批未动这三块的**代码**，实测复核数见本批的提交说明（`:app` 仍是 456、一条未减） |

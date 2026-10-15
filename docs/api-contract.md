@@ -1815,7 +1815,7 @@ Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` �
       `:testkit`）。「夹具那一处不是每次都得动，但每次都得核」：这次核的结论就是这一句；
     - **`:web`**：**零改动** —— 形状没变，`Secure` 是 cookie 属性、由浏览器自己带（`web/.../ServeSession.kt`
       那边不需要知道这件事）。将来浏览器靠 HTTPS 换成**安全上下文**才能用的那些能力（剪贴板 /
-      `crypto.subtle` / Service Worker）属 D12 —— **2026-10-15（D12 ③）已经逐条查清**：剪贴板**可用**（`--https` 或 localhost 下 CMP 的 `writeText` 真在，非安全上下文下只 `console.warn`）、`crypto.subtle` **没有消费方**、Service Worker（含 PWA）**仍未做** —— 依据与最小可行方案见 `docs/desktop-port-plan.md` §16.11。
+      `crypto.subtle` / Service Worker）属 D12 —— **2026-10-15（D12 ③）已经逐条查清**：剪贴板**可用**（`--https` 或 localhost 下 CMP 的 `writeText` 真在，非安全上下文下只 `console.warn`）、`crypto.subtle` **没有消费方**、Service Worker / PWA **已在 2026-10-16 做出来**（`manifest.webmanifest` + 图标 + `sw.js` 离线壳（网络优先）+ `pwa.js` 注册 + 通知权限与手势，见 `docs/desktop-port-plan.md` §16.12；**Android 小组件在浏览器里没有对应物 ⇒ 那一档不做**），**只有**「普通页面里的后台定时（`periodicSync`）」仍是不做的那一档。
     这一批多出来的一条规矩：**「默认那一档逐字冻结」还要管命令行** —— 不给新参数时 `serve` 的行为
     不只是「端点的形状不变」，还包括启动横幅、`--host/--port` 的语义、cookie 属性一个都不多；
     `ServeHttpsTest` 的第一条与第三条（明文默认值 / HTTPS 端口上发明文必须失败）就是干这个的。
