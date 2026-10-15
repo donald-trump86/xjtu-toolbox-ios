@@ -610,16 +610,16 @@ private fun AppPage(
         AppRoute.Coupon -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "加餐券",
-                endpoints = "GET /api/coupon/list + /api/coupon/detail",
+                endpoints = "GET /api/coupon/list + /api/coupon/detail + POST /api/coupon/activate",
                 why = "加餐券走 `coupon` 站点的会话。",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "两处如实不画：①「领取」按钮 —— 领券（POST /app/voucher/activate）是写路径，" +
-                        "serve 契约 §5.5 只端只读两格，那个按钮没有端点可走；② 券封面图 —— 那张图要带 egc 的" +
-                        "Authorization 才取得到，浏览器直接打开那个 URL 会拿到登录页（契约里没有图片代理端点）" +
-                        "⇒ 券卡退化成图标。金额一格单位是分（屏自己除 100 显示，本端不换算）。",
+                    "一处如实不画：券封面图 —— 那张图要带 egc 的 Authorization 才取得到，浏览器直接打开" +
+                        "那个 URL 会拿到登录页（契约里没有图片代理端点）⇒ 券卡退化成图标。金额一格单位是分" +
+                        "（屏自己除 100 显示，本端不换算）。「领取」按钮**照旧画**：领券已端" +
+                        "（POST /api/coupon/activate），失败会如实报（领券被上游拒 / 会话失效都落 502）。",
                 )
                 Box(Modifier.weight(1f)) {
                     CouponScreen(

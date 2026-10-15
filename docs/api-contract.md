@@ -103,7 +103,7 @@
 | `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
 | `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
 | `/api/attendance/terms` `/api/attendance/records` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi`） | 考勤 | **P0 · 已落地 2026-10-13** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次），`teacher` 按红线不端，见 §5.5 |
-| `/api/coupon/list` `/api/coupon/detail` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**只读**） | **P0 · 已落地 2026-10-13** | **新形状**（原来这一行是 P2 = Stage C 宿主能力；本轮只端**只读**半，领券不端）。金额单位是**分**，见 §5.5 |
+| `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收与会话失效**都落 `502`**（`:data` 那一层分不出业务拒绝，见 §5.5） |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
 | `/api/lms/courses` `/api/lms/activities` `/api/lms/activity` | `LmsSource`（`:data` 侧 `AppLmsSource` + `LmsApi`） | 思源学堂 | **P0 · 已落地 2026-10-14** | **要改**：`instructors` / `liveInstructorNames`（**教师姓名**）按红线不投影；附件的三个下载/预览地址与回放、直播地址**不端**（要站点会话）；`type` 是 `LmsActivityType.value` 那个小写字符串，见 §5.6 |
 | `/api/jiaocai/search` `/api/jiaocai/ssno` | `JiaocaiSource`（`AppJiaocaiSource` + `JiaocaiApi`） | 教材查询 | **P0 · 已落地 2026-10-14** | **新形状**：`search` 只收一个 `keyword`（这一屏没有院系/教师那种筛选控件）、**没有翻页**；`ssno` 是「列表里拿不到、进详情才有的全文库书目号」那一枪，见 §5.6 |
@@ -145,6 +145,10 @@
 > 只把浏览器 302 送到 80 端口那台站点上的**支付页地址**（`:data` 的 `VenueApi.paymentUrl` 拼的）。
 > ⚠️ **那一页要不要再登录、能不能直接付，本端不担保** —— 浏览器这一侧没有场馆站的会话，判据与逐条依据
 > 见 §5.3.2 第 6 条。它是本文档里**唯一**一条不当信封答的端点（§4 的第二条例外）。
+> **批③-b / D7（2026-10-15 新增）**：D7 写的「剩下的写路径」逐条落地，**①反馈提交**
+> （`POST /api/feedback/submit`，§5.7）与 **③领券**（`POST /api/coupon/activate`，§5.5）已落地；
+> 每一族的消费方都跟着翻了（`canSubmit` / `canActivate` 从 `false` 回到默认的 `true`）——
+> 两条都是**真写、真改上游状态**，所以逐条都写了「它到底改了谁的东西」与「能挡住滥用的只有什么」。
 > **仍未实现**的只剩一行 + 一处如实缺口：`/api/v1/personal/me/user`（P2：来源仍待确认）、
 > `/api/match/profile`（P2：**学工档案**在 `:data` 里没有源 —— `hello` 那条链只在 `:app`，桌面端也
 > 如实没有 ⇒ 本轮不端，判据与 `DesktopMatch.kt` 的 TODO 见 §5.7）。
@@ -539,6 +543,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 | `GET /api/attendance/records` | `?term=<学期号 bh>&from=<YYYY-MM-DD>&to=<YYYY-MM-DD>` | `{term:string, count:int, records:[{id,courseName,courseCode,term,date,week,startSection,endSection,location,status,statusText}]}` |
 | `GET /api/coupon/list` | `?filter=<档>&page=<n>&size=<n>` | `{filter:string, page:int, size:int, total:int, records:[{sendId,showCardId,voucherName,typeName,amountFen,leftAmountFen,leftCount,startDate,endDate,imageUrl}]}` |
 | `GET /api/coupon/detail` | `?showCardId=<必填>` | `{showCardId,voucherName,title,description,amountFen,leftAmountFen,startDate,endDate,batchId,imageUrl,closedPacketImageUrl,openPacketImageUrl}` |
+| `POST /api/coupon/activate` | body `{showCardId:<必填>}` | `{ok:bool, message:string}` |
 | `GET /api/dorm/rooms` | ——（不收参数） | `{rooms:[{id:string,name:string}]}` |
 | `GET /api/dorm/reading` | `?roomId=<必填>` | `{roomId:string, kwh:number\|null}` |
 
@@ -584,7 +589,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   `createLeave` / `withdrawLeave` / `cancelLeave`）：请假 / 销假是写路径；
 - 错误码：`400` 上面那三格形状不对 · `401` 没会话 · `502` 上游/网络故障。
 
-**`GET /api/coupon/list` / `GET /api/coupon/detail`（加餐券，只读）**
+**`GET /api/coupon/list` / `GET /api/coupon/detail`（加餐券，只读）；`POST /api/coupon/activate`（领券，写）**
 
 - `?filter=` 取四档的**小写枚举名**：`available`（可领取，status=0）· `usable`（可使用，status=1）·
   `used_up`（已用完）· `expired`（已过期）。**省略 = `usable`** —— `:core` 的 `CouponViewModel` 初始档
@@ -599,9 +604,14 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   浏览器**直接打开这个 URL 会拿到登录页**；本层没有图片代理端点（要封面图就得下一批开一个）；
 - `detail` 的十二格原样投影（`title ← destitle`、`description ← describes`、`leftAmountFen ← ltranamt`
   那些映射在 `:data` 的 `CouponJsonParser` 已经做掉）；`showCardId` 是请求给的那个原样回；
-- **领券（写路径）不端**：`CouponSource.activateCoupon`（`POST /app/voucher/activate`）真会改上游状态 ⇒
-  serve 模式下那个「领取」按钮**没有端点**（如实缺口）；
-- 错误码：`400` `filter` 不认识 / `page`、`size` 不是正整数 / `showCardId` 缺失 · `401` 没会话 ·
+- ✅ **领券已端（2026-10-15，批③-b / D7 ③）：`POST /api/coupon/activate`** —— body 只有一格
+  `{showCardId}`（取自 `/api/coupon/list`），成功回 `{ok:true, message}`（与 §5.3.1 / §5.3.2 两个写端点
+  同一个形状）。`:core` 的编排一字未改：`CouponViewModel.receive` 仍是**先查详情再领、领完重拉那一档**；
+- ⚠️ **领券区分不了「上游说不能领」与「上游坏了」**：`:data` 的 `CouponApi.activateCoupon` 返回 `Unit`，
+  失败时只抛一句上游原文 ⇒ 与只读那两条同一条口径，一律 `502`（就连上游那句「该券已领完」也是）。
+  要分出 `409` 得先把 `:data` 那一层的失败细分（与 `/api/library/action` 的 `OrderActionResult` 同一个
+  形状）—— 本轮不编一个判据出来；
+- 错误码：`400` `filter` 不认识 / `page`、`size` 不是正整数 / `showCardId` 缺失 / `activate` 的 body 不是那一格 · `401` 没会话 ·
   `502` 上游/网络故障（含 `:data` 认出的会话失效那一档）。
 
 **`GET /api/dorm/rooms` / `GET /api/dorm/reading`（宿舍电费，只读）**
@@ -634,7 +644,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 |---|---|---|---|
 | 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`） | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
 | 考勤 | `GET /api/attendance/terms` + `/records` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期） | 上课教师名（记录里有，但不投影 —— 红线）、姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假那一栏（写路径）。那三栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 三档 `false`）；统计也不拿流水在本机重算 |
-| 加餐券 | `GET /api/coupon/list` + `/detail` | 四档 + 翻页 + 金额（分）+ 有效期 | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；「领取」按钮（写路径不端，`CouponSource.canActivate = false`）；金额不换算成元（除 100 是屏的事） |
+| 加餐券 | `GET /api/coupon/list` + `/detail` + `POST /activate` | 四档 + 翻页 + 金额（分）+ 有效期；**「领取」按钮真画、真能领**（领完重拉当前那一档，与两端同一条编排） | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；金额不换算成元（除 100 是屏的事）；领券**分不出「上游说不能领」与「上游坏了」**（都落 502，见上） |
 | 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
 
 三处要点（写在这里，免得下一个读的人当成 bug 或当成漏）：
@@ -1464,6 +1474,21 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
     屏上依旧「只能看、不能提」（那是三处同改里最容易假完的那一格：端点在 `:server` 上跑得起来，
     页半开着）。第二条是旧的：**开了写就是开了写** —— 提交那一枪在上游是**匿名可写**的，告警文案、
     §5.7 的「已知缺口」（限流、体量上限）都不是装饰。
+
+12c. ✅ **批③-b / D7 ③（2026-10-15）三处同改齐了**：领券（`POST /api/coupon/activate`，§5.5）——
+    加餐券这一族从「两读」变「两读 + 一写」。同一次提交里的三处：
+    - **本文档**：§5 的表（`coupon` 那一行 + 状态收口）、§5.5（端点表加一行 + 那段「领券不端」改成
+      收口记录 + 错误码 + 消费方表那一格）；
+    - **夹具**：`:testkit` 的 `CouponFakeUpstream` 新增 `activateRejected` / `activateExpired`
+      两个开关与一个常量 —— 那条 `path == "/app/voucher/activate"` 早就在（`activateBodies` 也在），
+      本批加的是**失败那两档**；
+    - **`:web`**：`:core/net` 的 `CampusCouponApi.activateCoupon`（真 POST，`canActivate` 从 `false`
+      翻回默认的 `true`）+ `ToolboxWebApp` 那条分支的页顶说明重写。
+    **本批要记的一条（与 12b 同一条，但这一处更能说明问题）**：领券这个写端点**自己分不出
+    「上游说不能领」与「上游坏了」** —— 因为 `:data` 的 `CouponApi.activateCoupon` 返回 `Unit`，
+    只有「抛一句上游原文」这一种失败。这不是本层偷懒：要分 `409` 就得先改 `:data`（把失败
+    细分）⇒ 本层没有编一个判据出来，而是把这件事**写进契约**（否则下一个人会以为「领券被拒」
+    也算「上游故障」是漏的）。
 
 ---
 

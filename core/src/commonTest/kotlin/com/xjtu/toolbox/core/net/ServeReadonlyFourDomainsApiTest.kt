@@ -182,7 +182,7 @@ class ServeReadonlyFourDomainsApiTest {
 
     /**
      * 加餐券：金额一律是**分**（不换算）、封面图**不发那一枪**（直连会拿到登录页）、
-     * 领券（写路径）没有端点 ⇒ `canActivate = false` + 方法抛错。
+     * 领券（写路径）已经端了：`POST /api/coupon/activate`（`canActivate = true`）。
      */
     @Test
     fun serveCouponKeepsFenAndSkipsLoginPageImage() = runTest {
@@ -202,11 +202,18 @@ class ServeReadonlyFourDomainsApiTest {
               "openPacketImageUrl":"https://egc.xjtu.edu.cn/o.jpg"}}
         """.trimIndent()
         val calls = mutableListOf<Map<String, String>>()
+        val paths = mutableListOf<String>()
+        val activateBodies = mutableListOf<String>()
         val engine = MockEngine { request ->
+            paths += request.url.encodedPath
             calls += request.url.parameters.names().associateWith { request.url.parameters[it].orEmpty() }
             val body = when {
                 request.url.encodedPath.endsWith("/api/coupon/list") -> listBody
                 request.url.encodedPath.endsWith("/api/coupon/detail") -> detailBody
+                request.url.encodedPath.endsWith("/api/coupon/activate") -> {
+                    activateBodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"ok":true,"message":"✓ 已领取"}}"""
+                }
                 else -> error("没有为 ${request.url.encodedPath} 准备响应")
             }
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
@@ -230,10 +237,12 @@ class ServeReadonlyFourDomainsApiTest {
         assertNull(api.loadImage(coupon.imageUrl), "取不到图就不画图，不拿登录页当封面")
         assertEquals(2, calls.size, "loadImage 不许发请求")
 
-        // 领券是写路径 ⇒ 没有端点
-        assertFalse(api.canActivate, "领券不端 ⇒ 屏上不画那个按钮")
-        val e = assertFailsWith<UnsupportedOperationException> { api.activateCoupon("C1") }
-        assertTrue(e.message?.contains("写路径") == true, "实际：${e.message}")
+        // 领券：端子在 ⇒ 屏上那个按钮照旧画；这一发真打出去（`{showCardId}`）
+        assertTrue(api.canActivate, "领券端了（POST /api/coupon/activate）⇒ 屏上那块「领取」照旧画")
+        api.activateCoupon("C1")
+        assertEquals("/api/coupon/activate", paths.last(), "第三发是领券那一条路径")
+        assertEquals(1, activateBodies.size, "领券真发了一枪")
+        assertEquals("""{"showCardId":"C1"}""", activateBodies.single(), "body 只有契约那一格")
     }
 
     /**
