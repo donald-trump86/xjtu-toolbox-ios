@@ -802,24 +802,24 @@ private fun AppPage(
         AppRoute.PaymentCode -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "付款码",
-                endpoints = "GET /api/pay/code + /api/pay/vouchers",
+                endpoints = "GET /api/pay/code + /api/pay/vouchers + POST /api/pay/vouchers/select",
                 why = "付款码借的是校园卡那个站点的会话。",
                 section = "§5.7",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "两处如实不画：① 条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
+                    "一处如实不画：条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
                         "`qrCodeModules` / `code128Modules` 如实返回 null）⇒ 只画付款码**数字**那一档，" +
-                        "两个矩阵一个都不画（不是画一张假的）；② 加餐券的**勾选框** —— 勾选会把「这一轮" +
-                        "用哪几张」真的推给上游，那是写路径（serve 契约 §5.7 不端）⇒ 那几行券只读。" +
+                        "两个矩阵一个都不画（不是画一张假的）。加餐券的勾选**照旧真能勾**" +
+                        "（POST /api/pay/vouchers/select 真把「这一轮用哪几张」推给上游）。" +
                         "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
                 )
                 Box(Modifier.weight(1f)) {
                     PaymentCodeScreen(
                         source = remember(client, mode) { CampusPayApi(client, API_BASE, mode) },
                         // 勾选的落盘存储：与 Android 同一个存储名、同一批键（wasm 上是 localStorage）。
-                        // 本端是只读那一档（`canSelectVouchers = false`）⇒ 它只会读到一张空表。
+                        // 上游那一份勾选走 `POST /api/pay/vouchers/select`；本机这一份就是它。
                         selections = remember { PaymentSelectionStore(keyValueStore("payment_code")) },
                         // 这一屏在 `:app` 是个弹窗，"关掉"就是退出；本端的等价物是回日程（与其它屏的返回同一条）。
                         onDismiss = back,

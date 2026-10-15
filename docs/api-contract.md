@@ -110,7 +110,7 @@
 | `/api/jwapp/scores` `/api/jwapp/precise-scores` | `JwappScoreSource` + `JwxtScoreSupplement`（`:data` 侧 `AppJwappScoreSource` + `JwappApi` / `CjcxApi`） | 成绩 | **P0 · 已落地 2026-10-14** | **新形状**：**一族两个站点**（`scores` 打移动教务、`precise-scores` 打**教务** `xscjcx.do`），服务端**不合并**两份（合并口径在 `:core` 的 `JwappScoreViewModel`，有测试钉着），见 §5.6 |
 | `/api/jwapp/score-detail` | `JwappScoreSource`（`:data` 侧 `AppJwappScoreSource` + `JwappApi`） | 成绩（**分项**） | **P0 · 已落地 2026-10-14** | **新形状**：`?courseId=` 必填（取自 `scores` 那一行的 `id`）；「这门课没有分项」**如实回 `detail:null`**（不是 502/404）—— ⚠️ 这一条在 §5.6 里当年被写成「刻意不端」，本批端了、那一行已改写，见 §5.8 |
 | `/api/iclassface/records` | `IclassfaceSource`（`AppIclassfaceSource` + `IclassfaceApi`） | 快速考勤流水 | **P0 · 已落地 2026-10-14** | **要改**：`name` / `studentNo`（姓名与学号）按红线不投影（屏上本来也不画那两格）；`time` **保留上游原文、不转 ISO-8601**，见 §5.6 |
-| `/api/pay/code` `/api/pay/vouchers` | `PaymentCodeSource`（`:data` 侧 `PaymentCodeApi`）—— **借校园卡站点会话** | 付款码（**拿码**） | **P2 · 已落地 2026-10-14** | **要改**：旧那行写的 `/api/payment-code` 是建议路径、从未实现 ⇒ 现在写死成 `/api/pay/{code,vouchers}`（与其余各族同一条段名规矩）；⚠️ **支付 / 扣款这一档客户端本来就没有**（人只显示码）⇒ 不是本轮砍的；勾选券的同步（`updateVoucherStatus`，写路径）与勾选落盘也不端，见 §5.7 |
+| `/api/pay/code` `/api/pay/vouchers` `/api/pay/vouchers/select` | `PaymentCodeSource`（`:data` 侧 `PaymentCodeApi`）—— **借校园卡站点会话** | 付款码（**拿码 + 勾选券**） | **P2 读 · 2026-10-14 已落地**；**勾选同步（写）于 2026-10-15 批③-b / D7 ④ 落地** | **要改**：旧那行写的 `/api/payment-code` 是建议路径、从未实现 ⇒ 现在写死成 `/api/pay/{code,vouchers,vouchers/select}`（与其余各族同一条段名规矩）；⚠️ **「支付 / 扣款」这一档客户端本来就没有**（人只显示码，钱是商户扫了那串号之后在学校那边扣的）⇒ 不是本轮砍的，**没东西可端**；勾选落盘不端（serve 这一层没有宿主磁盘），见 §5.7 |
 | `/api/feedback/replies` `/api/feedback/public-qa` `/api/feedback/submit` | `FeedbackSource`（`:data` 侧 `AppFeedbackSource` + `FeedbackApi`） | 反馈（**读 + 提交**） | **P0 读 · 2026-10-14 已落地**；**提交（P1 写）于 2026-10-15 批③-b / D7 落地** | **新形状**：这一族**没有校园站点会话**（凭据是 `app_id` + `app_secret` 换租户令牌 ⇒ serve 端按**环境变量**在启动时注入，见 §5.7）⇒ 三条都只认令牌闸门；提交是**写**（真往多维表格里加一行），工单号由**调用方生成**，逐字段见 §5.7 |
 | `/api/match/dining` | `CampusCardSource`（流水） + `:core` 的 `DiningHabit` / `MatchProfile` | 匹配交友（消费统计） | **P0 · 已落地 2026-10-14** | **新形状**：只端「常在几点吃饭 / 常去哪个食堂」那两维（不含金额 / 商户全称 / 明细）；⚠️ `/api/match/profile`（**学工档案**）**不端** —— `:data` 里没有 `hello` 取数（那条链在 `:app`，桌面端也如实没有），见 §5.7 |
 | `POST /api/webvpn/convert` | `WebVpnCodec`（`:data` 侧 `WebVpnUtil`） | WebVPN 转换器 | **P0 · 已落地 2026-10-14** | **新形状**：纯转换（两个方向、无会话、不碰上游、`400` 只有参数那一档）。**为什么不做成浏览器本地**：HTTP + 非 localhost ⇒ 非安全上下文 ⇒ `crypto.subtle` 被禁，见 §5.7 |
@@ -149,6 +149,9 @@
 > （`POST /api/feedback/submit`，§5.7）与 **③领券**（`POST /api/coupon/activate`，§5.5）已落地；
 > 每一族的消费方都跟着翻了（`canSubmit` / `canActivate` 从 `false` 回到默认的 `true`）——
 > 两条都是**真写、真改上游状态**，所以逐条都写了「它到底改了谁的东西」与「能挡住滥用的只有什么」。
+> ⚠️ **D7 ④ 的结论是「做不到」那一档**：付款码的「支付 / 扣款」**上游客户端本来就没有**（`grep`
+> `:data` 的 `PaymentCodeApi` 可证）⇒ 没东西可端；这一族唯一的写是加餐券勾选同步
+> （`POST /api/pay/vouchers/select`），本轮端了它、并把「为什么没有支付」写进 §5.7。
 > **仍未实现**的只剩一行 + 一处如实缺口：`/api/v1/personal/me/user`（P2：来源仍待确认）、
 > `/api/match/profile`（P2：**学工档案**在 `:data` 里没有源 —— `hello` 那条链只在 `:app`，桌面端也
 > 如实没有 ⇒ 本轮不端，判据与 `DesktopMatch.kt` 的 TODO 见 §5.7）。
@@ -835,6 +838,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 |---|---|---|
 | `GET /api/pay/code` | ——（不收参数） | `{barCode:string}` |
 | `GET /api/pay/vouchers` | ——（不收参数） | `{count:int, vouchers:[{showCardId:string, voucherName:string, typeName:string, amountFen:long, endDate:string}]}` |
+| `POST /api/pay/vouchers/select` | body `{showCardIds:[string]}`（**必填**，可为空表） | `{ok:bool, message:string}` |
 | `GET /api/feedback/replies` | `?tickets=<逗号分隔，必填；一次最多认 20 个>` | `{tickets:[string], count:int, replies:[{ticket:string, text:string, time:string}]}` |
 | `GET /api/feedback/public-qa` | ——（不收参数） | `{count:int, items:[{question:string, answer:string, category:string}]}` |
 | `POST /api/feedback/submit` | body `{ticket:string, category:string, content:string, contact:string, anonId:string}` | `{ticket:string}` |
@@ -857,14 +861,24 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   `2026-12-31`（它本来就是「到哪天为止」，不是 ISO-8601 的时刻）。`PaymentVoucher.serverFlag`
   （上游 `flag`）**不投影**：`:core` 的 `PaymentCodeScreen` 一处都没读它，多一格只会多一处要
   跟着上游漂的口径；
-- **刻意不端的写路径**：`updateVoucherStatus(ids)`（`POST .../vouchers/updateVoucherStatus`）——
-  屏上勾选加餐券时会把「这一轮用哪几张」**真的推给上游**。serve 模式下那个勾选动作**没有端点**，
-  加餐券勾选的**宿主落盘**（`:core` 的 `PaymentSelectionStore`）也没有（serve 这一层没有宿主磁盘）；
-- 「支付 / 扣款」这一档**上游客户端本来就没有**（`:data` 的 `PaymentCodeApi` 上一个那种方法都没有）：
-  钱是商户扫了那串号之后在学校那边扣的，所以「只拿码」不是本轮砍出来的，是这一族**本来的形状**；
+- ✅ **勾选同步已端（2026-10-15，批③-b / D7 ④）：`POST /api/pay/vouchers/select`** —— body 只有一格
+  `{showCardIds:[string]}`（取自 `/api/pay/vouchers` 的 `showCardId`），成功回 `{ok:true, message}`。
+  ⚠️ 那一格**刻意没有默认值**：缺了与「传了个空表」在写端点上不是一回事（后者是「取消全部勾选」）
+  ⇒ 缺了、或那一格不是字符串数组，一律 `400` —— 一次笔误不该把用户的勾选全清掉；
+  ⚠️ **空表这一档没有夹具用例**：`updateVoucherStatus` 不替上游判空（空表就照发），而夹具把空表
+  当 `400`（它按自己读到的上游形状判）⇒ 真实上游认不认空表**本层未核实**，不编一句结论;
+  加餐券勾选的**宿主落盘**（`:core` 的 `PaymentSelectionStore`）仍然不端：serve 这一层没有宿主
+  磁盘 —— 浏览器自己那一份（localStorage）由 `:web` 接，两边各管各的；
+- ⚠️ **「支付 / 扣款」这一档不是「本轮没端」，是上游客户端本来就没有**（D7 ④ 的结论）：
+  `:data` 的 `PaymentCodeApi` 上只有 `authenticate` / `getBarCode` / `getVouchers` /
+  `updateVoucherStatus` 四个方法，**一个扣款/支付动作都没有** —— 钱是商户扫了那串号之后在学校
+  那边扣的，所以「只拿码」不是本轮砍出来的，是这一族**本来的形状**。要端「付款码支付」就得先自己
+  造一个：自己实现扣款协议，再把它接上 —— 那是**新功能**（要真实的支付通道与合规），不是这次重构
+  （§16）的事；
 - 错误码：`401` 没会话 · `502` 上游/网络故障（含「校园卡未登录」那一档 —— `:data` 抛的是
   `RuntimeException("校园卡未登录，无法获取付款码")`，`FriendlyError` 按「应用自己写的中文短句」
-  原样交回，与 §5.5 宿舍电费那条同口径）。**没有 `400`**：两个端点都不收参数。
+  原样交回，与 §5.5 宿舍电费那条同口径）。**读的两条没有 `400`**（都不收参数）；只有 `vouchers/select`
+  那一格形状不对才 `400`。
 
 **反馈（`feedback`）：两读 + 一写（提交）**
 
@@ -961,7 +975,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 
 | 屏（`:core`） | 本端真读了什么 | 如实不画什么 |
 |---|---|---|
-| 付款码 `PaymentCodeScreen`<br>（取数 `CampusPayApi`） | `GET /api/pay/code` + `/api/pay/vouchers` 两条都真读：屏上显示那一串**数字**，加餐券那几行（名称 / 金额分 / 到哪天为止）也真画 | ① **条码 / 二维码矩阵一个都不画**：`qrCodeModules` / `code128Modules` 的 wasmJs actual 如实返回 `null` ⇒ 屏上换成一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」（不是画一张假的，也不是留两块空白让人以为图挂了）；② 券的**勾选框不画、整行不可点**：勾选同步 `updateVoucherStatus` 是写路径（本节「刻意不端的写路径」）⇒ 端口上 `PaymentCodeSource.canSelectVouchers = false`（默认 `true`，Android / 桌面一行未变），标题右边那一格改说「共 N 张 · 本端只读」（「未使用 / 已选 N 张」在只读这一档是编话：本端根本不知道上游那一头勾了哪几张）；③ 勾选落盘（`PaymentSelectionStore`）照旧接上（wasm 上是 localStorage），但本端是只读那一档 ⇒ 它只会读到一张空表 |
+| 付款码 `PaymentCodeScreen`<br>（取数 `CampusPayApi`） | `GET /api/pay/code` + `/api/pay/vouchers` 两条都真读（屏上显示那一串**数字**，加餐券那几行（名称 / 金额分 / 到哪天为止）也真画）；`POST /api/pay/vouchers/select` 真写 ⇒ 加餐券那几行的**勾选框照旧画、勾了真同步**（`canSelectVouchers` 不再覆写） | ① **条码 / 二维码矩阵一个都不画**：`qrCodeModules` / `code128Modules` 的 wasmJs actual 如实返回 `null` ⇒ 屏上换成一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」（不是画一张假的，也不是留两块空白让人以为图挂了）；② **「支付」那一档本端也没有** —— 不是缺口，是上游客户端本来就没有那个动作（见本节）；③ 勾选那一次同步失败时屏上那句是 `:core` 自己的「同步失败」 —— 而本机那份落盘（`PaymentSelectionStore`，wasm 上是 localStorage）**照旧先写**，所以“已勾选”与本机记忆可能不一致（与 Android / 桌面同一条行为，不是本端改的） |
 | 反馈 `FeedbackScreen`<br>（取数 `CampusFeedbackApi`） | **三条都真走**：`GET /api/feedback/replies?tickets=` + `/api/feedback/public-qa` 两条真读（「大家在问」真画；工单号来自**屏自己的本地账本**（`:core` 的 `FeedbackStore`，wasm 上是 localStorage —— 这一端没有别的账本）⇒ 账本里有单号时「我提过的」那几张卡与它们的回复也真画）；`POST /api/feedback/submit` 真写 ⇒ 屏上那块表单**照旧画**（`FeedbackSource.canSubmit` 是默认的 `true`，本端不再覆写成 `false`），提交成功那条工单也会记进本地账本 | ① **工单号仍然是屏生成的**（`FeedbackStore.newTicket()`，落在 localStorage）⇒ **换了浏览器 / 清了站点数据，旧工单就找不回了**（服务端不代管这本账，也不下发新号）；② 提交那一枪在服务端会**真写**进多维表格，而“已提交”这一态只能看本地账本的说法 —— 换一台机器看不到自己提过的那几条；③ 部署要配 `FEEDBACK_*` 三个环境变量，否则三条端点一律 `502`（含提交那一枪），而屏把取数失败吞掉 ⇒ 页面呈现为「没有新回复 / 没有问答」—— 这一条写在页顶那句缺口说明里；④ 这一族**不套会话**，本端没有「先登录校园账号」那一步 |
 | 匹配交友 `MatchScreen` | **一个端点都没读**（见右栏） | 这一屏在 `:web` 上落的是**如实说明页**（`WebMatchGapScreen`），不是一个半开着的交友界面：屏本身就在 `:core`（不是「还没搬过来」），用不了的是它的能力 —— `MatchProfile.codecAvailable` 在 wasm 上是 `false`（deflate 与 URL-safe Base64 两个 actual 都如实返回 `null`；浏览器那两份是流式异步 API，而分享码这条链在共享层是同步的）⇒ **生成与解析分享码都不可用**，而整屏的价值全在那两步上（本节「分享码那一半在浏览器端不可用」）。页面逐条写清缺什么：两件平台能力 / 学工档案那条链只在 `:app`（⇒ 服务端也没有 `/api/match/profile`）/ 考试与教材那两维本端没有缓存。⚠️ **`GET /api/match/dining` 这一轮在 `:web` 上没有消费方**：它是出码的一个**输入**，出不了码就没有地方用它 —— 单独把它画成一列就是半残界面（服务端端点与它的契约测试都在，只是这一端没有地方用）；真要接，得先把 deflate / Base64 搬进 wasm（`Deflate.wasmJs.kt` 的 TODO 记着两条路） |
 | WebVPN 转换器 `WebVpnConverterScreen`<br>（取数 `CampusWebVpnApi`） | `POST /api/webvpn/convert` 真能转（两个方向都真能）：输入一个网址、点「转换」拿到服务端那份 `WebVpnUtil` 算出来的地址；`from_vpn` 的 `400` 如实翻成 `null`（屏上那句「无法解析此 WebVPN 网址」），`401` 抛错（不把「没登录」说成「网址格式不对」） | ① 转换是**一发 HTTP**（要跨网络），而 Android / 桌面是本地纯函数 —— 屏上如实写这一条；② 「用 WebVPN 打开」那一跳只做浏览器做得到的那一件：新标签打开那个网关地址（网关自己的会话不在这个浏览器里，所以要过它自己的登录页）；③ 这一族**不收会话**，本端没有「先登录」那一步 |
@@ -1489,6 +1503,22 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
     只有「抛一句上游原文」这一种失败。这不是本层偷懒：要分 `409` 就得先改 `:data`（把失败
     细分）⇒ 本层没有编一个判据出来，而是把这件事**写进契约**（否则下一个人会以为「领券被拒」
     也算「上游故障」是漏的）。
+
+12d. ✅ **批③-b / D7 ④（2026-10-15）三处同改齐了**：加餐券勾选同步（`POST /api/pay/vouchers/select`，
+    §5.7）。同一次提交里的三处：
+    - **本文档**：§5 的表（`pay` 那一行 + 状态收口）、§5.7（端点表加一行 + 那段「刻意不端的写路径」
+      改成收口记录 + 错误码 + 消费方表那一格）；
+    - **夹具**：`:testkit` 的 `CampusCardFakeUpstream` 新增 `voucherUpdateRejected` 开关与一个常量
+      —— `UPDATE_VOUCHERS_PATH` 那一条路由与 `voucherUpdateCalls` / `lastVoucherUpdateBody` 早就
+      在（它是给两端写路径测试用的），本批加的是**失败那一档**；
+    - **`:web`**：`:core/net` 的 `CampusPayApi.updateVoucherStatus`（真 POST，`canSelectVouchers`
+      从 `false` 翻回默认的 `true`）+ `ToolboxWebApp` 那条分支的页顶说明重写。
+    ⚠️ **这条是 D7 清单里唯一的「做不到」**：付款码的「**支付**」上游客户端本来就没有（`:data` 的
+    `PaymentCodeApi` 四个方法里没有扣款那一个）⇒ 没东西可端。本层**没有**为了凑数造一个假端点，
+    而是把「这一族唯一的写就是勾选同步」写成结论（§5.7 + §5 状态收口）。
+    另一条要记的是**写端点的参数默认值**：`showCardIds` 刻意**不带**默认值 —— 缺了与「传了个空表」
+    在写端点上不是一回事（后者是「取消全部勾选」），有默认值就会把一次笔误变成「把用户的勾选全清掉」
+    （服务端 `PayVoucherSelectRequest` 与 `:core` 两处都按这条写的）。
 
 ---
 

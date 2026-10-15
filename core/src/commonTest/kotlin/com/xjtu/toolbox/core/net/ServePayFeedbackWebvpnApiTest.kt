@@ -27,8 +27,7 @@ import kotlinx.coroutines.test.runTest
  *     `items` 三条原文、`POST /api/webvpn/convert` 的请求体就是 `{url, direction}` 两个字段；
  *  3. **缺字段 / 缺端点不编造**：空白 `barCode` 抛错（不画一张空卡）、没有 `showCardId` 的行不列、
  *     `serverFlag` 如实留空串、归不到工单上的回复不列、`ticket` 空白不列、只问到的那些才回；
- *     提交反馈已经端了（`POST /api/feedback/submit`），只有勾选同步那一个写路径在端口上报 `false`、
- *     方法本身抛错；
+ *     两个写路径（提交反馈 / 勾选同步）都已端、方法真发一枪；
  *     「无法解析此 WebVPN 网址」），而 `401` 抛错 —— 不把「没登录」说成「网址格式不对」。
  *
  * 默认形态（[ApiMode.CAMPUS_API]）不由这里细管：这三族在 campus-api 里**没有**端点，最后一条用例
@@ -68,7 +67,7 @@ class ServePayFeedbackWebvpnApiTest {
      * 可看的东西）⇒ 它一发请求都不打；`barCode` 就是服务端端出来的那一串（**字符串**，不是数字）。
      *
      * 加餐券那一半同一条用例：五格逐一投影、`amountFen` 是**分**、`serverFlag` **不投影** ⇒ 空串，
-     * `showCardId` 为空的那一行不列；而勾选**只读**（写路径不端，契约 §5.7）。
+     * `showCardId` 为空的那一行不列；而勾选**已端**（`POST /api/pay/vouchers/select`，契约 §5.7）。
      */
     @Test
     fun servePayCodeAndVouchersFollowContract() = runTest {
@@ -81,11 +80,16 @@ class ServePayFeedbackWebvpnApiTest {
                "endDate":"2026-12-31"}]}}
         """.trimIndent()
         val calls = mutableListOf<ServeCall>()
+        val selectBodies = mutableListOf<String>()
         val engine = MockEngine { request ->
             record(calls, request)
             val body = when {
                 request.url.encodedPath.endsWith("/api/pay/code") -> codeBody
                 request.url.encodedPath.endsWith("/api/pay/vouchers") -> vouchersBody
+                request.url.encodedPath.endsWith("/api/pay/vouchers/select") -> {
+                    selectBodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"ok":true,"message":"✓ 已同步加餐券勾选"}}"""
+                }
                 else -> error("没有为 ${request.url.encodedPath} 准备响应")
             }
             respond(body, HttpStatusCode.OK, JSON_HEADERS)
@@ -109,8 +113,16 @@ class ServePayFeedbackWebvpnApiTest {
         assertEquals("2026-12-31", vouchers[0].endDate, "上游原文的「到哪天为止」，不是 ISO-8601 的时刻")
         assertEquals("", vouchers[0].serverFlag, "serverFlag 刻意不投影 ⇒ 空串，不是编一个默认值")
 
-        assertFalse(api.canSelectVouchers, "勾选同步是写路径（契约 §5.7 不端）⇒ 屏上只读")
-        assertFailsWith<UnsupportedOperationException> { api.updateVoucherStatus(setOf("SC-1")) }
+        // 勾选同步：端子在 ⇒ 屏上那几行券照旧可勾；这一发真打出去（`{showCardIds}`）
+        assertTrue(api.canSelectVouchers, "勾选同步端了（POST /api/pay/vouchers/select）⇒ 屏上照旧可勾")
+        api.updateVoucherStatus(listOf(" SC-1 ", "SC-2", "SC-1", "  "))
+        assertEquals("/api/pay/vouchers/select", calls.last().first)
+        assertEquals(1, selectBodies.size, "勾选同步真发了一枪")
+        assertEquals(
+            """{"showCardIds":["SC-1","SC-2"]}""",
+            selectBodies.single(),
+            "body 只有契约那一格；去空白、丢空串、去重，顺序取调用方给的先后",
+        )
     }
 
     /**
@@ -293,6 +305,9 @@ class ServePayFeedbackWebvpnApiTest {
         // 注意：不传 mode（默认 = CAMPUS_API）
         assertFailsWith<UnsupportedOperationException> { CampusPayApi(client, "").getBarCode() }
         assertFailsWith<UnsupportedOperationException> { CampusPayApi(client, "").getVouchers() }
+        assertFailsWith<UnsupportedOperationException> {
+            CampusPayApi(client, "").updateVoucherStatus(listOf("SC-1"))
+        }
         assertFailsWith<UnsupportedOperationException> { CampusFeedbackApi(client, "").publicQa() }
         assertFailsWith<UnsupportedOperationException> {
             CampusFeedbackApi(client, "").submit(
