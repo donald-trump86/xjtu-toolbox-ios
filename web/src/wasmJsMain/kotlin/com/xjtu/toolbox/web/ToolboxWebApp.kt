@@ -831,20 +831,20 @@ private fun AppPage(
         AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "反馈与建议",
-                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa",
+                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa + POST /api/feedback/submit",
                 why = "反馈没有校园站点会话：凭据由 serve 进程启动时读 FEEDBACK_* 环境变量注入。",
                 section = "§5.7",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "四处如实缺口：① 提交那一半**没有端点**（写路径不端）⇒ 屏上整块表单不画，只剩" +
-                        "「去 GitHub 提 Issue」那条外链；② 工单号来自**屏自己的本地账本**（`:core` 的" +
-                        "`FeedbackStore`，本端落在 localStorage），而这一端**不能提交** ⇒ 新浏览器里那份账本" +
-                        "是空的 ⇒「我提过的」那一段不出现（只有账本里真有单号的人才看得到回复）；" +
-                        "③ 读这一半要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时两条端点答 502，" +
-                        "而屏把取数失败吞掉了 ⇒ 页面会显示成「没有新回复 / 没有问答」；④ 这一族**不套会话**，" +
-                        "所以本端没有「先登录校园账号」那一步。",
+                    "三处如实缺口：① 这一族**不套会话** —— 反馈没有学校站点，所谓「登录」是服务端拿" +
+                        "`app_id` + `app_secret` 换一张租户令牌，所以本端没有「先登录校园账号」那一步；" +
+                        "② 提交要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时三条端点一律答 502（含提交那一枪），" +
+                        "而屏把取数失败吞掉了 ⇒「我提过的 / 大家在问」会显示成「没有新回复」；" +
+                        "③ 提交那一发在服务端**真的**往多维表格里加一行，而且工单号是**屏自己生成**的" +
+                        "（`FeedbackStore`，本端落在 localStorage ⇒ 换了浏览器就找不回旧工单）。" +
+                        "⚠️ 写的那一格只该走回环 + 令牌闸门：对外部署要先加反代 + 鉴权（§3.3）。",
                 )
                 Box(Modifier.weight(1f)) {
                     FeedbackScreen(

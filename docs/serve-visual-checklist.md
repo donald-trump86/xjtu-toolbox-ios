@@ -49,7 +49,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:40961/api/jwxt/sched
 |---|---|---|
 | 1 | 只读四域（§5.5）：`/api/dzpz/transcript` · `/api/attendance/{terms,records}` · `/api/coupon/{list,detail}` · `/api/dorm/{rooms,reading}` | ⑥ 只读四域全部四屏 |
 | 2 | 第二批（§5.6）：`/api/lms/{courses,activities,activity}` · `/api/jiaocai/{search,ssno}` · `/api/jwapp/{scores,precise-scores}` · `/api/iclassface/records` | ⑦ 第二批四屏全部 |
-| 3 | 第三批（§5.7）：`/api/pay/{code,vouchers}` · `/api/feedback/{replies,public-qa}` · `/api/match/dining` · `POST /api/webvpn/convert` | ⑧ 付款码 / 反馈 / WebVPN（匹配屏不消费端点） |
+| 3 | 第三批（§5.7）：`/api/pay/{code,vouchers}` · `/api/feedback/{replies,public-qa}` · `/api/match/dining` · `POST /api/webvpn/convert`；**批③-b / D7 ①（2026-10-15）加** `POST /api/feedback/submit` | ⑧ 付款码 / 反馈（读 + 提交）/ WebVPN（匹配屏不消费端点） |
 | 4 | 第四批（§5.8）：`/api/jwxt/{changes,exams,textbooks}` · `/api/jwapp/score-detail` · `/api/emptyroom/seat-count` | ③ 日程（考试栏/教材栏/N座）· ⑦ 成绩屏的分项 · 教材屏「本学期我的教材」 |
 | 5 | 批①收尾（§5.9）：`/api/jwxt/schedule?merged=1`（同一端点的新参数档） | ③ 日程「格子已合调停补课」 |
 
@@ -129,7 +129,7 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 ### ⑧ 第三批四屏（付款码 / 反馈 / 匹配交友 / WebVPN）
 
 - [ ] 付款码 = 只画数字 | `?route=payment_code` | 看整屏 | serve：显示**付款码那串数字** + 加餐券几行（名称/金额分/到期）；**没有**条码/二维码矩阵，换一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」；券**不可勾选**（整行只读） | campus-api：落「付款码（…需要 serve 模式）」页 | 矩阵编码器 wasm 上返回 null；勾选同步是写路径不端；⚠️ 这一屏是**能付钱的东西**，`0.0.0.0` 部署要先解决鉴权（§3.3）
-- [ ] 反馈只读 | `?route=feedback` | 看整屏 | serve：「大家在问」真画 +「去 GitHub 提 Issue」外链；**没有**提交表单（只留一句「只能看、不能提」）；新浏览器里「我提过的」不出现（本地账本空） | campus-api：落「反馈与建议（…需要 serve 模式）」页 | 提交是写路径不端；读要 serve 配全 `FEEDBACK_*` 三环境变量，否则端点 502 且屏吞掉 ⇒ 显示「没有新回复/问答」
+- [ ] 反馈：读 + 提交 | `?route=feedback` | 看整屏，提一条 | serve：「大家在问」真画 + 提交表单**真画**（能提交，提完那条工单进本地账本、「我提过的」出现）+「去 GitHub 提 Issue」外链仍在 | 提交按钮点了无反应 / 仍显示「只能看、不能提」那张卡 | 提交要 serve 配全 `FEEDBACK_*` 三环境变量，否则三条端点 502（含提交那一枪）且屏吞掉 ⇒ 显示「没有新回复/问答」；工单号是**屏生成**的（换浏览器找不回旧工单，服务端不代管也不下发新号） |
 - [ ] 匹配交友说明页 | `?route=schedule_match` | 看整屏 | **如实说明页**，标题「匹配交友（Web 这一端：这一屏用不了）」，逐条写缺什么（deflate / URL-safe Base64 两个 actual 返回 null / 学工档案只在 `:app` / 考试教材两维没缓存）；**不是**半开着的交友界面 | 出现一个出不了码的交友界面 / 空矩阵当码 | 两种形态都用不了；服务端不代出码（码含昵称+课表网格）
 - [ ] WebVPN 转换器 | `?route=webvpn_converter` | 输入网址点「转换」 | serve：真能转（两个方向），结果由服务端 `WebVpnUtil` 算；「用 WebVPN 打开」新标签打开网关地址（要过网关自己的登录页） | campus-api：落「WebVPN 转换器（…需要 serve 模式）」页 | 转换是一发 HTTP（断网转不了，Android/桌面是本地纯函数）；不收会话
 

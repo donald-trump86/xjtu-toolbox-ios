@@ -27,8 +27,8 @@ import kotlinx.coroutines.test.runTest
  *     `items` 三条原文、`POST /api/webvpn/convert` 的请求体就是 `{url, direction}` 两个字段；
  *  3. **缺字段 / 缺端点不编造**：空白 `barCode` 抛错（不画一张空卡）、没有 `showCardId` 的行不列、
  *     `serverFlag` 如实留空串、归不到工单上的回复不列、`ticket` 空白不列、只问到的那些才回；
- *     两个**写路径**（勾选同步 / 提交反馈）在端口上报 `false`、方法本身抛错；
- *  4. **两个方向的失败口径不一样**（webvpn）：`from_vpn` 的 `400` 如实翻成 `null`（屏上那句
+ *     提交反馈已经端了（`POST /api/feedback/submit`），只有勾选同步那一个写路径在端口上报 `false`、
+ *     方法本身抛错；
  *     「无法解析此 WebVPN 网址」），而 `401` 抛错 —— 不把「没登录」说成「网址格式不对」。
  *
  * 默认形态（[ApiMode.CAMPUS_API]）不由这里细管：这三族在 campus-api 里**没有**端点，最后一条用例
@@ -206,10 +206,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertEquals("使用", qa[0].category)
 
         assertTrue(api.isConfigured, "端点在这份契约里是有的（凭据配没配是服务端运行期的事）")
-        assertFalse(api.canSubmit, "提交是写路径（契约 §5.7 不端）⇒ 屏上整块表单不画")
-        assertFailsWith<UnsupportedOperationException> {
-            api.submit(ticket = "T1", category = "问题", content = "内容", contact = "", anonId = "anon")
-        }
+        assertTrue(api.canSubmit, "提交端了（POST /api/feedback/submit）⇒ 屏上那块表单照旧画")
     }
 
     /**
@@ -298,9 +295,87 @@ class ServePayFeedbackWebvpnApiTest {
         assertFailsWith<UnsupportedOperationException> { CampusPayApi(client, "").getVouchers() }
         assertFailsWith<UnsupportedOperationException> { CampusFeedbackApi(client, "").publicQa() }
         assertFailsWith<UnsupportedOperationException> {
+            CampusFeedbackApi(client, "").submit(
+                ticket = "T1A2B3C4D5",
+                category = "使用",
+                content = "内容",
+                contact = "",
+                anonId = "a",
+            )
+        }
+        assertFailsWith<UnsupportedOperationException> {
             CampusFeedbackApi(client, "").replies(listOf("T1A2B3C4D5"))
         }
         assertFailsWith<UnsupportedOperationException> { CampusWebVpnApi(client, "").toVpnUrl("https://a.b/") }
         assertFailsWith<UnsupportedOperationException> { CampusWebVpnApi(client, "").fromVpnUrl("https://a.b/") }
     }
+    /**
+     * 反馈提交（**写**）：请求体就是契约那五格（`ticket` / `category` / `content` / `contact` / `anonId`），
+     * `version` **不进请求体**（服务端拿自己那份 `Config` 顶）；`data.ticket` 是服务端收下的那个号。
+     *
+     * 两种失败都要**抛错**（不是静默成功）：`400`（形状不对）与 `502`（凭据没配全 / 上游故障）——
+     * 屏那一侧接的是「发送失败」那条降级文案，而 `message` 要原样读出来（便于排障）。
+     */
+    @Test
+    fun serveFeedbackSubmitPostsFiveFieldsAndKeepsFailuresLoud() = runTest {
+        val posted = mutableListOf<String>()
+        val okBody = """{"code":0,"data":{"ticket":"T1A2B3C4D5"}}"""
+        val engine = MockEngine { request ->
+            posted += (request.body as io.ktor.content.TextContent).text
+            respond(okBody, HttpStatusCode.OK, JSON_HEADERS)
+        }
+        val api = CampusFeedbackApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
+
+        api.submit(
+            ticket = "T1A2B3C4D5",
+            category = "使用",
+            content = "课表少了两门",
+            contact = "",
+            anonId = "anonfake01",
+        )
+        assertEquals(
+            """{"ticket":"T1A2B3C4D5","category":"使用","content":"课表少了两门","contact":"","anonId":"anonfake01"}""",
+            posted.single(),
+            "请求体只有契约那五格（version 不进请求体；contact 空着也照发）",
+        )
+
+        // `400`：形状不对 ⇒ 抛，而且把服务端那句中文带上（不吞成一句笼统的失败）
+        val badRequest = CampusFeedbackApi(
+            createToolboxClient(
+                engine = MockEngine {
+                    respond(
+                        """{"code":400,"message":"ticket 需要形如 T 加 8~16 位大写字母或数字"}""",
+                        HttpStatusCode.BadRequest,
+                        JSON_HEADERS,
+                    )
+                },
+            ),
+            "",
+            ApiMode.SERVE,
+        )
+        val four = assertFailsWith<IllegalStateException> {
+            badRequest.submit(ticket = "nope", category = "使用", content = "内容", contact = "", anonId = "a")
+        }
+        assertTrue(four.message!!.contains("ticket"), "400 要指名道姓说哪一格：${four.message}")
+
+        // `502`：凭据没配全 / 上游故障 ⇒ 同样是抛（与两端同一条降级路径）
+        val gateway = CampusFeedbackApi(
+            createToolboxClient(
+                engine = MockEngine {
+                    respond(
+                        """{"code":502,"message":"反馈后端凭据没配全：启动 serve 前设 FEEDBACK_APP_ID …"}""",
+                        HttpStatusCode.BadGateway,
+                        JSON_HEADERS,
+                    )
+                },
+            ),
+            "",
+            ApiMode.SERVE,
+        )
+        val five = assertFailsWith<IllegalStateException> {
+            gateway.submit(ticket = "T1A2B3C4D5", category = "使用", content = "内容", contact = "", anonId = "a")
+        }
+        assertTrue(five.message!!.contains("FEEDBACK_APP_ID"), "502 要原样带出「去哪儿配」：${five.message}")
+    }
+
 }
