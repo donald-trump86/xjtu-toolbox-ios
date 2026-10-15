@@ -1484,6 +1484,29 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 `:desktop:test` **117** · `:data:jvmTest` **259** · `:app:testDebugUnitTest` **444**（一条未减）·
 `:web:wasmJsBrowserTest` **8 例 / 0 失败**（5 → 8）；`:web:compileKotlinWasmJs` **BUILD SUCCESSFUL**。
 
+**批③-b / D7 的四项写路径 + 一条如实结论（2026-10-15）：**
+
+四批按主题分开提交（中文前缀、各自注明 D7 编号与契约节），**每一项都带上了三处同改**（本文档 +
+`:testkit` 夹具 + `:web` 实现），逐条见 §7 的第 12b/12c/12d/12e 条与 12f 条（那一条是没做的那格）。
+
+| 提交 | D7 | 端点 | 夹具那一处 |
+|---|---|---|---|
+| 反馈**提交** | ① | `POST /api/feedback/submit` | `FeedbackFakeUpstream` + `submitRejected` |
+| 考勤**请假 / 销假** | ② | `attendance/leave*` 六条 | `AttendanceFakeUpstream` + `leaveCreateRejected` |
+| **领券** | ③ | `POST /api/coupon/activate` | `CouponFakeUpstream` + `activateRejected` / `activateExpired` |
+| 付款码的**勾选同步** | ④ | `POST /api/pay/vouchers/select` | `CampusCardFakeUpstream` + `voucherUpdateRejected` |
+| 成绩单 **PDF 落盘** | ⑤ | **没端**（依据与最小可行方案见 §5.5 末） | 零改动 |
+
+**本批的六项门禁实测（2026-10-15，XML 实测计数）**：`:server:test` **108**（95 → 108，新增
+`ServeFeedbackSubmitTest` 3 · `ServeCouponActivateTest` 3 · `ServePayVoucherSelectTest` 3 ·
+`ServeAttendanceLeaveTest` 4）· `:core:jvmTest` **517**（515 → 517：反馈提交那一例 + 请假三读三写那一例）·
+`:desktop:test` **117** · `:data:jvmTest` **259** · `:app:testDebugUnitTest` **444**（**一条未减**，`:app` 本批**零改动**）·
+`:web:wasmJsBrowserTest` **8 例 / 0 失败**；`:web:compileKotlinWasmJs` **BUILD SUCCESSFUL**。
+
+⚠️ 本批**没有**动 `:data`（四个域的取数与解析一行未改）⇒ `:data:jvmTest` 与 `:desktop:test` 的计数
+逐条不变；`ServeRouteSupport.positiveInt` 那次小整理改了四个 `:server` 文件（删掉 4 份逐字相同的
+private 拷贝、留一份 `internal`），不影响任何测试的计数。
+
 ## 7. 变更纪律
 
 1. 改契约 = **同时改**：本文档 + 夹具 + `:web` 对应实现（三处都不动就是漂移的开始）；
