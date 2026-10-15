@@ -419,8 +419,9 @@ private fun AppPage(
             errorText = { FriendlyError.of(it, "加载黄页") },
         )
         // 游戏合集：与 Android 同一个屏（:core/game/GamesScreen），战绩读同一份 GameStore
-        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里没搬过来的那几条
-        // （合成西交大 = WebView）点进去会落到 NotPortedScreen —— 不冒充。
+        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里那七条子路由在这一端
+        // 全是**真屏**（含「合成西交大」，见下面那条分支 / D12 ⑤）—— 合集那一行读的最
+        // 高分也是同一份（`MergeGameScoreBridge` 在离开游戏那一屏时把成绩收回 App 侧）。
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },
@@ -444,6 +445,15 @@ private fun AppPage(
             onBack = back,
             landmarkImages = rememberWebHopLandmarkImages(),
         )
+        // 合成西交大（`AppRoute.GameMerge`）：这一条卡的不是**取数**，而是**载体** —— 而浏览器
+        // **本身就是那个 JS 引擎**（D12 ⑤）。游戏本体是 `:app` 的 `assets/games/merge/`（HTML +
+        // 776 行 JS + 本地 Matter.js 物理引擎，408KB，全程不联网）：本端把**同一份字节**在构建期
+        // 拷进自己的资源根（`web/build.gradle.kts` 的 `mergeGameResources`），再用一个 `<iframe>`
+        // 挂到 `<body>` 上跑起来 —— 一行游戏逻辑都没有重写，没有任何新依赖。
+        // 桌面那一条**不在本批**：那一端没有浏览器内核也没有 JVM 上的 JS 引擎 ⇒ 仍落
+        // `HostUnavailableScreen`（如实说明），一行未改。
+        AppRoute.GameMerge -> WebGameMergeScreen(onBack = back)
+
         // 通知公告：与 Android 同一个屏与模型（:core/notification），取数换成 campus-api ——
         // 它覆盖同样 29 个源，两端拿到的是同一批通知（差别只在「谁去爬」）。
         AppRoute.Notification -> NotificationScreen(

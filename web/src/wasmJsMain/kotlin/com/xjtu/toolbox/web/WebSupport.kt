@@ -39,8 +39,10 @@ import com.xjtu.toolbox.nav.AppRoute
  *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` / `GameMerge` …）：
- *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
+ * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` …）：
+ *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。（`GameMerge` 2026-10-15（D12 ⑤）
+ *   从这一档搬走了：浏览器本身就是那个 JS 引擎 ⇒ 本端把游戏资源挂进产物、用一个 `<iframe>`
+ *   跑起来，屏在 `WebGameMerge.kt`。）
  *
  * ⚠️ 清单里**不等于** "那一屏在本端真能用"：`AppRoute.Accounts` 就在清单里，而它在浏览器里是**只读**的
  * （切换 / 新增 / 删除 / 改密要在 App 或桌面端做）；`AppRoute.Match` 曾经也属这一档（wasm 上没有
@@ -121,6 +123,11 @@ internal object WebSupport {
         AppRoute.GameGomoku,
         AppRoute.GameGo,
         AppRoute.GameXiangqi,
+        // 合成西交大（2026-10-15，D12 ⑤）：屏是 `:web` 自己的 `WebGameMergeScreen` —— Android 用
+        // WebView 装 `assets/games/merge/`，浏览器这一端把**同一份字节**（构建期拷进产物，见
+        // `web/build.gradle.kts` 的 `mergeGameResources`）交给一个 `<iframe>`。别的端传不了候选：
+        // 桌面仍卡载体（没有浏览器内核、也没有 JVM 上的 JS 引擎）⇒ 那一端仍落 `HostUnavailableScreen`。
+        AppRoute.GameMerge,
         // 账号管理（D9 / 工单 S7a）：**屏就是 `:core` 那份 `AccountManagerScreen`**（三端同一套层级），
         // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
         // 要在 App 或桌面端做（serve 只端了读那一半），页顶那一行与动作失败的 toast 说的都是这件事
