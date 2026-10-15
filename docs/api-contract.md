@@ -117,6 +117,7 @@
 | `POST /api/webvpn/convert` | `WebVpnCodec`（`:data` 侧 `WebVpnUtil`） | WebVPN 转换器 | **P0 · 已落地 2026-10-14** | **新形状**：纯转换（两个方向、无会话、不碰上游、`400` 只有参数那一档）。**为什么不做成浏览器本地**：HTTP + 非 localhost ⇒ 非安全上下文 ⇒ `crypto.subtle` 被禁，见 §5.7 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 | `/api/accounts` | `:core` 的 `CampusAccountsApi`（serve 支）读 `:data` 的 `AccountStore` | 账号管理（多账号，D9） | **P2 · 已落地 2026-10-15**（批② 工单 S7a） | **新形状**：只读一条。`id` 是**打码后**的学号（`2023****0001`，既当显示名也当句柄），完整学号/姓名/密码/指纹/公钥一律**不投影**（红线 §3.4）；`readOnly:true` 是能力开关（切换/新增/删除/改密这一批**没有**端点，如实降级）；它**不打上游** —— 读的是本机账号表与 serve 自己的登录态，见 §5.10 |
+| `/api/agent/{config,models,sessions*,memory*,chat,stop,status}` | `:core` 的 `AgentRunner` / `AgentTools` / `AgentPrompt` 等 + `:data` 的 `AgentConfigStore` / `AgentSessionStore` / `SseAgentTransport` / `AgentModelFetcher` / `AgentTitleGen`（循环与落盘都在 **serve** 这一侧） | 屁岱（Agent） | **P2 · 已落地 2026-10-15**（批⑤ 工单 **S-a**） | **新形状**：十四端点（含一轮对话）；`POST /api/agent/chat` 成功时是 **SSE**（`text/event-stream`），开门阶段的失败仍是信封。⚠️ **key 只在 serve 侧**（浏览器一个字都不拿到，`keyConfigured` 是唯一投影）；⚠️ **白名单工具层（S-c）与 `:web` 接线（S-d）都还没做** —— 这一版的 `toolAllowlist` 如实是空数组，浏览器里那一格仍是降级页，逐条见 §5.11 |
 
 
 > **状态收口（2026-10-13 核账，纯文档轮次）**：`:server` 里**已实现**的端点族 =
@@ -163,6 +164,11 @@
 > （`/api/payment-code` 那一行已于 2026-10-14 从「未实现」里出来 —— 拿码 + 可用券两发落地，路径同时
 > 写死成 `/api/pay/{code,vouchers}`，见 §5.7；**支付 / 扣款**那个动作客户端本来就没有，**勾选同步**仍未端。）
 > ⚠️ **表里那个 `P0`/`P1`/`P2` 是优先级，不是状态** —— `P1` 那两行（写路径）都已落地（见各自那一格）。
+> **批⑤（2026-10-15 新增）**：`/api/agent/*` —— 屁岱（Agent）在浏览器上的那一族（D10，工单 **S-a**）。
+> 十四条端点 + **SSE**（`POST /api/agent/chat` 成功时是 `text/event-stream`，不是信封；开门阶段的失败仍是
+> 信封，见 §5.11）—— 逐字段、十一类事件、红线与「**S-b / S-c / S-d 还没做**」（白名单工具层为空、`toolAllowlist`
+> 如实是空数组、`:web` 仍指降级页）都写在 **§5.11**。绝不把「端出来了」当成「这一端真用得上」。
+
 ### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
 
 会话本体在 `:server` 进程里（`ServeSession`：`:data` 的 `SessionManager` + 落盘凭据），
@@ -1362,6 +1368,123 @@ D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实�
 `readOnly` 缺了按只读 + 空 id 行丢掉 + 认不出的身份落回本科 · campus-api 形态抛错且**一个请求都不发**）。
 
 
+### 5.11 批⑤（2026-10-15 落地）：`/api/agent/*` —— 屁岱（Agent）在浏览器上（D10，第一批 **S-a**）
+
+**决策来源**：`docs/desktop-port-plan.md` §16.1 的 **D10**；**设计真源 = `docs/agent-web-spec.md`**（438 行，
+端点形状、SSE 十一类事件、工具白名单、三份落盘、与 `:app` / `:desktop` 的差异表、未决问题都在那里）。
+统一口径照 §4（信封、`code == HTTP 状态码`、失败给能直接看的中文短句）。
+
+**这一节记的是 S-a 的实况**（工单把 D10 分成 S-a `:server` 端点 → S-b `:core` 三处小改 → S-c 白名单工具层 →
+S-d `:web` 接线）：十四个端点 + SSE 已落地并被 **27** 用例钉住；`:core` 的「工具行文案 / 跳转建议 / 自愈历史」
+上提与 `:data` 的密钥半保护器随本批一起动（S-a 的形状离不开它们）；**白名单工具层（S-c）与 `:web` 接线
+（S-d）还没做** —— 逐条写在下面「本批**没有**做的」那一段，**不**用「端点已落地」把那一半糊过去。
+
+**会话**：一个新站点都没注册（这一族**不打任何学校上游** —— 它打的是用户自己配的模型服务商，而且那一枪在
+测试里一律是夹具）。
+
+| # | 端点 | 请求 | 响应 `data`（逐字段） | 错误码 |
+|---|---|---|---|---|
+| 1 | `GET /api/agent/config` | —— | `{provider, model, effectiveModel, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, keyConfigured, toolAllowlist:[string], honored:[string], canEditKey}` | `401` 无令牌 |
+| 2 | `POST /api/agent/config` | `{provider, model, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, apiKey?}` | `{ok, message}` | `400` 取值认不出 / 缺字段 · `401` |
+| 3 | `POST /api/agent/models` | `{provider, baseUrl?}` | `{models:[string]}`（去重升序） | `400` · `401` · `409` 没配 key · `502` 服务商 / 网络 |
+| 4 | `GET /api/agent/sessions` | —— | `{sessions:[{id,title,createdAt,updatedAt,locked}]}`，序 = `updatedAt` 降序 | `401` |
+| 5 | `POST /api/agent/sessions` | `{title?}`（缺省 = `DEFAULT_TITLE`「新对话」） | `{session:{…}}` | `401` |
+| 6 | `GET /api/agent/sessions/{id}` | —— | `{conversation:{messages:[…],lastTotalTokens,contextExhausted}\|null}`；`null` = 这条会话不在了 | `401` |
+| 7 | `POST /api/agent/sessions/{id}/rename` | `{title, lock?:true}` | `{ok, message}`（对不存在的 id 是**空操作**） | `400` · `401` |
+| 8 | `POST /api/agent/sessions/{id}/delete` | ——（幂等） | `{ok, message}` | `401` |
+| 9 | `GET /api/agent/memory` | —— | `{items:[{key,value}]}`，序 = `AgentMemory.all()`；`__order` **不投影** | `401` |
+| 10 | `POST /api/agent/memory/forget` | `{key}` | `{ok, message}`（`message` 是 store 的原话；`ok` = 原来有没有这一条） | `400` · `401` |
+| 11 | `POST /api/agent/memory/clear` | —— | `{ok, message}` | `401` |
+| 12 | `POST /api/agent/chat` | `{sessionId, text}` | **`text/event-stream`**（见下） | `400` 形状 · `401` · `404` 会话不在 · `409` 没配 key / 有一轮在跑 / 上下文耗尽 · `502` **只在流开始前** |
+| 13 | `POST /api/agent/stop` | `{sessionId?}` | `{ok, message}`（没有在跑也 `200`，`ok:false`） | `401` |
+| 14 | `GET /api/agent/status` | —— | `{running, sessionId:string\|null}` | `401` |
+
+十四条**全部**挂在 `route(API_PREFIX)` 的令牌闸门里面（`ServeModule` 里一行 `agentRoutes(agent)`），
+所以「没带令牌 ⇒ 401」是自动的 —— `ServeAgentTest.everyEndpointSitsBehindTheTokenGate` 把 14 条逐个走了一遍。
+**这一族不要求已登录**：key 与循环都在 serve，而「没配 key」是一门明确的错（见下），不是 401。
+
+#### `POST /api/agent/chat` 的流（`text/event-stream`）
+
+响应头带 `cache-control: no-store` 与 `x-accel-buffering: no`（反代不缓冲）。一帧 = `event: <名>` + 一行
+`data: <JSON>` + 空行；**保活**是 SSE 规范的注释行 `: ping`（每 15 秒一次，客户端必须忽略）。
+
+**十一类事件**（与设计稿 §3.2 的表逐条对应）：
+
+| 事件 | `data` | 何时 |
+|---|---|---|
+| `delta` | `{text}` | 模型正文增量，逐段 |
+| `reasoning` | `{text}` | 思维链增量（仅思考开启时） |
+| `tool_call` | `{name}` | 一次工具调用聚合之后、执行之前（**只报名字**，文案由消费者按 `:core` 的同一份表拼） |
+| `tool_result` | `{name, success, error:string\|null}` | 该次执行结束（失败时 `error` 是原话） |
+| `usage` | `{totalTokens}` | 模型回报 usage（只用来显示 / 兜底） |
+| `mfa` | `{pending, siteName:string\|null}` | 校园站点短信二验挂起 / 结束（**只有站名，没有手机号**） |
+| `widget` | `{widgets:[{type,json}]}` | 一轮工具执行全部结束后、`done` 之前（一次给全） |
+| `nav` | `{routes:[{label,route}]}` | 同上（`route` 是 `AppRoute.id`） |
+| `done` | `{content, sessionId, title, contextExhausted, totalTokens:long\|null}` | **唯一正常终止事件**，之后流关闭 |
+| `error` | `{kind, message}` | **唯一异常终止事件**（`kind` = `session_expired` / `llm` / `tool` / `internal`） |
+| `: ping` | ——（无 `data`） | 每 15 秒一次，直到流关闭 |
+
+**开门阶段 vs 开流之后**：HTTP 状态码在流开始后改不了 ⇒ `400/401/404/409/502` 这些走**信封**（非 SSE），
+流开始之后的失败一律走 `error` 事件。这一条与 §4 没有冲突：§4 管「响应长什么样」，这里是「开门那段是信封、
+开流之后才是帧」——**不是** §4 的第三条例外。
+
+**停止 / 断开是同一条路**：`POST /api/agent/stop` 取消这一轮；被取消（或客户端断开、或写帧失败）时
+**一个终止事件都不发** —— 这一轮没跑完，说它「正常结束」（`done`）或「出错」（`error`）都是假话。
+`stop` 自己是个普通端点，会如实回一句 `{ok, message}`（没有在跑时 `ok:false`）。
+
+#### 三条要点（写在这里，免得下一个人重新推一遍）
+
+- **红线：任何响应（含 SSE 每一帧）都不含 API Key** —— 不是掩码，是**字段不存在**。`keyConfigured` 是
+  这一族唯一的「key 相关」投影（一个 bool）。同一族的红线还包括：`StoredMessage.images`（那是 **serve 那台
+  机器**上的绝对路径，可能带用户名，而浏览器根本读不到那块盘）**不投影**、`llmHistory`（含工具结果与画像
+  原文）**不投影**、MFA 帧里只有站名。`ServeAgentTest` 的每一条用例都在**夹具里明明有那把 key** 的前提下
+  断言它不在响应里（并且有一条反过来钉住它确实落在 `agent_config_secure` + 账号后缀那份 store 里 ——
+  未登录时后缀是 `default`，所以文件名是 **`agent_config_securedefault.properties`**，即设计稿 §0「缺口 B」
+  那条口径的落点）。
+- **两处 `409`**（`ApiErrors.ACTION_REJECTED`）：①「上一轮还在生成」（Android 是**静默忽略**，这里有意更清楚）；
+  ②「还没配置 API Key」/「上下文已达上限」——三种情形的 `message` 各说各的，客户端只要显示它。
+- **`404` 的用法扩了一处**：`chat` 的「会话不存在」用 `404` + 指名 message（`GET /api/agent/sessions/{id}` 仍用
+  `200 + conversation:null`，照 `/api/library/my` 的 `my:null`）。§5 的 404 兜底（端点不存在）语义不变。
+
+#### 两处**有意**偏离 `docs/agent-web-spec.md` 表格的地方（口径要记录，不许默默漂）
+
+1. **会话与消息的时间是 epoch 毫秒，不是 ISO-8601**（§4 的通则在这里让位）：`createdAt` / `updatedAt` 是
+   `:core` 模型 `AgentSession` 的 `Long` 字段、`StoredMessage.timestamp` 也是 ——浏览器那一端要把它们原样
+   放回**同一个模型**（抽屉自己格式化）。转成字符串等于逼两端各写一遍转换，而这两格的使用者只有本族自己。
+2. **`done` 里没有 `finishReason`**：`:core` 的 `AgentRunner` 只回正文
+   （`finishReason` 用在它内部的截断 / 续写判据上，不外传），投影一个自造的值就是造事实 —— 按 §4「字段缺失
+   = 本端不投影」处理。`done` 实际带的六格见上表。
+
+#### 本批**没有**做的（S-b / S-c / S-d 的现状，不是「端出来了就等于能用」）
+
+- **白名单工具层（S-c）没做** ⇒ `ServeAgent.forServe` 这一版交给模型的是**空工具表**。这不是「没端」而是
+  「端了但模型没工具可用」，页面上**可见**：`GET /api/agent/config` 的 `toolAllowlist` **如实是空数组**
+  （它是从真下发给模型的工具定义里读出来的，不是另维护一份清单），`honored` 同样是空集。
+  后果：`tool_call` / `tool_result` / `widget` / `nav` 四类事件在真机上不会出现（夹具测试里会出现，那是为了
+  把编码钉住）；模型这期间只能靠自身知识作答。**这一条是 S-c 的活**（设计稿 §6 那 9 个工具）。
+- **`:web` 接线（S-d）没做** ⇒ 浏览器里那一格还是降级页（`WebUnavailableScreen`），`WebSupport.openableRouteIds`
+  里 `AppRoute.Agent` 还在差集里。**这一条是 S-d 的活**（`WebAgentSession` + fetch / SSE 桥 + `AgentScreen(session=…)`）。
+- **`:core` 的三处小改落地了两处**：工具行文案 / 跳转建议 / 自愈历史已提到顶层（`AgentShared.kt`，S-a 的
+  `nav` 帧离不开它），`AgentConfig.keyConfigured` 与配置面板那三个槽位**没做**（本批的 `keyConfigured` 是
+  `:server` 自己按 `apiKey.isNotBlank()` 算的，`:core` 那一格与浏览器面板是 S-b 的活）。`AgentChatSession` 抽口
+  同样没做（那是 S-d 的前提）。
+- **`GET /api/agent/sessions/{id}` 的 `messages[].widgets` 会带回来**（落盘形状），但**卡片的重建**在浏览器那
+  一侧（`storedToWidget`，`:core` 现成的）—— 本批只在 `widget` 事件里把同一批 `{type,json}` 端出去。
+
+#### 夹具与用例（§7 的第 1 条「三处同改」的核）
+
+- **`:testkit`**：**新增** `AgentFixture`（一把**编造**的 API Key + 型号 / 助手名 / 标题 / 记忆键值 / 回复正文 /
+  工具名 / MFA 站名与一个**手机号常量**，纯字符串 —— `:testkit` 一个工程依赖都没有，装不了 `:core` 的对象）。
+  这一族不打学校上游，所以夹具不是「页面原文」而是「一组编造的值 + 那把 key」：红线断言靠的就是
+  「夹具里明明有它」这一点。
+- **`:server:test`**：**新增** `ServeAgentTest`（**27 例**：配置三 · 型号两 · 会话五 · 记忆两 · 对话十一 ·
+  闸门与尾卡两 · **生产装配一** · 纯函数一。十四个端点逐条 ≥2 例 —— 形状 / 闸门 401 / 400 / 404 / 409 / 502 各档、
+  SSE 逐帧、红线、没配 key 的明确错误、并发 409、停止、上下文耗尽、MFA + 保活；最后一条把十一类帧的形状一次钉全）。
+  夹具传输 / 工具表 / 起标题三格都在这个文件里（**绝不打真服务商**）；「生产装配一」那一条专门走
+  `ServeAgent.forServe`（其余用例用的是测试自己拼的那份），并钉住匿名账号那份文件名（缺口 B）。
+- **`:web`**：本批**零改动**（S-d 未做，如实）。
+
+
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
 - 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的
@@ -1532,6 +1655,27 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 ⚠️ 本批**没有**动 `:data`（四个域的取数与解析一行未改）⇒ `:data:jvmTest` 与 `:desktop:test` 的计数
 逐条不变；`ServeRouteSupport.positiveInt` 那次小整理改了四个 `:server` 文件（删掉 4 份逐字相同的
 private 拷贝、留一份 `internal`），不影响任何测试的计数。
+
+**新增的 27 例（2026-10-15，批⑤ §5.11 / D10 的 S-a）**：`ServeAgentTest` —— 十四个端点逐条 ≥2 例
+（**配置三例**（默认值如实 / 写读往返 + 键集合与红线 / 认不出的取值 400 与 `apiKey` 的可选语义）·
+**型号两例**（没配 key 的明确错 + 「一个请求都不打出去」/ 成与 `502`）· **会话五例**（空表 / 新建 /
+内容与 `conversation:null` / 改名锁与空操作 / 删除幂等）· **记忆两例**（序与 `__order` 不投影 / 忘却与清空）·
+**对话十一例**（没 key · 开门阶段 400/401/404 · 逐帧的 `delta`→`usage`→`widget`→`nav`→`done` + 落盘 ·
+工具与思维链三帧 + 工具行文案与 `nav` 跳转建议 · 工具失败 · `error` 两种 `kind` · 并发 409 · 停止 · 上下文耗尽 ·
+MFA 与保活）· **闸门与尾卡两例**（14 条一遍扫过 / status 默认值与尾卡 404）· **生产装配一例**
+（`ServeAgent.forServe` 真走一遍：工具表空、key 落 `agent_config_securedefault`、会话落 `agent_sessionsdefault`）·
+**纯函数一例**（十一类帧的形状一次钉全））。夹具的那三格（传输 / 工具表 / 起标题）就在这个文件里，测试**绝不打真服务商**。
+
+**本批的六项门禁实测（2026-10-15，XML 实测计数）**：`:server:test` **136**（109 → 136，新增 `ServeAgentTest` 27）·
+`:core:jvmTest` **536**（**不变** —— `AgentShared` 那次上提是纯搬迁，`AgentViewModel` 的断言一条未改）·
+`:desktop:test` **118**（**不变**）· `:data:jvmTest` **259**（**不变** —— `AgentConfigStore` 多了一个**默认值等于现状**的构造参数）·
+`:app:testDebugUnitTest` **444**（**一条未减**，`:app` 本批**零改动**）· `:web` 本批**零改动**（S-d 未做）。
+
+⚠️ 两处**没有**测试覆盖、必须如实记的事：① Windows 上的 DPAPI 那一档在本机（Linux）验不了 —— `agent_config_secure`
+套上 `protectedSecureKeyValueStore` 之后，Linux 上 `protector == null` ⇒ 字节与今天**逐字相同**（有测试钉的是
+「key 确实落在那份 store 里」），DPAPI 信封本身要靠 Windows CI；② Ktor 3.6 的**服务端没有** SSE 插件
+（`gradle/libs.versions.toml` 里没引 `ktor-server-sse`）⇒ 帧是手写的，保活是注释行 —— 形状由上面那条纯函数用例钉住，
+但「在真浏览器里逐帧上屏」要等 S-d。
 
 ## 7. 变更纪律
 
@@ -1724,6 +1868,28 @@ private 拷贝、留一份 `internal`），不影响任何测试的计数。
     ⚠️ 红线本身一个字没松：学生本人姓名 / 学号 / 手机号 / 通讯录仍一律不端，考勤流水那一格的 `teacher`
     （当堂上课的教师名）**仍不投影**（它不在例外 ④ 里，§5.5 那一条一字未改）。
 
+13. ✅ **批⑤（2026-10-15，D10 的 S-a）三处同改核过了**：`/api/agent/*` 那十四条（§5.11，D10 的第一批）：
+    - **本文档**：§5 的表（新增一行）+ 状态收口（一段）+ **§5.11**（端点 / SSE 十一类事件 / 红线 /
+      两处有意偏离 / 「本批**没有**做的」）+ §6（新增 27 例与六项门禁计数）+ 本节；
+    - **夹具**：`:testkit` **新增** `AgentFixture`（一把**编造**的 API Key + 一组编造的值）。它是这一族唯一
+      能当夹具的东西：这一族**不打学校上游**（连模型那一枪在测试里也是夹具）⇒ 夹具不是「页面原文」，而是
+      「一组编造的值 + 那把 key」，红线断言靠的就是「夹具里明明有它」；
+    - **`:web`**：**零改动** —— 本批**没有**做 S-d 接线（那一屏仍是降级页）。这一处在 §5.11 的「本批**没有**
+      做的」里**指名点姓**地写了出来（每一条：做到哪、还剩什么、为什么），那是第 1 条纪律允许的唯一形态。
+    **本批要记的三条新纪律**：
+    - **「能力开关必须来自实现本身，不能来自『打算实现什么』」**：`:toolAllowlist` 是从**真下发给模型的工具定义**
+      里读出来的（不是另维护一份常量清单），所以 S-c 未落地时它**如实是空数组**。反过来说：要是当初写成一份
+      手维护的清单，这一版就会报「有 9 个工具」而模型一个都调不到 —— 那就是一个**假入口**；
+    - **「现在不能」的三种情形走同一个 `409`**（先例是 `LOGIN_BUSY` / `ACTION_REJECTED`）：没配 key /
+      已有一轮在跑 / 上下文耗尽。它们不是形状错误（`400`）、也不是「等会儿再来」（`502`）——「先处理那一件」
+      才是它们的意思，`message` 各说各的；
+    - **SSE 这一族的「不是异常终止」是**：被停止 / 客户端断开 / 写帧失败 ⇒ **一个终止事件都不发**（`done` 与
+      `error` 都不发）。这条必须写进契约，否则下一个人会把「流没发完」读成「契约漏了一个事件」。
+    另记一条**施工事实**（值得下一个人知道）：`SseAgentTransport` 把增量回调派发到 `Dispatchers.Main.immediate`，
+    而 **`:server` 没有主线程**（它只依赖 `kotlinx-coroutines-core`，不引 coroutines-swing / -android）⇒
+    直接写会在**第一个增量**上抛「Module with the Main dispatcher had failed to initialize」。本批把那一格改成
+    「有主线程就用它、没有就用 `Dispatchers.Default`」（Android / 桌面**行为一字未改**）—— 不改的话，
+    这一族在 serve 上根本跑不起来，而它在夹具下完全看不出来。
 ---
 
 ## 8. 这份草案的依据（谁写的、读了什么）
