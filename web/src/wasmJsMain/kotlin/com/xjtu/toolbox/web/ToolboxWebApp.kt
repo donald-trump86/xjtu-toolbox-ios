@@ -41,7 +41,6 @@ import com.xjtu.toolbox.core.net.CampusCouponApi
 import com.xjtu.toolbox.core.net.CampusDormPowerApi
 import com.xjtu.toolbox.core.net.CampusTranscriptApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
-import com.xjtu.toolbox.core.net.CampusVenueApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
 import com.xjtu.toolbox.core.net.CampusLibraryApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
@@ -85,7 +84,6 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.calculateIsWideLayout
-import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.withTimeoutOrNull
@@ -519,32 +517,16 @@ private fun AppPage(
         //    ⇒ canBook/canCancel 翻 true，于是屏上真能下单 —— **滑块在本端画**：服务端把挑战
         //    （图 + captchaId）按值端出来，`WebSlideCaptchaHost` 用 `:core` 的图片缝解码、按与
         //    Android/桌面同一协议采集拖动轨迹，`POST /api/venue/book` 把 captchaId + 轨迹原文带回。
-        //    ⚠️ 「去支付」那一跳仍不可达（浏览器里没有场馆站的会话，支付页地址也只有 `:data` 知道）
-        //    ⇒ CampusVenueApi.paymentUrl 如实给空串，见契约 §5.3.2 末尾的缺口说明。
+        // 宿主面（取数形态 + 「去支付」那一跳）在 `WebVenueHost` 里：`CampusVenueApi.paymentUrl` 在 serve 形态
+        // 给的是 `GET /api/venue/pay`，serve 回 302 到 80 端口那台站点上的支付页（契约 §5.3.2 第 6 条）。
+        // ⚠️ 302 这一跳浏览器一定跟；但**落成能付款的一页不担保**：浏览器只能开**一个**地址、两跳串不成
+        // 一条链（跨源跳转看不见、也接不住、更不能替别的域名写 cookie）⇒ 场馆站要的会话只能由站点自己
+        // 那次登录给，第一次点很可能先落在该站点自己的登录页（屏顶那句如实说明与 `WebVenueHost` 的文件头）。
         // 逐字段映射写在 CampusVenueApi 的 KDoc 里（订单缺 areaName/serviceName、明细时间常为 null
         // ⇒ 如实留空，屏上那几段不画）。
         // **自动识别**（`solveCaptcha`）在浏览器里没有：`:core` 的 `decodeImagePixels` 在 wasm 上恒 null，
         // 本端也不传 autoSolveCaptcha（默认 false）⇒ 停在手动滑动那一档。
-        AppRoute.Venue -> {
-            val hintPrefs = remember { keyValueStore("feature_hints") }
-            VenueScreen(
-                source = remember(client, mode) { CampusVenueApi(client, API_BASE, mode) },
-                onBack = back,
-                // 支付那半在两种形态下都不可达（campus-api：canBook=false ⇒ 屏上不画入口；serve：
-                // canBook=true 但支付页地址只有 `:data` 能拼、而且浏览器里没有场馆站的会话 ⇒
-                // `CampusVenueApi.paymentUrl` 如实给空串，这一枪什么都不做）。真走到这里也只做浏览器
-                // 做得到的那一件：打开那个网址；`then`（先过 App 的登录再跳下一站）在浏览器里做不到，
-                // 因为会话在 serve / campus-api 进程里而不在页面上 —— 如实忽略，不假装。
-                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInNewTab(url) },
-                // 滑块宿主槽位（见上面那段注：serve 模式下下单要它；campus-api 的 canBook=false
-                // ⇒ 验证码弹窗根本不出现）。宿主端口见 `:core` 的 `SlideCaptchaHost`。
-                captchaHost = remember { WebSlideCaptchaHost },
-                // 「功能说明弹过了没」在 Web 存 localStorage（:app 存 feature_hints 那个 SharedPreferences），
-                // 键名与 :app 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说。
-                showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
-                onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
-            )
-        }
+        AppRoute.Venue -> WebVenueScreen(client = client, mode = mode, onBack = back)
         // 图书馆座位：与 Android 同一个屏与 ViewModel（`:core/library`）。两种形态（见 CampusLibraryApi 的
         // KDoc）：campus-api 只读（写方法一律抛）；serve 模式的 `/api/library/action` 已落地（契约 §5.3.1）
         // ⇒ canBook 随服务端如实报的 `canBook:true` 翻 true —— 座位格可点、有预约/换座/签到/离开/返回/退座

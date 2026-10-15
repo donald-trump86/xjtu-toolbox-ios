@@ -65,7 +65,9 @@
   成功 `code == 0` 且 HTTP 200；失败时 `code` 与 HTTP 状态码**逐位相同** —— 一条信息不出现两种写法，
   客户端读哪一个都一样。已用的码：`400` 请求体形状不对 · `401` 无令牌 / 登录被拒 · `404` 端点不存在 ·
   `409` 另一次登录正在进行 / 上游明确拒绝一次写动作（§5.3.1） · `502` 上游或网络的故障（稍后重试可能就成）。
-- **例外**：`/api/status` 是**裸对象**（历史遗留）。要么在实现时统一成信封，要么在本文档里明确标注为例外 —— **只能选一个**。
+- **例外（只有两条，不许再开第三条）**：① `/api/status` 是**裸对象**（历史遗留）；② `GET /api/venue/pay`
+  **不当信封答** —— 它是给浏览器点的**跳转**（`302` + `Location`，没有 `code`/`data`/`message`，见 §5.3.2 第 6 条）。
+  这两条之外，`/api/…` 的每个响应都是信封；要开新例外就写进这一条（那是契约变更，不是实现细节）。
 - ⚠️ **时间一律 ISO-8601 带时区的字符串**（`2026-10-09T23:52:00+08:00`）。
   **不要用 epoch 秒/毫秒**：这是"静默漂移"的头号来源（秒 vs 毫秒、本地时区 vs UTC 在两端的表现不同，
   而两端的 UI 都会"看起来对"）。
@@ -98,7 +100,7 @@
 | `/api/library/campus` `/api/library/areas` `/api/library/seats` `/api/library/my` `/api/library/action` | `LibrarySource` | 图书馆座位 | P0 | **部分沿用 + 补**：`/campus` `/areas` `/seats` `/my` 形状可沿用（逐字段映射见 `CampusLibraryApi` 的 KDoc 表）；**写端点 `/api/library/action` 已落地**（§5.3.1），`canBook=true` 时屏上那些按钮才画 |
 | `/api/card/balance` `/api/card/transactions` | `CampusCardSource` | 校园卡 | P0 | 沿用（`amount ← signed`、`description ← channel`、`cardType ← cardName`；⚠️ 挂失口径 `lostflag` vs `barflag` 要在本文档里明确选一个） |
 | `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
-| `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` | `VenueSource` | 体育场馆（写） | **P1（写路径）· 已落地 2026-10-12** | 无旧形状：serve 侧新开的两条写路径（契约 §5.3.2 逐字段；落地提交 `45a0e50`） |
+| `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
 | `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
 | `/api/attendance/terms` `/api/attendance/records` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi`） | 考勤 | **P0 · 已落地 2026-10-13** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次），`teacher` 按红线不端，见 §5.5 |
 | `/api/coupon/list` `/api/coupon/detail` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**只读**） | **P0 · 已落地 2026-10-13** | **新形状**（原来这一行是 P2 = Stage C 宿主能力；本轮只端**只读**半，领券不端）。金额单位是**分**，见 §5.5 |
@@ -120,7 +122,7 @@
 > `status` · `session{,/login,/logout,/mfa}` · `calendar/school` · `info/{yellowpage,faculty}` ·
 > `fitness/{years,score}` · `notification/{sources,list}` · `inbox` · `emptyroom/{cdn,rooms}` ·
 > `jwxt/{terms,term,term-start,schedule,grades,school-courses,evaluations,evaluations/status}` ·
-> `library/{campus,areas,seats,my,action}` · `venue/{products,slots,orders,status,captcha,book,cancel}` ·
+> `library/{campus,areas,seats,my,action}` · `venue/{products,slots,orders,status,captcha,book,cancel,pay}` ·
 > `card/{balance,transactions}` ·
 > **只读四域（2026-10-13 收尾轮新增）**：`dzpz/transcript` ·
 > `attendance/{terms,records}` · `coupon/{list,detail}` · `dorm/{rooms,reading}` ——
@@ -139,6 +141,10 @@
 > **批② 工单 S7a（2026-10-15 新增）**：`accounts`（多账号页那一族的**只读**一条）—— 逐字段与
 > 「不端什么」见 §5.10；它**不打任何上游**（读的是本机账号表 `xjtu_accounts` 与 serve 自己的登录态）
 > ⇒ 会话侧一个新站点都没注册。
+> **批③-a（2026-10-15 新增）**：`venue/pay` —— 场馆「去支付」那一跳（D11b）。它**不打上游、不发起支付**：
+> 只把浏览器 302 送到 80 端口那台站点上的**支付页地址**（`:data` 的 `VenueApi.paymentUrl` 拼的）。
+> ⚠️ **那一页要不要再登录、能不能直接付，本端不担保** —— 浏览器这一侧没有场馆站的会话，判据与逐条依据
+> 见 §5.3.2 第 6 条。它是本文档里**唯一**一条不当信封答的端点（§4 的第二条例外）。
 > **仍未实现**的只剩一行 + 一处如实缺口：`/api/v1/personal/me/user`（P2：来源仍待确认）、
 > `/api/match/profile`（P2：**学工档案**在 `:data` 里没有源 —— `hello` 那条链只在 `:app`，桌面端也
 > 如实没有 ⇒ 本轮不端，判据与 `DesktopMatch.kt` 的 TODO 见 §5.7）。
@@ -380,11 +386,79 @@ POST /api/venue/cancel
   文案是 `:data` 的结果对象里那句原样中文（与图书馆那张同一个码、同一种意思：「现在不能」）；
 - **502** 上游/网络的故障（稍后重试可能就成）：挑战取不回来、提交那一枪没打通。
 
-⚠️ **已知缺口（如实记下，不在本轮）**：下单能成之后屏上那个「去支付」**点了不会有动作** ——
-支付页在 80 端口那台站点上（`VenueApi.paymentUrl` 拼的），而浏览器里没有场馆站的会话，
-支付页地址也只有 `:data` 知道（`:core` 不复制一份站点知识）⇒ `CampusVenueApi.paymentUrl` 在 serve
-模式下如实返回空串（不是抛、也不是编一个地址）。TODO：契约给了支付入口（或让 `/api/venue/status`
-的 `browserLoginUrl` 能被客户端缓存下来）之后再把它接上。
+#### 6. `GET /api/venue/pay` —— 支付那一跳（**D11b**，2026-10-15 落地）
+
+屏上那个「去支付」要的是**一个能在浏览器里打开的地址**，而支付页在 80 端口那台站点的另一套部署上
+（`VenueApi.paymentUrl` 拼的 `/pay/show.html?id=…`）。那个地址只有 `:data` 知道，浏览器也没别的办法拿到它
+（页面不能替别的域名写 cookie，`:core` 也不该复制一份站点知识）⇒ **serve 把这一跳代过去**。
+
+```
+GET /api/venue/pay?orderId=VT20261013001
+HTTP/1.1 302 Found
+Location: http://202.117.17.144/pay/show.html?id=VT20261013001
+```
+
+| 项 | 形状 |
+|---|---|
+| 请求 | `?orderId=` 必填，**原样带回**（`/api/venue/orders` 的 `orderId`；下单成功那个也用同一个） |
+| 成功 | **302** + `Location`，**没有信封**（§4 的第二条例外）。`Location` 逐字等于 `:data` 的 `VenueApi.paymentUrl(orderId)` |
+| `401` | 没令牌（闸门）／令牌对但**没登录**（与场馆这一族其余端点同一道门）—— 文案都指路先登录 |
+| `400` | `orderId` 缺或空白，文案说出缺什么 |
+
+消费方（`:web`）怎么用：`CampusVenueApi.paymentUrl(orderId)` 在 serve 形态**给的就是这条端点的同源地址**
+（`/api/venue/pay?orderId=…`，`baseUrl` 留空即同源），宿主（`WebVenueHost` 的 `venuePayTarget`）把它交给
+浏览器新标签打开。Android / 桌面那一侧一字未改（它们拿到的是 `:data` 拼的绝对地址）。
+
+##### ⚠️ 这条链在浏览器里**能不能真的走完**？（本批必须回答的那个问题，分两截答）
+
+**① 302 这一跳：一定走完。** 它是顶层跳转（新标签直接打开这条端点），浏览器一律跟随；没有任何一手会拦它
+（`Location` 指向的那一页是明文 http 也一样 —— 顶层导航不属于混合内容拦截的范围）。
+
+**② 落在那一页上能不能付款：本端不担保** —— 代码侧的判据就是「担保不了」：**支付页要的是它自己那个站点在
+浏览器这一侧的会话，而浏览器里没有**。三条依据：
+
+- **依据一（仓内原文）**：`data/…/auth/VenueLogin.kt` 的 `PAY_BASE_URL` KDoc 写着支付页「要求浏览器自身的
+  会话，不能把 App 内的 cookie 拼进 URL」—— 这是 Android 时代就有的口径，不是本批新加的顾虑；
+- **依据二（为什么 Android 能、浏览器不能）**：`:app` 的内置浏览器是**进程内**的 WebView，
+  `BrowserScreen.syncCookiesToWebView` 把 App 的 cookie 罐（含场馆站的 `SESSION`）灌进 `CookieManager`
+  ⇒ 它那两跳（登录页 → `onPageFinished` 判 `!isAuthHop` → `loadUrl(thenUrl)`）**都带着会话**。
+  浏览器里没有这一手：页面不能替别的域名写 cookie，serve 的会话也只在 serve 进程的 cookie 罐里，不在页面上；
+- **依据三（「先登录一次」也不保证够）**：cookie 还按 **`Path`** 存。8080 那套若把 `SESSION` 限在业务
+  路径下，浏览器即便在 8080 登录过，`/pay/…` 那一页也未必带得上（夹具假设的是 `Path=/`，真站点未验）。
+
+⇒ 所以本端**只能说**「点下去会到支付页那个地址；若它要求登录，按那一页自己的流程走；实在不行改用 App /
+桌面端支付」——页面上就是这么写的（`WebVenueHost` 的 `PAY_HOP_NOTE`，其中一句逐字是
+**跳过去后若要求登录，请用 App / 桌面端支付**）。⚠️ **不许**把它读成／写成「本端已支持真支付」：
+本端既没有「代扣」这个动作，也不掌握那一页要的会话。
+
+**这一条没有在线验证**：不许真发起支付，也没去探测那台支付站；夹具刻意不扮演它（`VenueFakeUpstream`
+里没有 `/pay/…` 路由，打过去 404 —— 那一页是浏览器那边的事）。要真做到「浏览器里就能付」，得让 serve
+**代理**那一页（带着 serve 自己的会话取回 HTML、同源发出去，连它的表单与 JS 一起转）—— 那是另一个量级的
+新暴露面（等于把一条写/支付路径开给浏览器），本批没做。
+
+**三条如实说明**（写在这里，免得被读成「serve 能替你付」）：
+
+1. **这一跳不发起支付**：本层只回一个 302，扣款/确认在站点那一页上由人点 —— 与 `:app` 的内置浏览器
+   做的是同一件事（客户端本来就没有「代扣」这个动作，不是本批砍的）；
+2. **serve 的会话带不过去**：那条会话是场馆站 8080 上的 `SESSION` cookie；cookie 按**域名**存（端口不
+   参与作用域，所以 8080 发的 cookie 对 80 也是同一个），而浏览器不允许一个页面给别的域名写 cookie
+   ⇒ **浏览器这一侧的场馆站会话只能由站点自己那次登录给**。这与 `:app` 同一条路：登录过一次，之后两个
+   端口带的是同一个 cookie；
+3. **因此第一次点很可能先落在该站点自己的登录页**（由它自己的跳转去要，统一认证过完一般回到这一页）；
+
+**为什么不是「serve 把会话塞给浏览器」**：那是跨域写 cookie，浏览器一律拒绝。`/api/venue/status` 里那个
+`browserLoginUrl` 也帮不上：浏览器里「先过统一认证、再落支付页」是**两跳**，而跨源跳转看不见、也接不住
+（`:app` 的 WebView 能串是因为它有 `onPageFinished` + 那手 cookie 注入）⇒ `browserLoginUrl` 在 serve 形态**仍是空串**，
+理由就写在 `CampusVenueApi` 那一格的 KDoc 与 `WebVenueHost` 的文件头里。
+
+> **收口记录**：本节原有一段「⚠️ 已知缺口（如实记下，不在本轮）」——写的是「屏上那个「去支付」**点了不会有动作**：
+> `paymentUrl` 与 `browserLoginUrl` **都是空串**」。它由上面这条端点于 2026-10-15（批③-a / D11b）收口：
+> `paymentUrl` 不再空（serve 的代跳地址），`browserLoginUrl` 仍是空串 + 上一段那两条理由。
+> 那一格审记（`docs/audit-response.md` #30 / `docs/desktop-port-plan.md` §13.2 第 3 条）本批已更新成
+> 「只剩落点没在线验证过」。**仍然没做的一件事**：上面那第 ② 截只到「代码侧判据 + 依据一/二/三」，
+> 没有在线走过一次
+> （不许打支付站）⇒ 「第一次点到底落在哪一页」以用户照单点出来的现象为准；点位清单
+> `docs/serve-visual-checklist.md` ⑨ 那一行就是照这个口径写的。
 
 ### 5.4 `:web` 消费方（2026-10-11 落地，`ApiMode` 那一次提交）
 
@@ -407,8 +481,12 @@ POST /api/venue/cancel
      端点 ⇒ 平面图那一档不画）。
   2. ~~venue~~（已翻转，2026-10-12）：写端点 `/api/venue/captcha` + `/book` + `/cancel` 落地（§5.3.2），
      滑块由 `:web` 的 `WebSlideCaptchaHost` 在浏览器里画 ⇒ `CampusVenueApi` 的 `SERVE_WRITE_ENDPOINTS_READY=true`，
-     `canBook`/`canCancel` 翻 true（与 `/api/venue/status` 报的两个开关一致）。⚠️ 留下的**如实缺口**：
-     「去支付」那一跳在浏览器里仍不可达（见 §5.3.2 末尾）；
+     `canBook`/`canCancel` 翻 true（与 `/api/venue/status` 报的两个开关一致）。那一批留下的「去支付」缺口
+     已于 2026-10-15（批③-a / D11b）收口：`paymentUrl` 在 serve 形态给的是 `GET /api/venue/pay`
+     （302 到 80 端口那台站上的支付页地址；⚠️ **落成能付款的一页不担保**，依据见 §5.3.2 第 6 条），
+     宿主 `WebVenueHost` 只开**一个**标签、**优先支付页**；
+     `browserLoginUrl` **仍是空串**（浏览器里两跳串不成一条链，理由见那一节）。这一端也不再「点了没动作」：
+     连地址都拿不到时会在页顶如实写一句（`venuePayTarget` 有 3 例 wasm 测试钉住）；
   3. school-courses：响应报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张
      id 表的端点 ⇒ 消费方报 `false`（下拉出现了却没有选项，比不出现更糟）。
   两处的 TODO 都写在对应 `Campus*Api` 的 KDoc 里，端点落地的提交把它们一起翻成 true ——
@@ -1235,6 +1313,26 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 
 
 
+**新增的 2 例（2026-10-15，批③-a / D11b §5.3.2 第 6 条）**：`ServeVenueActionTest` —— 支付那一跳
+（`:server:test` **93 → 95**）：
+
+- **闸门与参数一例**：无令牌 401（闸门）· 令牌对但没登录 401（指路先登录）· 缺 / 空白 `orderId` 400（文案说出缺什么）；
+- **302 那一例**：登录后 302 + `Location` 逐字等于 `:data` 拼的那个真支付页地址（夹具的
+  `VenueFakeUpstream.paymentPageUrl` 是同一个拼法）· 响应体为空（**没有信封**，§4 的第二条例外）·
+  订单号里的 `/` 与 `+` 原样带到 `Location` · **本层不取数**（`orderCalls` / `tobookCalls` 都是 0：
+  取支付页等于替用户打支付站，更别说发起支付）· 红线（响应里不允许出现身份）。
+
+`:testkit` 本批**有改动**（这一族第一次动）：`VenueFakeUpstream` 新增 `PAYMENT_PAGE_PATH` 与
+`paymentPageUrl(orderId)` —— 那个地址的拼法（`java.net.URLEncoder` 那一套）全文只留一处，测试与 `:data` 都用它。
+（夹具仍**不扮演**那一页：`/pay/…` 打过去还是 404。真实现在 80 端口那台站点上，而测试不许替用户打支付站。）
+`:core` 那一侧同时改了 `CampusVenueServeWriteTest`（`paymentUrl` 那一格从「空串」翻成「serve 的代跳地址」，
+并钉住订单号的编码与 `browserLoginUrl` 仍为空串）与 `VenueMappingTest`（旧路那两条写方法照旧抛 + 不给登录入口）；
+`:web` 新增 `WebVenuePayTargetTest`（**3 例**，纯函数 `venuePayTarget` 的三支）。
+
+**本批的六项门禁实测（2026-10-15，XML 实测计数）**：`:server:test` **95**（93 → 95）· `:core:jvmTest` **515** ·
+`:desktop:test` **117** · `:data:jvmTest` **259** · `:app:testDebugUnitTest` **444**（一条未减）·
+`:web:wasmJsBrowserTest` **8 例 / 0 失败**（5 → 8）；`:web:compileKotlinWasmJs` **BUILD SUCCESSFUL**。
+
 ## 7. 变更纪律
 
 1. 改契约 = **同时改**：本文档 + 夹具 + `:web` 对应实现（三处都不动就是漂移的开始）；
@@ -1319,6 +1417,26 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
     `ServeHttpsTest` 的第一条与第三条（明文默认值 / HTTPS 端口上发明文必须失败）就是干这个的。
     另：`--https` 下「证书缺了 / 路径不存在 / 密码不对 / 不是证书库」一律报错退出（码 2），
     **不许静默回落成明文** —— 这条也是用例钉住的（`ServeTlsException` 四条）。
+12. ✅ **批③-a（2026-10-15，D11b）三处同改齐了**：支付那一跳 `GET /api/venue/pay`（§5.3.2 第 6 条）——
+    本档**唯一**一条不当信封答的端点。同一次提交里的三处：
+    - **本文档**：§4（例外清单从一条变两条）、§5 的表与状态收口（`venue/pay` + 批③-a 那段）、
+      §5.3.2（新增第 6 条 + 原来那段「已知缺口」改成收口记录）、§5.4（消费方那一格的缺口翻转）、§6（计数）；
+    - **夹具**：`:testkit` 的 `VenueFakeUpstream`（`PAYMENT_PAGE_PATH` + `paymentPageUrl`，见 §6 末）——
+      这是这一族第一次动夹具。夹具**不扮演**那一页（`/pay/…` 打过去仍是 404）：真实现在 80 端口那台站点上，
+      而测试**不许**替用户打支付站；
+    - **`:web`**：`:core/net` 的 `CampusVenueApi.paymentUrl`（serve 形态给代跳地址）+ 宿主 `WebVenueHost`
+      （判据 `venuePayTarget`：只开一个标签、优先支付页，3 例 wasm 测试钉住）+ `ToolboxWebApp` 那条分支
+      改指 `WebVenueScreen`。
+    **本批如实留下的那一半**：这一跳**一定被浏览器跟随**（顶层 302），但**落成能付款的一页不担保** ——
+    支付页要的是它自己站点在**浏览器这一侧**的会话，而 serve 的会话只在 serve 进程的 cookie 罐里、页面也
+    替不了别的域名写 cookie（Android 能是因为 WebView 在同一个进程里，`syncCookiesToWebView` 把 cookie
+    罐灌进了 `CookieManager`）⇒ 页面上如实写一句「跳过去后若要求登录，请用 App / 桌面端支付」，**没有**
+    写成「本端已支持真支付」，也**没有**在线验证过（不许打支付站）。
+    **这一批要记的新纪律**：「**不当信封答**」是一种契约变更，必须写进 §4 的例外清单 —— 不许只在实现里
+    悄悄改一个响应形状（客户端按 §4 分支读每一个响应，多一条例外就是多一条要客户端知道的路）。
+    另一条是老教训在支付这一格上的形态：**「端出来了」不等于「这一跳一定不用登录」** —— 浏览器这一侧的
+    场馆站会话只能由站点自己给，这件事写在 §5.3.2 第 6 条与 `docs/serve-visual-checklist.md` 里，
+    不靠「端点已落地」糊过去。
 
 ---
 
