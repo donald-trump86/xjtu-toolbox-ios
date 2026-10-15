@@ -117,7 +117,7 @@
 | `POST /api/webvpn/convert` | `WebVpnCodec`（`:data` 侧 `WebVpnUtil`） | WebVPN 转换器 | **P0 · 已落地 2026-10-14** | **新形状**：纯转换（两个方向、无会话、不碰上游、`400` 只有参数那一档）。**为什么不做成浏览器本地**：HTTP + 非 localhost ⇒ 非安全上下文 ⇒ `crypto.subtle` 被禁，见 §5.7 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 | `/api/accounts` | `:core` 的 `CampusAccountsApi`（serve 支）读 `:data` 的 `AccountStore` | 账号管理（多账号，D9） | **P2 · 已落地 2026-10-15**（批② 工单 S7a） | **新形状**：只读一条。`id` 是**打码后**的学号（`2023****0001`，既当显示名也当句柄），完整学号/姓名/密码/指纹/公钥一律**不投影**（红线 §3.4）；`readOnly:true` 是能力开关（切换/新增/删除/改密这一批**没有**端点，如实降级）；它**不打上游** —— 读的是本机账号表与 serve 自己的登录态，见 §5.10 |
-| `/api/agent/{config,models,sessions*,memory*,chat,stop,status}` | `:core` 的 `AgentRunner` / `AgentTools` / `AgentPrompt` 等 + `:data` 的 `AgentConfigStore` / `AgentSessionStore` / `SseAgentTransport` / `AgentModelFetcher` / `AgentTitleGen`（循环与落盘都在 **serve** 这一侧） | 屁岱（Agent） | **P2 · 已落地 2026-10-15**（批⑤ 工单 **S-a**） | **新形状**：十四端点（含一轮对话）；`POST /api/agent/chat` 成功时是 **SSE**（`text/event-stream`），开门阶段的失败仍是信封。⚠️ **key 只在 serve 侧**（浏览器一个字都不拿到，`keyConfigured` 是唯一投影）；⚠️ **白名单工具层（S-c）与 `:web` 接线（S-d）都还没做** —— 这一版的 `toolAllowlist` 如实是空数组，浏览器里那一格仍是降级页，逐条见 §5.11 |
+| `/api/agent/{config,models,sessions*,memory*,chat,stop,status}` | `:core` 的 `AgentRunner` / `AgentTools` / `AgentPrompt` 等 + `:data` 的 `AgentConfigStore` / `AgentSessionStore` / `SseAgentTransport` / `AgentModelFetcher` / `AgentTitleGen`（循环与落盘都在 **serve** 这一侧） | 屁岱（Agent） | **P2 · 已落地 2026-10-15**（批⑤：工单 **S-a** 端点 → **S-b** `:core` 三处小改 → **S-c** 白名单工具层，前三个都已落地） | **新形状**：十四端点（含一轮对话）；`POST /api/agent/chat` 成功时是 **SSE**（`text/event-stream`），开门阶段的失败仍是信封。⚠️ **key 只在 serve 侧**（浏览器一个字都不拿到，`keyConfigured` 是唯一投影）；**白名单工具层（S-c）已落地** —— `toolAllowlist` 现在是那九件（仍是从真下发的工具定义里读出来的）；⚠️ **`:web` 接线（S-d）还没做**，浏览器里那一格仍是降级页，逐条见 §5.11 |
 
 
 > **状态收口（2026-10-13 核账，纯文档轮次）**：`:server` 里**已实现**的端点族 =
@@ -164,10 +164,11 @@
 > （`/api/payment-code` 那一行已于 2026-10-14 从「未实现」里出来 —— 拿码 + 可用券两发落地，路径同时
 > 写死成 `/api/pay/{code,vouchers}`，见 §5.7；**支付 / 扣款**那个动作客户端本来就没有，**勾选同步**仍未端。）
 > ⚠️ **表里那个 `P0`/`P1`/`P2` 是优先级，不是状态** —— `P1` 那两行（写路径）都已落地（见各自那一格）。
-> **批⑤（2026-10-15 新增）**：`/api/agent/*` —— 屁岱（Agent）在浏览器上的那一族（D10，工单 **S-a**）。
+> **批⑤（2026-10-15 新增）**：`/api/agent/*` —— 屁岱（Agent）在浏览器上的那一族（D10；**S-a** 端点 → **S-b**
+> `:core` 三处小改 → **S-c** 白名单工具层，前三个都已落地）。
 > 十四条端点 + **SSE**（`POST /api/agent/chat` 成功时是 `text/event-stream`，不是信封；开门阶段的失败仍是
-> 信封，见 §5.11）—— 逐字段、十一类事件、红线与「**S-b / S-c / S-d 还没做**」（白名单工具层为空、`toolAllowlist`
-> 如实是空数组、`:web` 仍指降级页）都写在 **§5.11**。绝不把「端出来了」当成「这一端真用得上」。
+> 信封，见 §5.11）—— 逐字段、十一类事件、红线、白名单那九件与「**S-d 还没做**」（`:web` 仍指降级页）
+> 都写在 **§5.11**。绝不把「端出来了」当成「这一端真用得上」。
 
 ### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
 
@@ -1374,10 +1375,14 @@ D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实�
 端点形状、SSE 十一类事件、工具白名单、三份落盘、与 `:app` / `:desktop` 的差异表、未决问题都在那里）。
 统一口径照 §4（信封、`code == HTTP 状态码`、失败给能直接看的中文短句）。
 
-**这一节记的是 S-a 的实况**（工单把 D10 分成 S-a `:server` 端点 → S-b `:core` 三处小改 → S-c 白名单工具层 →
-S-d `:web` 接线）：十四个端点 + SSE 已落地并被 **27** 用例钉住；`:core` 的「工具行文案 / 跳转建议 / 自愈历史」
-上提与 `:data` 的密钥半保护器随本批一起动（S-a 的形状离不开它们）；**白名单工具层（S-c）与 `:web` 接线
-（S-d）还没做** —— 逐条写在下面「本批**没有**做的」那一段，**不**用「端点已落地」把那一半糊过去。
+**这一节记的是 S-a 的实况 + 后面两小批的续记**（工单把 D10 分成 S-a `:server` 端点 → S-b `:core` 三处小改 →
+→ S-c 白名单工具层 → S-d `:web` 接线）：十四个端点 + SSE 已落地并被 **27** 用例钉住；`:core` 的「工具行文案 /
+跳转建议 / 自愈历史」上提与 `:data` 的密钥半保护器随 S-a 一起动（S-a 的形状离不开它们）。
+
+**S-b 与 S-c 已落地**（2026-10-15 同一天的续两批）：`:core` 的 `AgentConfig.keyConfigured` + 配置面板那三个槽位
++ `AgentChatSession` 抽口（S-d 的前提），桌面的密钥半改用**与 serve 同一个保护器**（缺口 A 的桌面那一半），
+白名单工具层那九件与 `/api/agent/config` 的 `toolAllowlist` 是**同一份定义**（逐条见下面那一段里改成事实的两条）。
+**`:web` 接线（S-d）还没做** —— 浏览器那一格仍是降级页，**不**用「端点已落地」把那一半糊过去。
 
 **会话**：一个新站点都没注册（这一族**不打任何学校上游** —— 它打的是用户自己配的模型服务商，而且那一枪在
 测试里一律是夹具）。
@@ -1455,21 +1460,27 @@ S-d `:web` 接线）：十四个端点 + SSE 已落地并被 **27** 用例钉住
    （`finishReason` 用在它内部的截断 / 续写判据上，不外传），投影一个自造的值就是造事实 —— 按 §4「字段缺失
    = 本端不投影」处理。`done` 实际带的六格见上表。
 
-#### 本批**没有**做的（S-b / S-c / S-d 的现状，不是「端出来了就等于能用」）
+#### 本批改成事实的两条 + 本批**没有**做的（只有 S-d 一处）
 
-- **白名单工具层（S-c）没做** ⇒ `ServeAgent.forServe` 这一版交给模型的是**空工具表**。这不是「没端」而是
-  「端了但模型没工具可用」，页面上**可见**：`GET /api/agent/config` 的 `toolAllowlist` **如实是空数组**
-  （它是从真下发给模型的工具定义里读出来的，不是另维护一份清单），`honored` 同样是空集。
-  后果：`tool_call` / `tool_result` / `widget` / `nav` 四类事件在真机上不会出现（夹具测试里会出现，那是为了
-  把编码钉住）；模型这期间只能靠自身知识作答。**这一条是 S-c 的活**（设计稿 §6 那 9 个工具）。
+- ✅ **白名单工具层（S-c）已落地**（2026-10-15）：`ServeAgent.forServe` 交给模型的是 `ServeAgentTools` ——
+  设计稿 §6.1 那九件（`calculate` / `app_guide` / `preference` / `get_calendar` / `search_yellow_page` /
+  `find_faculty` / `get_schedule` / `get_empty_rooms` / `get_exam_schedule`），其中课表族那四条是**逐字搬**
+  `:app` 的 `AgentToolRegistry`（差异只有五处端上缝，由 `ServeAgentToolCopyDriftTest` 逐行钉住）。
+  `GET /api/agent/config` 的 `toolAllowlist` 因此**如实是这九件** —— 它仍是**从真下发给模型的工具定义里读出来的**
+  （不是另维护一份清单）。`tool_call` / `tool_result` / `widget` / `nav` 四类事件在真机上会出现。
+  ⚠️ 没开放的那一串（写路径 / 钱 / 本人敏感 / 要站点会话 / 联网搜索）逐条理由在设计稿 §6.2，
+  `ServeAgentToolsTest` 有一条用例把那串名字逐个钉住「不在工具表里」。
+- ✅ **`:core` 的三处小改全部落地**（S-b）：工具行文案 / 跳转建议 / 自愈历史早在 S-a 就提到顶层
+  （`AgentShared.kt`）；`AgentConfig.keyConfigured`（默认 `false`、**不进 `AgentConfigStore.save()`**）与
+  配置面板那三个槽位（`enabled = config.isConfigured`、API Key 那一行可注入、「记住的偏好」那一块可注入）、
+  以及 `AgentChatSession` 抽口（`AgentViewModel` 实现它，`AgentScreen(session = …)` 与 `AgentChat(vm = …)`
+  都收这一条接口）在这一批补上。`:app` / Android 可见行为**逐字未变**（默认参数 = 现状）；
+  桌面那一半的「缺口 A」也修了：`agent_config_secure<suffix>` 改用**与 serve 同一个** `protectedSecureKeyValueStore`
+  （Windows ⇒ DPAPI 信封，Linux / macOS ⇒ 明文 `0600`，与今天逐字相同），盘上老的**明文**值原样读得回来。
 - **`:web` 接线（S-d）没做** ⇒ 浏览器里那一格还是降级页（`WebUnavailableScreen`），`WebSupport.openableRouteIds`
   里 `AppRoute.Agent` 还在差集里。**这一条是 S-d 的活**（`WebAgentSession` + fetch / SSE 桥 + `AgentScreen(session=…)`）。
-- **`:core` 的三处小改落地了两处**：工具行文案 / 跳转建议 / 自愈历史已提到顶层（`AgentShared.kt`，S-a 的
-  `nav` 帧离不开它），`AgentConfig.keyConfigured` 与配置面板那三个槽位**没做**（本批的 `keyConfigured` 是
-  `:server` 自己按 `apiKey.isNotBlank()` 算的，`:core` 那一格与浏览器面板是 S-b 的活）。`AgentChatSession` 抽口
-  同样没做（那是 S-d 的前提）。
 - **`GET /api/agent/sessions/{id}` 的 `messages[].widgets` 会带回来**（落盘形状），但**卡片的重建**在浏览器那
-  一侧（`storedToWidget`，`:core` 现成的）—— 本批只在 `widget` 事件里把同一批 `{type,json}` 端出去。
+  一侧（`storedToWidget`，`:core` 现成的）—— 这一族只在 `widget` 事件里把同一批 `{type,json}` 端出去。
 
 #### 夹具与用例（§7 的第 1 条「三处同改」的核）
 
@@ -1482,6 +1493,14 @@ S-d `:web` 接线）：十四个端点 + SSE 已落地并被 **27** 用例钉住
   SSE 逐帧、红线、没配 key 的明确错误、并发 409、停止、上下文耗尽、MFA + 保活；最后一条把十一类帧的形状一次钉全）。
   夹具传输 / 工具表 / 起标题三格都在这个文件里（**绝不打真服务商**）；「生产装配一」那一条专门走
   `ServeAgent.forServe`（其余用例用的是测试自己拼的那份），并钉住匿名账号那份文件名（缺口 B）。
+- **`:server:test` 又新增 8 例（2026-10-15，S-b / S-c 两批）**：`ServeAgentToolsTest`（**7 例**：纯逻辑三件一例、
+  公开通讯录两件一例、`get_calendar` / `get_schedule` / `get_exam_schedule` / `get_empty_rooms` 各一例、
+  「白名单之外不下发」一例）+ `ServeAgentToolCopyDriftTest`（**1 例**：把 serve 与 `:app` 两份源文件里同名函数的
+  函数体逐行比一遍，差异只允许是清单里那 13 条端上缝，且每条必须真的用上）。上游全是 `:testkit` 早已存在的
+  假上游（教务 / 智慧教室 / 空闲教室 CDN / 校历 / 黄页 / 教师检索），**不打真站点、不花一分钱**。
+- **`:core:jvmTest` / `:data:jvmTest` / `:desktop:test` 各新增一例（S-b）**：`keyConfigured` 那一格（默认 `false`
+  ⇒ 三端行为不变）、它**不进落盘**（存了也不写键）、桌面 `agent_config_secure` 的旧明文读得回 + 有保护器时落信封
+  （拿一份夹具保护器把 Windows 那条路在 Linux 上就地钉住）。
 - **`:web`**：本批**零改动**（S-d 未做，如实）。
 
 
@@ -1890,6 +1909,22 @@ MFA 与保活）· **闸门与尾卡两例**（14 条一遍扫过 / status 默�
     直接写会在**第一个增量**上抛「Module with the Main dispatcher had failed to initialize」。本批把那一格改成
     「有主线程就用它、没有就用 `Dispatchers.Default`」（Android / 桌面**行为一字未改**）—— 不改的话，
     这一族在 serve 上根本跑不起来，而它在夹具下完全看不出来。
+14. ✅ **批⑤ 的续两小批（2026-10-15，S-b 剩余 + S-c）三处同改核过了**：`AgentConfig.keyConfigured` / 配置面板
+    三个槽位 / `AgentChatSession` 抽口（S-b）与 serve 白名单工具层九件（S-c）：
+    - **本文档**：§5 那一行与状态收口（改成事实）+ **§5.11**（「本批**没有**做的」那一段按事实重写、夹具与用例补两条）
+      + 本节；
+    - **`:core`**：`AgentConfig.keyConfigured`（默认 `false`、不落盘）、`AgentConfigPanel` 三个槽位、新的
+      `AgentChatSession.kt`、`AgentViewModel` / `AgentChat` / `AgentScreen` 收口；**`:app` / Android 行为逐字未变**；
+    - **`:data` / `:desktop`**：`protectedSecureKeyValueStore` 多一个 `protector` 参数（默认本机那一档，只为让
+      Windows 的密封路在 Linux 上可测）；`DesktopAgentHost` 的密钥半改用同一个保护器（缺口 A 的桌面那一半）；
+    - **`:server`**：`ServeAgentTools.kt`（九件工具，课表族那四条逐字搬 `:app`）+ `ServeAgent.forServe` 接上它 +
+      `schedule_cache<suffix>` / `custom_courses` 两份与桌面同名的落盘；
+    - **夹具 / 用例**：`:testkit` **零改动**（这一批用的全是早已存在的假上游）；`:server:test` **136 → 144**、
+      `:core:jvmTest` **536 → 537**、`:data:jvmTest` **259 → 260**、`:desktop:test` **118 → 119**，
+      `:app:testDebugUnitTest` **444 一条不减**。
+    ⚠️ **施工坑一条**（值得下一个人知道）：`:app` 的 `toKx()` / `toJavaTime()`（`util/TimeBridge.kt`）是
+    `internal`，`:server` 拿不到 ⇒ 逐字搬过来的那几段要 `:server` 自己写一份同名同语义的换算，
+    否则那几行会变成「差异清单」里的假差异（那份清单只该记**端上资源**那几处）。
 ---
 
 ## 8. 这份草案的依据（谁写的、读了什么）

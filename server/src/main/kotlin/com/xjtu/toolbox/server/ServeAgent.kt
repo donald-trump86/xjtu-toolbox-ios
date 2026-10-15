@@ -23,6 +23,12 @@ import com.xjtu.toolbox.agent.toStored
 import com.xjtu.toolbox.agent.sanitizeAgentTitle
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.platform.protectedSecureKeyValueStore
+import com.xjtu.toolbox.calendar.SchoolCalendarApi
+import com.xjtu.toolbox.core.net.createToolboxClient
+import com.xjtu.toolbox.schedule.KeyValueCustomCourseStore
+import com.xjtu.toolbox.schedule.KeyValueScheduleCacheStore
+import com.xjtu.toolbox.yellowpage.YellowPageApi
+import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.formatTwoDigits
@@ -79,14 +85,14 @@ import kotlin.time.Clock
  * **不在这里**的：气泡的 50ms 合流、思考动画、弹窗（那些是浏览器屏的事）、
  * 以及 `replaceLastUserAndSend` 的「改上一条」（v1 不画那个入口，见设计稿 §9 未决 #7）。
  *
- * ## 工具层：S-c 之前它是空的（**如实**）
+ * ## 工具层：白名单九件（S-c 已落地）
  *
- * [toolTable] 是「这次部署真给模型的工具表」这一格缝。[forServe] 现在交的是 [AgentTools.None]
- *（返回空工具表）—— 白名单工具层（设计稿 §6）是下一步 S-c 的活，本批**没有**实现它。
- * 后果是**可见且如实**的：`/api/agent/config` 的 `toolAllowlist` 就是空数组（它是从真下发给模型的
- * 工具定义里读出来的，不是另维护一份清单），模型这期间只能靠自身知识作答，
- * `tool_call` / `tool_result` / `widget` / `nav` 四类事件在真机上不会出现（夹具测试里会）。
- * 这里**不**造一个「看起来有工具」的空壳：白名单一落地，`toolAllowlist` 自己就长出来。
+ * [toolTable] 是「这次部署真给模型的工具表」这一格缝。[forServe] 交的是 [ServeAgentTools] ——
+ * 设计稿 §6 那九件（四条逐字搬 `:app` + 3 条纯逻辑 + 公开通讯录两条），
+ * 见那个类的 KDoc 与 `ServeAgentToolCopyDriftTest`（两份不漂的钉子）。
+ * 后果是**可见的**：`/api/agent/config` 的 `toolAllowlist` 就是那九件（它是从真下发给模型的
+ * 工具定义里读出来的，不是另维护一份清单），`tool_call` / `tool_result` / `widget` / `nav`
+ * 四类事件在真机上都会出现。
  *
  * ## 并发与取消（设计稿 §3.4）
  *
@@ -562,6 +568,18 @@ class ServeAgent(
         /** MFA 挂起状态轮询的间隔（见 [watchMfa]）。 */
         private const val AGENT_MFA_POLL_MS = 500L
 
+        /**
+         * 课表族缓存的落盘文件（`schedule_cache<账号后缀>`）。
+         *
+         * ⚠️ 与 `:desktop` 的 `DesktopScheduleHost.SCHEDULE_CACHE_STORE`、`:web` 的同名常量
+         * **逐字相同**：serve 与桌面读的是同一份文件（设计稿 §9 未决 #5 的口径）。三处各写一份
+         * 字面量（跨模块拿不到彼此的 `internal` 常量），改一处就得三处一起改。
+         */
+        private const val SCHEDULE_CACHE_STORE = "schedule_cache"
+
+        /** 自建日程的落盘文件（里面只有 `custom_courses` 这一个键，与桌面同一份）。 */
+        private const val CUSTOM_COURSE_STORE = "custom_courses"
+
         /** 与 `AgentViewModel` 的那句完全一致（同一个标记接口、同一个文案）。 */
         internal const val SESSION_EXPIRED_TEXT = "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"
 
@@ -569,15 +587,13 @@ class ServeAgent(
          * serve 进程的默认装配：三份落盘按 `docs/storage-layout.md` §2/§3/§5 的口径接上，
          * 密钥半套 `:data` 的凭据保护器（Windows = DPAPI；Linux/macOS 没有保护器 ⇒ 明文 0600，
          * 与今天逐字相同 —— 设计稿 §5.1 的「缺口 A」在 serve 这一侧就此收口）。
-         *
-         * ⚠️ **工具表这一格现在交的是空表**（[AgentTools.None]）：白名单工具层是 S-c 的活，
-         * 见类 KDoc 的「工具层：S-c 之前它是空的」。这一行是那件事**唯一的**落点。
+         * ⚠️ **工具表这一格交的是 [ServeAgentTools]**（白名单九件，与 `/api/agent/config` 的
+         * `toolAllowlist` 同一份定义）：这一行与那一份清单不可能对不上（设计稿 §6 的「同一份常量两个消费者」）。
          */
-        fun forServe(session: ServeSession): ServeAgent = ServeAgent(
-            session = session,
+        fun forServe(session: ServeSession): ServeAgent {
             // 非敏感半与记忆：serve 上必须用**真落盘**的那份（0600 properties），默认的
             // `keyValueStore` 在 jvm 上按端而异，不能靠它（`docs/storage-layout.md` §0 第 3 条）。
-            configStore = AgentConfigStore(
+            val configStore = AgentConfigStore(
                 plainStoreOf = { secureKeyValueStore(it) },
                 secureStoreOf = { suffix ->
                     protectedSecureKeyValueStore(
@@ -585,15 +601,44 @@ class ServeAgent(
                         AgentConfigStore.STORE_LEGACY + suffix,
                     )
                 },
-            ),
-            store = AgentSessionStore(),
-            memory = AgentMemory(
+            )
+            val sessionStore = AgentSessionStore()
+            val memory = AgentMemory(
                 storeOf = { secureKeyValueStore(AgentMemory.STORE + AccountContext.safeSuffix()) },
                 legacyStoreOf = { secureKeyValueStore(AgentMemory.STORE) },
-            ),
-            toolTable = { AgentTools.None },
-            transport = { SseAgentTransport() },
-        )
+            )
+            // 课表族缓存与自建日程：文件名与桌面**逐字相同** ⇒ serve 读得到桌面写下的那一份
+            //（设计稿 §8 「自建日程读」那一条：桌面加的看得到，Android 的 Room 看不到）。
+            val scheduleCache = KeyValueScheduleCacheStore(
+                secureKeyValueStore(SCHEDULE_CACHE_STORE + AccountContext.safeSuffix()),
+            )
+            val calendar = SchoolCalendarApi()
+            val customCourses = KeyValueCustomCourseStore(secureKeyValueStore(CUSTOM_COURSE_STORE))
+            // 黄页与教师检索都免登录：与 `/api/info/yellowpage` 那一条路由同一份实现（同一条客户端缝）。
+            val yellowPage = YellowPageApi(createToolboxClient(), cache = null)
+            val faculty = FacultyApi()
+
+            return ServeAgent(
+                session = session,
+                configStore = configStore,
+                store = sessionStore,
+                memory = memory,
+                // 工具表按「这一轮真的会给模型的那些定义」现搭：`searchEngine` 这一端用不上
+                //（白名单里没有联网搜索那一档），但缝留着（与 `AgentViewModel` 同一个形状）。
+                toolTable = {
+                    ServeAgentTools(
+                        session = session,
+                        memory = memory,
+                        dataCache = scheduleCache,
+                        customCourses = customCourses,
+                        calendar = calendar,
+                        yellowPage = yellowPage,
+                        faculty = faculty,
+                    )
+                },
+                transport = { SseAgentTransport() },
+            )
+        }
     }
 }
 

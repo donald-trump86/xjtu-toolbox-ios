@@ -867,8 +867,15 @@ class ServeAgentTest {
         AccountContext.activeAccountId = null
         try {
             val agent = ServeAgent.forServe(ServeSession())
-            // S-c（白名单工具层）未落地 ⇒ 真给模型的工具表是空的，这里如实是空数组
-            assertEquals(emptyList(), agent.toolAllowlist(AgentConfig.SEARCH_AUTO))
+            // S-c 已落地 ⇒ 真给模型的工具表就是白名单那九件（与 `/api/agent/config`
+            // 的 `toolAllowlist` 同一份定义；这里故意**手写**那九个名字，不从常量抄，免得变成同义反复）
+            assertEquals(
+                listOf(
+                    "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms",
+                    "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate",
+                ),
+                agent.toolAllowlist(AgentConfig.SEARCH_AUTO),
+            )
             assertEquals(false, agent.keyConfigured())
 
             agent.saveConfig(AgentConfig(apiKey = AgentFixture.FAKE_API_KEY, model = AgentFixture.MODEL))
