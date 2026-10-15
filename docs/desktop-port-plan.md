@@ -1141,8 +1141,25 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 采用 **JDK 终结 TLS（`SSLServerSocket`）+ 回环字节级转发给 CIO**；keep-alive / 分块编码 / 将来的 SSE 在这一层都是
 一段字节流。备选方案（换 Netty、只给 HTTPS 用）记在 `ServeHttps.kt` 的文件头，改动是局部的。
 
-**仍未接（如实）**：`StoreArchive.import` 已经在 `:core`（S1b），但**三端的导入写侧**还只到「自校验 → 如实报告」——
-真合并要后续工单把 S4/S5/S6 的导入接到它上（`:app` 侧要单独授权）。
+**已接（2026-10-16，S4/S5/S6 收尾；三端分三段提交）**：`StoreArchive.import`（S1b）现在真的被三端的导入写侧
+调用，合并语义**只**有 `:core` 那一份（各端一个 `ArchiveImportTarget` 实现，不重写 §6.4）：
+
+| 段 | 提交 | 落地 | 该段门禁（实测） |
+|---|---|---|---|
+| `:app` | `7840d90a` | `AppArchiveImportTarget`（`prefs.edit()` 逐键、`putStringSet` 照 §8.4、`at` 不重建旁挂键 —— Android 本就没有 `#written_at`）+ `AndroidArchiveFileWriter`（Room 三表走既有 `insert`/`upsert`，`agent_sessions<suffix>/`、`data_cache<suffix>/` 走原子写）+ `AppArchiveImport` 编排 + **「已导入」标记**（档案落地目录里 `.imported`，第一行是档案身份） | `:app:testDebugUnitTest` 444 → **456**（0 失败）· `:app:compileDebugKotlin` SUCCESS |
+| 桌面 | `3b3569f0` | `DesktopArchiveImportTarget`（`secureKeyValueStore` 逐键 + `at` 重建 `<key>#written_at` + `agent_sessions<suffix>/` 原子写）+ `DesktopArchiveImport` 编排 + 标记 + `importStatusText` 接真结果 | `:desktop:test` 119 → **128**（0 失败，**既有 119 条断言一字未改**）· `:desktop:compileKotlin` SUCCESS |
+| web | `098ef332` | `WebArchiveImportTarget`（`localStorage` 同一批键名）+ `files/` 层在导入前滤掉（本端没有落点）+ 状态文本接真结果；**无标记**（用户主动点一次，没有「页面加载时扫一遍」那一步） | `:web:wasmJsBrowserTest` 52 → **58**（0 失败，真 ChromeHeadless）· `:web:compileKotlinWasmJs` SUCCESS |
+
+**这次一并记下的如实边界（不是尾巴，是三端形状本身）**：
+
+- **Android 上「已有的键一律本端胜」**：Android 的 prefs 没有 mtime，读写投影也不产出 `writtenAt`（
+  `ArchiveImportTarget` 的 KDoc 把 `#written_at` 重建指定给**桌面/web**）⇒ §6.4 的「任一方缺 `at` ⇒ 本端胜」
+  在 Android 上对**已存在的键**恒成立；新键、空表、缺文件照写（`AppArchiveImportTest` 有一条用例钉着它）。
+- **桌面的三族行数组（`files/courses`、`files/media`、`files/jiaocai`）不落地**：桌面这三族是 **KV 店**
+  （`KeyValueCustomCourseStore` / `DesktopDownloadTaskStore` / `DesktopJiaocai1Storage`），形状不是行数组；
+  §6.3 那条「拆成行数组」的转换是另一件事，本次**不假装**做了（桌面自导自的档案只含 `agent_sessions` 那族文件）。
+- **web 没有 `l`/`f` 两档槽位**：档案里的 long/float 在这一端按字符串落、读回来反推成 `s`（端上键值缝的形状，
+  与导入无关；桌面同一档靠 `toLongOrNull`/`toFloatOrNull` 反推，web 少的就是那两条）。
 
 ### 16.9 批③-a（写路径对齐里的场馆「去支付」/ D11b）完工记录（2026-10-15）
 
