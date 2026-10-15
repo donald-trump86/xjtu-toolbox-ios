@@ -141,13 +141,13 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - [ ] 日程在 campus-api 下 | 打开日程 | 看页顶 + 格子 | 页顶写「只有排课原样…考试与教材两栏空着、详情里的『N座』也不画；调课/停课/换教室同样不体现」 | 显示成与 serve 一样 | 本端只认 serve 契约字段面（§7.2）
 - [ ] 图书馆/场馆在两种形态 | 打开 library / venue | 看可点性 | campus-api：只读（无约座/预订按钮，时段不可选）；serve：写端点落地 ⇒ 能约座/预订/取消（滑块在本端画） | campus-api 出现点了会失败的写按钮 | 能力开关随形态变（§2「点了会失败的按钮一个都不画」）
 - [ ] 场馆「去支付」（**可用**，D11b） | serve：订完场（或「我的订单」里那一行）→ 点「去支付」 | 点「去支付」 | 新标签先到 serve 的代跳地址 `GET /api/venue/pay?orderId=…`（302，不当信封），随后落在站点 80 端口那台的 `pay/show.html?id=<订单号>`（顶层跳转，浏览器一律跟）；扣款在那一页上完成。⚠️ **那一页要不要再登录，本端不担保** —— 它要的是**浏览器这一侧**的场馆站会话，而 serve 的会话带不过去（页面替不了别的域名写 cookie；Android 能是因为 WebView 在同一个进程里，被 `syncCookiesToWebView` 灌了 cookie 罐）⇒ 第一次很可能先看到**该站点自己的登录页**：**若它要求登录，请用 App / 桌面端支付**（或按那一页自己的登录流程过一次再回来） | 点了根本没动作 / 新标签白屏 / 落一个写着「接口不存在」的 JSON 页（= serve 进程太旧，见「前置条件 2」） | **302 这一跳一定走完，但落成能付款的一页不担保** —— 三条依据在契约 §5.3.2 第 6 条；`browserLoginUrl` 仍是空串；「第一次点到底落在哪一页」本仓**没能在线验证**（不许真发起支付、也没探测那台站），以你点出来的现象为准
+- [ ] 账号管理（`Accounts`）在两种形态 | `?route=accounts` | 看落点 | **serve：真账号页**（`:core` 的 `AccountManagerScreen`，取数 `GET /api/accounts` —— 账号表与「当前是哪个账号」都读 serve 进程，与桌面端共用同一份落盘）；**本端只读**（切换 / 新增 / 删除 / 改密要在 App 或桌面端做）。**campus-api：落「（Web 这一端：需要 serve 模式）」页**（写清端点 `/api/accounts` 与为什么，与上面只读四域同一档） | 落「这一屏还没搬到 Web」—— 那是**批②（D9 / 工单 S7a）之前的旧话** | 它 2026-10-15 起就在 `WebSupport.openableRouteIds` 里（`WebAccountsScreen`），也**不在** §16.2 第 1 条那 4 条路由差集里（差集 = `Browser`/`DownloadManager`/`Jiaocai1`/`Jiaocai1Reader`）；「只读」这一档与 `Agent` 同一个形状（见 `WebSupport.kt` 文件头末段），两形态的取数差别见契约 §5.10
 
 ### ⑩ 明确不可用项（逐个为什么）
 
 - [ ] 下载管理（`DownloadManager`） | `?route=download_manager` | 看落点 | 落「这一屏还没搬到 Web」+「AppRoute.DownloadManager」 | 出现下载列表 | 取数挂 okhttp/Context
 - [ ] 教材全文（`Jiaocai1`） | `?route=jiaocai1` | 看落点 | 落「这一屏还没搬到 Web」 | 出现全文库书架 | 另一域名另一套会话，本轮不碰（D13 之后要做）
 - [ ] 教材全文阅读器（`Jiaocai1Reader`） | `?route=jiaocai1_reader/<ssno>?title=` | 看落点 | 落「这一屏还没搬到 Web」 | 出现阅读器 | 同上
-- [ ] 账号管理（`Accounts`） | `?route=accounts` | 看落点 | 落「这一屏还没搬到 Web」 | 出现账号页 | 多账号归批②（D9）
 - [ ] 内置浏览器（`Browser`） | `?route=browser?url=…` | 看落点 | **不是一屏**：同标签直接导航到那个网址（`navigateSameTab`），回来靠浏览器后退 | 出现一个「浏览器」页面 | 它把 URL 交给浏览器本身，不算一屏（口径上不算差集）
 - [ ] 桌面端「GameMerge 载体」 | 桌面端看合成西交大 | —— | 桌面**仍卡载体**（无浏览器内核、也没有 JVM 上的 JS 引擎） | —— | 见 §16.2 第 1 条与§⑪（web 端已是真游戏，桌面那一端本批一行未改）
 
@@ -183,7 +183,7 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - **逐像素/逐状态全等（丙口径）的自动化**：`:web` 的测试源集（`web/src/wasmJsTest`，D14 / 工单 S8）**已建**（跑在真浏览器里：`./gradlew :web:wasmJsBrowserTest`），但里面大部分是**纯函数与源码一致性**那一类（路由清单 = 分支、档案层互认、SSE 帧解析、白名单与页面说明同源…）；**逐像素 / 逐状态的视觉全等仍然是人工照单点**，本清单不能被它替代（今天两边各行其是：清单管人类看得见的现象，测试管能断言的判据）。
 - **深色/侧栏的视觉细节**：本清单只验「变了/没变」，不验与 Android 的像素级差异。
 - **错误态 / 空态 / 加载态的逐条文案**：除各屏页顶缺口说明外，其余文案逐条对 Android 没在本清单展开（那是 D14/丙口径的活）。
-- **统一存档层 / 多账号（批②）**：`Accounts` / 存档互认 / serve 侧 DPAPI 等，见 `docs/storage-layout-plan.md`，不在本清单（本清单只管「serve 这一页现在长什么样」）。
+- **统一存档层 / 多账号（批②）**：账号的**写侧**（切换 / 新增 / 删除 / 改密 —— 列表与「当前是哪个账号」已在 ⑨ 那一行）/ 存档互认 / serve 侧 DPAPI 等，见 `docs/storage-layout-plan.md`，不在本清单（本清单只管「serve 这一页现在长什么样」）。
 - **HTTPS / 鉴权（D11）**已于 2026-10-15 落地（批④：`--https` 开箱可启用，`docs/linux-delivery.md` / `docs/windows-delivery.md` §10）；场馆「去支付」（D11b）也已落地（见⑨那一行）。**D12 的能力边界收口**：① 付款码矩阵 / ② 分享码（批⑤-a）与 ⑤ 合成西交大、③ 相机扫码·剪贴板·WebCrypto 的逐条查清（本批，见 ⑪）都已落地；**④ PWA 仍未做**（缺什么 + 最小可行方案见 `docs/desktop-port-plan.md` §16.11）。
 
 ## 下一步
