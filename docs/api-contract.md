@@ -102,7 +102,7 @@
 | `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
 | `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
 | `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
-| `/api/attendance/terms` `/api/attendance/records` `/api/attendance/leave/{window,preview,records}` `POST /api/attendance/leave{,/withdraw,/cancel}` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi` / `LeaveApi`） | 考勤（**流水 + 请假 / 销假**） | **P0 读 · 2026-10-13 已落地**；**请假那一族（三读 + 三写）于 2026-10-15 批③-b / D7 ② 落地** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次）；**三处姓名不投影**（流水里的 `teacher`、请假单里的 `teacherNames`、审批人的 `name`）—— 最后一处是本批新碰上的、要上一级拍板的事；附件上传没有端点，见 §5.5.1 |
+| `/api/attendance/terms` `/api/attendance/records` `/api/attendance/leave/{window,preview,records}` `POST /api/attendance/leave{,/withdraw,/cancel}` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi` / `LeaveApi`） | 考勤（**流水 + 请假 / 销假**） | **P0 读 · 2026-10-13 已落地**；**请假那一族（三读 + 三写）于 2026-10-15 批③-b / D7 ② 落地** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次）；**一处姓名不投影**（考勤流水里的 `teacher`）—— 请假单里的 `courses[].teacherNames` 与审批人的 `name` 于 2026-10-15 按 §5.2 例外 ④ **真投影**（见下与 §7 的 12g）；附件上传没有端点，见 §5.5.1 |
 | `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收与会话失效**都落 `502`**（`:data` 那一层分不出业务拒绝，见 §5.5） |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
 | `/api/lms/courses` `/api/lms/activities` `/api/lms/activity` | `LmsSource`（`:data` 侧 `AppLmsSource` + `LmsApi`） | 思源学堂 | **P0 · 已落地 2026-10-14** | **要改**：`instructors` / `liveInstructorNames`（**教师姓名**）按红线不投影；附件的三个下载/预览地址与回放、直播地址**不端**（要站点会话）；`type` 是 `LmsActivityType.value` 那个小写字符串，见 §5.6 |
@@ -222,9 +222,17 @@
 `404` 未实现 · `502` 上游/网络故障（`FriendlyError` 中文短句，含会话过期）。
 能力开关一律**如实**：`canBook` / `canCancel` / `canSubmit` / `availableSources` / `contactsAvailable` 出现在各自响应里。
 
-**红线（三处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
-「响应不含学号/姓名/手机号」对登录者本人成立；例外的三处是 ① `fitness/score` 的姓名/学号（本人数据），
-② `yellowpage`/`faculty` 的教师名与部门电话（公开通讯录），③ `emptyroom/rooms` 实时档的上课教师名。
+**红线（四处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
+「响应不含学号/姓名/手机号」对登录者本人成立；例外的四处是 ① `fitness/score` 的姓名/学号（本人数据），
+② `yellowpage`/`faculty` 的教师名与部门电话（公开通讯录），③ `emptyroom/rooms` 实时档的上课教师名，
+④ **请假这一族的两个姓名**（2026-10-15 上一级拍板）：`/api/attendance/leave/preview` 的
+`nextApprovers[].name` 与 `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**，学校工作人员），
+以及 `/api/attendance/leave/records` 的 `courses[].teacherNames`（**我自己的课的任课教师姓名**）。
+④ 的理由与 ③ 同性质 —— 都是「**我自己的那条记录**」上的真人名（不是别人的、也不是花名册）；
+不加它的代价是屏上那个审批人下拉框会退化成一行 `userId`（`:core` 写的是
+`it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，但少了一个人名）。⚠️ **例外 ④ 只覆盖这两类**：
+考勤流水那一格的 `teacher`（当堂上课的教师名）、学生本人姓名/学号/手机号、通讯录仍一律不端；
+拍板与落地记录见 §7 的 12g。
 
 | 端点 | 请求 | 响应 `data`（逐字段） | 备注 |
 |---|---|---|---|
@@ -618,9 +626,11 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 - `status` = `WaterType.value`：`1` 正常 / `2` 迟到 / `3` 缺勤 / `5` 请假 / **`-1` = 未识别的状态码**；
   `statusText` 是配套中文（`-1` ⇒「未知」）。⚠️ **`-1` 必须按 `statusText` 显示** —— `:data` 的 `WaterType`
   KDoc 把这条写死了（不许悄悄算成正常，那会把统计数字做成好看的假数字）；
-- ⚠️ **`teacher` 不投影**：考勤记录里的上课教师名是**姓名**，而 §5.2 的例外清单里没有它
-  （例外只有 ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录 ③ `emptyroom/rooms` 实时档的教师名）。
-  `:web` 若要显示教师名，得先把它加进例外清单（那是改契约，不是改这一层）；
+- ⚠️ **`teacher` 不投影**：考勤记录里的上课教师名是**姓名**，而 §5.2 的例外清单里没有它（例外只有
+  ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录 ③ `emptyroom/rooms` 实时档的教师名
+  ④ 请假那一族的审批人姓名 / 任课教师姓名）。⚠️ ④ **管不到这一格**：它只覆盖「我自己的申请 / 我自己
+  的课」上那两个名字，而这一格是**当堂上课的教师名**（批次③-b 的遗留件 12g 拍板时也没有松这一条）。
+  `:web` 若要显示这一格的教师名，得先把它加进例外清单（那是改契约，不是改这一层）；
 - ⚠️ **还没端的三块**（serve 模式下考勤屏目前只有「学期选择 + 流水表」）：`getStudentInfo`（姓名那格过不了
   红线）、统计栏（`getKqtjCurrentWeek` / `getKqtjByTime` / `computeCourseStatsFromRecords`）、
   打卡原始流水（`getStreams`）；
@@ -682,7 +692,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 | 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
 |---|---|---|---|
 | 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`） | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
-| 考勤 | `GET /api/attendance/terms` + `/records` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉 / 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名与请假单里的任课教师名（都不投影 —— 红线）、审批人**姓名**（同一条红线，下拉框退化成一行 id）、姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假附件（本端没有文件选择宿主）。剩下那几栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 现在只剩 `stats` / `streams` 两档 `false`）；统计也不拿流水在本机重算 |
+| 考勤 | `GET /api/attendance/terms` + `/records` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉（**画的是人名**）/ 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名（**流水那一栏**，不投影 —— 红线）；**请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影**（下拉框不再退化成一行 id）；姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假附件（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件）。剩下那几栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 现在只剩 `stats` / `streams` 两档 `false`）；统计也不拿流水在本机重算 |
 | 加餐券 | `GET /api/coupon/list` + `/detail` + `POST /activate` | 四档 + 翻页 + 金额（分）+ 有效期；**「领取」按钮真画、真能领**（领完重拉当前那一档，与两端同一条编排） | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；金额不换算成元（除 100 是屏的事）；领券**分不出「上游说不能领」与「上游坏了」**（都落 502，见上） |
 | 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
 
@@ -738,14 +748,14 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   —— `APPROVED` 要配 `cancelStatus=PENDING_CANCEL` 那一套 —— 在 `:data` 里，本层不重做）；
 - `records[].leaveId` 为空、`preview.nextApprovers[].userId` 为空的那几条**丢掉**（它们是屏上
   可点击的句柄，空值等于一个点了没反应的卡）；
-- ⚠️ **三处不投影**（不是漏）：① `records[].courses[].teacherNames`（**任课教师姓名**）；
-  ② `preview.nextApprovers[].name` 与 `nodes[].approvers[].name`（**审批人姓名**，学校工作人员）；
-  ③ 考勤流水那一条本来就不投影的 `teacher`（§5.5）。三处都保留**字段**（形状与 `:core` 的模型
-  逐字对齐）、值是**空串**。理由是同一条红线：§5.2 的例外清单里没有它们。
-  ⚠️ **审批人那两处是本批新碰上的、需要上一级拍板的事**：`:core` 的屏写的是
-  `DropdownItem(text = it.name.ifBlank { it.userId })` ⇒ 留空不丢功能（下拉框退化成一行 id，
-  而提交要的就是那个 `userId`），但**用户体验上少了一个人名**。要把它端出去得先把它加进 §5.2
-  的例外清单（**那是改契约**）；实测数据在夹具里（`辅导员甲（假）`）；
+- ✅ **两个姓名已按 §5.2 例外 ④ 真投影**（2026-10-15 上一级拍板）：① `preview.nextApprovers[].name`
+  与 `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**，学校工作人员）；②
+  `records[].courses[].teacherNames`（**我自己的课的任课教师姓名**）。这处原是批③-b 记下的
+  「需要上一级拍板的事」：拍板理由与例外 ③ 同性质（都是「我自己的那条记录」上的真人名），
+  而且不加就与 Android 屏不一致（`:core` 的屏写的是 `DropdownItem(text = it.name.ifBlank { it.userId })`
+  ⇒ 留空不丢功能，但那个下拉框会退化成一行 `userId`，而提交要的就是那个 `userId`）；
+- ⚠️ **仍不投影的一处**（不是漏）：考勤流水那一条的 `teacher`（§5.5）—— 例外 ④ **只覆盖上面那两类**，
+  不是「一切教师名」。那一格照旧保留**字段**（形状与 `:core` 的模型逐字对齐）、值是**空串**；
 - **附件上传不端**：`uploadEvidence`（`multipart/form-data`）**没有**端点，而提交那一发的请求体里也
   **没有** `evidenceFiles` 这一格（`:data` 那一层收下来直接发空表）。理由不是
   「难做」而是**这一端根本没有文件来源**：`:web` 的 `AttendanceScreen` 用的是 `pickEvidenceFiles`
@@ -772,11 +782,13 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 
 | 真画了什么 | 如实不画什么 |
 |---|---|
-| 学期 + 流水表（原有）；**「请假」页签真能用**：窗口上限与日期范围、审批人下拉、记录卡、提交表单、撤回 / 销假两个确认弹窗 | 教师名（流水与请假单两处，红线）；统计栏；打卡原始流水；**附件**（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件） |
+| 学期 + 流水表（原有）；**「请假」页签真能用**：窗口上限与日期范围、审批人下拉（**人名，非 `userId`**）、记录卡、提交表单、撤回 / 销假两个确认弹窗 | 上课教师名（**流水那一栏**，红线 —— 请假单里那两处姓名已按例外 ④ 端出来了）；统计栏；打卡原始流水；**附件**（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件） |
 
-夹具与用例：`:testkit` 的 `AttendanceFakeUpstream` 新增 `leaveCreateRejected` 开关（那六条路由
-**早就在**）；`:server:test` 新增 `ServeAttendanceLeaveTest` **4** 例，`:core:jvmTest` 的
-`ServeReadonlyFourDomainsApiTest` 新增一例（三读三写真走 + `teacherNames` 留空 + 补幂等键）。
+夹具与用例：`:testkit` 的 `AttendanceFakeUpstream` 新增 `leaveCreateRejected` 开关与两个编造姓名
+常量（`LEAVE_APPROVER_NAME` / `LEAVE_COURSE_TEACHER`）、并给夹具那条请假记录补上一节课
+（原先 `courses` 是空表），那六条路由**早就在**；`:server:test` 新增 `ServeAttendanceLeaveTest`
+**5** 例（含一条专钉红线：只允许这两类姓名，别的一律不许），`:core:jvmTest` 的
+`ServeReadonlyFourDomainsApiTest` 那一例同步（三读三写真走 + 两类姓名真投影 + 补幂等键）。
 
 
 ### 5.6 第二批只读域（2026-10-14 落地）：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到
@@ -1301,7 +1313,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   同一个学号两处都在时只出现**一行**（去重）。行序 = 表里原本的顺序，补的那条在末尾（屏自己会按
   「当前账号优先、最近使用优先」再排一次，与三端同一套）。
 - ⚠️ **`id` 是打码后的学号**（`2023****0001`）：既是显示名也是句柄。**完整学号、姓名（`nickname`）、
-  密码、设备指纹、RSA 公钥一律不投影**（红线 §3.4）。这不是 §5.2 那三处例外的第四处：它端的是
+  密码、设备指纹、RSA 公钥一律不投影**（红线 §3.4）。这不是 §5.2 例外清单里的新一条：它端的是
   **打码形式**（`maskedAccountId`：够长就留前 4 后 4、短一点留前 1 后 1），由 `ServeAccountsTest`
   钉住 —— 而夹具里那些值**明明都在**（「不是夹具没有所以没出现」）。
 - `accountType` 是 `undergraduate` / `postgraduate`（`:core` 的 `AccountType.key` 那套写法）。
@@ -1667,10 +1679,9 @@ private 拷贝、留一份 `internal`），不影响任何测试的计数。
       `ServeRouteSupport.positiveInt` 搬了一次家：它原本是 `CouponRoutes` 的 private）+ 那个类里
       的 `AttendanceCapabilities.leave` 翻 `true` + `ToolboxWebApp` 那条分支的页顶说明重写。
     ⚠️ **本批碰到一个需要上一级拍板的事：审批人姓名**。`:data` 的 `LeaveApprover.name` 与
-    `LeaveCourse.teacherNames` 都是**真人姓名**，而 §5.2 的例外清单里没有它们（例外只有 ① 本人数据
-    ② 公开通讯录 ③ emptyroom 实时档的教师名）⇒ 本层按红线**不投影**（形状里留着、值是空串），
-    屏上那个下拉框退化成一行 `userId`（`:core` 写的就是 `it.name.ifBlank { it.userId }`）——
-    表单照样能用，但少了一个人名。**要把人名端出去，得先把它们加进 §5.2 的例外清单**（那是改契约）；
+    `LeaveCourse.teacherNames` 都是**真人姓名**，而 §5.2 的例外清单里当时没有它们 ⇒ 本层按红线
+    **不投影**（形状里留着、值是空串），屏上那个下拉框退化成一行 `userId`。**这一条已于 2026-10-15
+    拍板并落地（例外 ④），见 12g**；
     默认值／幂等键那两条新纪律写在 §5.5.1 里（`requestId` 缺了就 400；`:core` 空串时自己补一枚）。
 
 12f. ⚠️ **批③-b / D7 ⑤（2026-10-15）本轮没做 —— 如实报告，不是漏**：成绩单 PDF 落盘。
@@ -1678,6 +1689,26 @@ private 拷贝、留一份 `internal`），不影响任何测试的计数。
     一份申请**（签章 + 审批）、第 2 步的返回值里有学号、而且“把字节落成文件”在契约的信封形状里没有
     位置 ⇒ 三条理由与两步式最小可行方案都写在 **§5.5 的成绩单那一段末尾**。这一格**没做任何代码
     改动**（三处同改里一处都没动）：`:web` 的成绩单屏保持「只画选类型 + 页顶说明」的现状。
+12g. ✅ **§5.2 例外 ④（2026-10-15，批③-b 的遗留件）拍板并落地**：请假这一族的两个姓名真投影。
+    上一级拍板把 **`LeaveApprover.name`（我自己的申请上的审批人姓名）与 `LeaveCourse.teacherNames`
+    （我自己的课的任课教师姓名）加进 §5.2 的红线例外清单**。理由两条：
+    ① 与例外 ③（`emptyroom/rooms` 实时档的教师名）**同性质** —— 都是「我自己的那条记录」上的
+    真人名，不是别人的、也不是花名册；
+    ② **不加就与 Android 屏不一致**：`:data` 一侧一直把这两个名字端给 Android / 桌面，而 serve 这一侧
+    留空使屏上那个审批人下拉框退化成一行 `userId`（`:core` 写的是 `it.name.ifBlank { it.userId }`）。
+    同一次改动动了四处：
+    - **本文档**：§5.2 的例外清单从三处变四处（含理由与「只覆盖这两类」的限定）、§5 的 `attendance`
+      那一行、§5.5.1 的逐字段那一条与消费方表那一格；
+    - **`:server`**：`AttendanceRoutes.kt` 的 `LeaveApprover.toDto()` 与 `LeaveRecord.toDto()` 里
+      课程那一格两个投影点（原来是写死的空串），两处 DTO 的 KDoc 从「刻意不投影」改成事实；
+    - **`:core`**：`CampusAttendanceApi` 的 `teacherNames` 照 `:server` 的原文收下（审批人的 `name`
+      本来就在收）+ 类 KDoc 那一节；`:web` 页顶说明里「上课教师名（流水与请假单两处）」改成流水一处；
+    - **夹具 / 用例**：`AttendanceFakeUpstream` 新增 `LEAVE_APPROVER_NAME` / `LEAVE_COURSE_TEACHER`
+      两个编造姓名常量、给夹具那条请假记录补上一节课（原先 `courses` 是空表）；`:server:test` 的
+      `ServeAttendanceLeaveTest` **4 → 5** 例（新增一条专钉红线：只允许这两类姓名，别的一律不许）、
+      `:core:jvmTest` 的 `ServeReadonlyFourDomainsApiTest` 那一例同步。
+    ⚠️ 红线本身一个字没松：学生本人姓名 / 学号 / 手机号 / 通讯录仍一律不端，考勤流水那一格的 `teacher`
+    （当堂上课的教师名）**仍不投影**（它不在例外 ④ 里，§5.5 那一条一字未改）。
 
 ---
 

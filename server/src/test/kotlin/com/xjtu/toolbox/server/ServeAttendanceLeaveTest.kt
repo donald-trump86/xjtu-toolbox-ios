@@ -29,7 +29,10 @@ import kotlinx.serialization.json.jsonArray
  * - **三写**：提交（上游收到的八格逐格对上）· 撤回 · 销假，成功都是 `{ok, message}` 那样；
  * - **上游拒收**：`502` + 上游那句中文（`:data` 的 `KqHttp.execute` 把 JSON 里 `code != 0` 抛成
  *   一句 `RuntimeException`，本层按 502 报，与只读那两条同一条口径）；
- * - **红线**：每个响应都过 [assertNoIdentity]，而且是在**夹具里明明有那些值**的前提下证明的。
+ * - **红线**：每个响应都过 [assertNoIdentity]，而且是在**夹具里明明有那些值**的前提下证明的；
+ *   `请假红线：只允许这两类姓名，别的一律不许` 那一条专门钉 §5.2 例外 ④ 的**边界** ——
+ *   只开「我自己的申请上的审批人姓名」与「我自己的课的任课教师姓名」这两类，别的（学生姓名 /
+ *   学号 / 考勤流水那一格的教师名）一个都不许端。
  */
 class ServeAttendanceLeaveTest {
 
@@ -103,7 +106,7 @@ class ServeAttendanceLeaveTest {
     }
 
     @Test
-    fun `请假三读：窗口六格 · 流程预览 · 列表一页，都不回姓名`() = withFakeProxy { fake ->
+    fun `请假三读：窗口六格 · 流程预览 · 列表一页；两类姓名按例外 ④ 端出来`() = withFakeProxy { fake ->
         val token = AccessToken.newToken()
         val session = ServeSession()
         val (server, http) = startEndpointServer(token) {
@@ -135,7 +138,11 @@ class ServeAttendanceLeaveTest {
         val approver = previewData.getValue("nextApprovers").jsonArray.single() as JsonObject
         assertEquals(setOf("userId", "name"), approver.keys)
         assertEquals("U-假-1001", approver.optString("userId"), "下拉框的句柄是 userId（提交时要原样带回）")
-        assertEquals("", approver.optString("name"), "审批人的姓名是真实姓名 ⇒ 同一条红线不投影")
+        assertEquals(
+            AttendanceFakeUpstream.LEAVE_APPROVER_NAME,
+            approver.optString("name"),
+            "审批人姓名在 §5.2 例外 ④ 里 ⇒ 真投影（屏上那个下拉框画的就是它）",
+        )
         val node = previewData.getValue("nodes").jsonArray.single() as JsonObject
         assertEquals(setOf("nodeNo", "nodeRole", "nodeName", "configured", "approvers"), node.keys)
         assertEquals(true, node.optBoolean("configured"))
@@ -154,13 +161,99 @@ class ServeAttendanceLeaveTest {
         assertEquals("SICK", row.optString("leaveType"))
         assertEquals(true, row.optBoolean("withdrawable"), "能不能撤回是 `:data` 的判据，原样端出来")
         assertEquals(false, row.optBoolean("cancellable"))
-        // 附件与课时那两格在夹具里就是空的：形状在、条数是 0（不是编一条）
+        // 附件那一格在夹具里就是空的：形状在、条数是 0（不是编一条）；课程那一格有 1 条
         assertEquals(0, row.getValue("evidenceFiles").jsonArray.size)
-        assertEquals(0, row.getValue("courses").jsonArray.size)
+        val course = row.getValue("courses").jsonArray.single() as JsonObject
+        assertEquals(
+            setOf("courseId", "courseName", "courseDate", "startSection", "endSection", "teacherNames"),
+            course.keys,
+            "六格与 `:core` 的 `LeaveCourse` 逐字对齐",
+        )
+        assertEquals(1, course.optInt("startSection"), "节次（不是时刻）")
+        assertEquals(
+            AttendanceFakeUpstream.LEAVE_COURSE_TEACHER,
+            course.optString("teacherNames"),
+            "任课教师姓名在 §5.2 例外 ④ 里 ⇒ 真投影（例外的根据是「我自己的课」）",
+        )
 
         // 三读都真打了上游（`/leaves/page` 那一发是 POST）
         // 三读那三发都从同一个取数实例走（`new_attendance` 那一站的会话由 `:data` 注入令牌）
         assertTrue(fake.attendance.lastBusinessToken != null, "业务请求带上了 `:data` 那一层注入的令牌")
+    }
+
+    /**
+     * 红线（§5.2 例外 ④，2026-10-15 拍板）：请假这一族的响应里**只允许**这两类真人姓名 ——
+     * ① `preview.nextApprovers[].name` / `nodes[].approvers[].name`（我自己的申请上的审批人姓名）；
+     * ② `records[].courses[].teacherNames`（我自己的课的任课教师姓名）。
+     *
+     * 两层都钉：
+     *  - **只开这两类**：两类各在**自己那一格**上、而且不在别格上（夹具里两个名字都明明有）；
+     *  - **别的一律不许**：三读 + 三写六个响应体逐个过 [IDENTITY] —— 学生本人姓名 / 学号 /
+     *    手机号 / 身份键名，以及考勤流水那一格的教师名（`TEACHER_NAME` —— 它**不在**例外 ④ 里，
+     *    §5.5 那一条一字未改）。
+     *
+     * 夹具里两个教师名是**两个人**（`TEACHER_NAME` 是流水那条，`LEAVE_COURSE_TEACHER` 是请假单这
+     * 条），所以这两条断言各自都钉得准：一个允许、一个不许，而不是一个名字两边都对。
+     */
+    @Test
+    fun `请假红线：只允许这两类姓名，别的一律不许`() = withFakeProxy { fake ->
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val (server, http) = startEndpointServer(token) {
+            sessionRoutes(session, token)
+            attendanceRoutes(session)
+        }
+        started = server
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        val preview = http.get("$PREVIEW_PATH?type=SICK")
+        val records = http.get(RECORDS_PATH)
+        assertEquals(200, preview.statusCode())
+        assertEquals(200, records.statusCode())
+
+        // 「只开这两类」：各在自己那一格上…
+        assertTrue(
+            preview.body().contains(AttendanceFakeUpstream.LEAVE_APPROVER_NAME),
+            "审批人姓名（例外 ④ 的第①类）要端出来：${preview.body()}",
+        )
+        assertTrue(
+            records.body().contains(AttendanceFakeUpstream.LEAVE_COURSE_TEACHER),
+            "任课教师姓名（例外 ④ 的第②类）要端出来：${records.body()}",
+        )
+        // …而且不在别格上（清单是两类，不是「有名字就放行」）
+        assertTrue(
+            !preview.body().contains(AttendanceFakeUpstream.LEAVE_COURSE_TEACHER),
+            "任课教师姓名不属于 preview 那一格：${preview.body()}",
+        )
+        assertTrue(
+            !records.body().contains(AttendanceFakeUpstream.LEAVE_APPROVER_NAME),
+            "审批人姓名不属于 records 那一格（夹具那条请假单的审批节点是空的）：${records.body()}",
+        )
+
+        // 「别的一律不许」：六个响应体逐个过钉子组（且都是在夹具里明明有那些值的前提下）
+        val responses = listOf(
+            "GET $WINDOW_PATH" to http.get(WINDOW_PATH),
+            "GET $PREVIEW_PATH" to preview,
+            "GET $RECORDS_PATH" to records,
+            "POST $LEAVE_PATH" to http.postJson(LEAVE_PATH, validCreateBody()),
+            "POST $WITHDRAW_PATH" to http.postJson(
+                WITHDRAW_PATH,
+                """{"leaveId":"${AttendanceFakeUpstream.LEAVE_ID}","reason":"学生撤回","requestId":"R2"}""",
+            ),
+            "POST $CANCEL_PATH" to http.postJson(
+                CANCEL_PATH,
+                """{"leaveId":"${AttendanceFakeUpstream.LEAVE_ID}","requestId":"R3"}""",
+            ),
+        )
+        for ((where, response) in responses) {
+            assertEquals(200, response.statusCode(), where)
+            assertNoIdentity(response.body(), where, IDENTITY)
+        }
+
+        // 两个写响应的形状里根本没有姓名的位置（只回 「{ok, message}」/「{leaveId}」）
+        assertTrue(!responses.last().second.body().contains(AttendanceFakeUpstream.LEAVE_APPROVER_NAME))
+        assertTrue(!responses.last().second.body().contains(AttendanceFakeUpstream.LEAVE_COURSE_TEACHER))
+        assertEquals(1, fake.attendance.createLeaveBodies.size, "提交那一发真打了上游")
     }
 
     @Test
@@ -256,7 +349,11 @@ class ServeAttendanceLeaveTest {
         val LOGIN_BODY =
             """{"username":"${LibraryFakeUpstream.USERNAME}","password":"${LibraryFakeUpstream.PASSWORD}"}"""
 
-        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人）。 */
+        /**
+         * §5.2 的红线钉子组（全是夹具里的编造值，不是真人）—— 例外 ④ 那两类姓名**不在**这里：
+         * 它们由 `请假红线：只允许这两类姓名，别的一律不许` 那一条按「只许出现在自己那一格」单独钉。
+         * 特别保留 `TEACHER_NAME`：考勤流水那一格的教师名**不在**例外 ④ 里，仍不许端。
+         */
         val IDENTITY = listOf(
             "studentId",
             "学号",

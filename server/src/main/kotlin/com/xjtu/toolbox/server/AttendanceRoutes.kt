@@ -63,8 +63,13 @@ import kotlinx.serialization.Serializable
  *   `WaterType` KDoc 把这条写死了（不许悄悄算成正常，那会把统计数字做成好看的假数字）。
  * - ⚠️ **`teacher` 不投影**：考勤记录里的上课教师名是**姓名**，而契约 §5.2 的例外清单里没有它
  *   （例外只有 ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录 ③ `emptyroom/rooms`
- *   实时档的上课教师名）⇒ 本层按红线不端。`:web` 的考勤屏若要显示教师名，得先拍板把它加进
- *   例外清单（那是改契约，不是改这一层）。
+ *   实时档的上课教师名 ④ 请假这一族的两类姓名，见下一行）⇒ 本层按红线不端。`:web` 的考勤屏
+ *   若要显示教师名，得先拍板把它加进例外清单（那是改契约，不是改这一层）。
+ * - ✅ **请假这一族的两个姓名（例外④）已于 2026-10-15 拍板、真投影**：`leave/preview` 的
+ *   `nextApprovers[].name` / `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**）与
+ *   `leave/records` 的 `courses[].teacherNames`（**我自己的课的任课教师姓名**）。理由与 ③ 同
+ *   性质（都是「我自己的申请 / 我自己的课」上的真人名；不加这一条，屏上那个审批人下拉框就
+ *   退化成一行 `userId`）。除了这两类，其余姓名一律仍不投影。
  *
  * ## 请求参数与错误码
  *
@@ -394,14 +399,17 @@ internal data class AttendanceLeavePreviewData(
 )
 
 /**
- * 一个审批人（`LeaveApprover` 的两格，其中 `name` **刻意留空**）。
+ * 一个审批人（`LeaveApprover` 的两格）。
  *
- * ⚠️ `name` 是**学校工作人员的真实姓名**，而 §5.2 的例外清单里没有这一族（例外只有
- * ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录 ③ `emptyroom/rooms` 实时档的教师名）
- * ⇒ 本层按红线**不投影**它。`userId` 留着：它是屏上那个下拉框的**句柄**（提交时要原样带回去），
- * 而 `:core` 的屏写的是 `it.name.ifBlank { it.userId }` ⇒ 下拉框退化成一行 id、表单其余功能照旧。
+ * ✅ `name` 是**学校工作人员的真实姓名**，2026-10-15 上一级拍板把它加进了 §5.2 的例外清单 ④
+ * —— **我自己的申请上的审批人姓名**（与 ③ `emptyroom/rooms` 实时档的上课教师名同性质：都是
+ * 「我自己的那条记录」上的真人名），所以本层**真投影**它（原来是空串）。
  *
- * ⚠️ 要把审批人姓名端出去，得先把它加进 §5.2 的例外清单（**那是改契约，不是改这一层**）。
+ * 不加这一条例外的代价写在屏上：`:core` 写的是 `it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，
+ * 但那个下拉框会退化成一行 `userId`（提交要的就是那个 `userId`）。
+ *
+ * `userId` 为空的那一条在 `:core` 那一层丢掉（它是那个下拉框的**句柄**，提交时要原样带回）；
+ * `name` 空着不影响功能 —— 屏上有 `ifBlank` 兜底。
  */
 @Serializable
 internal data class AttendanceLeaveApproverDto(val userId: String, val name: String)
@@ -475,16 +483,16 @@ internal data class AttendanceLeaveNodeDto(
 )
 
 /**
- * 这条请假涉及的一节课（六格，其中一格**刻意留空**）。
+ * 这条请假涉及的一节课（六格）。
  *
- * ⚠️ `teacherNames` 是**姓名**（任课教师）——与考勤流水里那个 `teacher` 同一类，而契约 §5.2 的
- * 例外清单里没有它（例外只有 ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录
- * ③ `emptyroom/rooms` 实时档的上课教师名）⇒ 本层**不投影**：那一格照旧在形状里（`:core` 的
- * `LeaveCourse` 有它），但值是**空串**，不是一个从上游拿来的名字。
+ * ✅ `teacherNames` 是**任课教师姓名**，2026-10-15 上一级拍板把它加进了 §5.2 的例外清单 ④：
+ * **我自己的课的任课教师姓名**，所以本层**真投影**它（原来是空串）。
  *
- * 这一条与 §5.5 考勤流水那条**同一条红线**：`:core` 的屏一处都没读 `teacherNames`（`grep` 可证），
- * 所以留空不损失任何界面。要把任课教师名端出去，得先把它加进 §5.2 的例外清单 ——
- * 那是改契约，不是改这一层。
+ * ⚠️ 这一条例外**只覆盖这一格**：它的根据是「这是我自己的请假单涉及的那节课」——
+ * 考勤流水里那个 `teacher`（当堂上课的教师名）**不在这条例外里**，仍然不投影（§5.5）。
+ *
+ * 画不画仍由屏说了算：`:core` 的屏至今没读 `teacherNames`（`grep` 可证）—— 本层端的是数据，
+ * 不是版面。
  */
 @Serializable
 internal data class AttendanceLeaveCourseDto(
@@ -549,8 +557,8 @@ private fun LeaveFlowPreview.toDto() = AttendanceLeavePreviewData(
 )
 
 private fun LeaveApprover.toDto() =
-    // 见 [AttendanceLeaveApproverDto] 的 KDoc：`name` 是真实姓名 ⇒ 红线不投影（空串）
-    AttendanceLeaveApproverDto(userId = userId, name = "")
+    // 见 [AttendanceLeaveApproverDto] 的 KDoc：审批人姓名在 §5.2 例外④里 ⇒ 真投影
+    AttendanceLeaveApproverDto(userId = userId, name = name)
 
 private fun LeaveFlowNode.toDto() = AttendanceLeaveFlowNodeDto(
     nodeNo = nodeNo,
@@ -597,8 +605,8 @@ private fun LeaveRecord.toDto() = AttendanceLeaveRecordDto(
             courseDate = it.courseDate,
             startSection = it.startSection,
             endSection = it.endSection,
-            // 见上面那条 KDoc：任课教师名是姓名 ⇒ 不投影（空串）
-            teacherNames = "",
+            // 见上面那条 KDoc：任课教师姓名在 §5.2 例外④里 ⇒ 真投影
+            teacherNames = it.teacherNames,
         )
     },
 )

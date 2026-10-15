@@ -588,10 +588,11 @@ private fun AppPage(
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "三处如实不画：① 上课教师名（考勤流水与请假单里都有这个名字，但 §5.2 的例外清单里" +
-                        "没有它 —— 红线）；②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords " +
+                    "三处如实不画：① 考勤**流水那一栏**的上课教师名（那一格是当堂上课的教师名，§5.2 的" +
+                        "例外清单里没有它 —— 红线）；②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords " +
                         "没有端点，本端也不拿流水在本机算第二份口径）；③「打卡流水」那一栏（打卡原始流水没有端点）。" +
-                        "姓名那一格同理不画（getStudentInfo 不端）。" +
+                        "本人姓名那一格同理不画（getStudentInfo 不端）。" +
+                        "请假那一族的**两类姓名已按 §5.2 例外 ④ 端出来**（审批人姓名、请假单里那节课的任课教师姓名）；" +
                         "「请假」那一栏**已经真能用了**（窗口 / 审批人 / 列表 / 提交 / 撤回 / 销假六条端点）；" +
                         "只有**附件**没端 —— 本端没有文件选择宿主，与桌面同一条（不发附件）。",
                 )

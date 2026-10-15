@@ -73,11 +73,15 @@ import kotlinx.serialization.json.put
  *   那一类丢掉）；`status` 用 `WaterType.fromValue` 映射，`-1` 落到 `UNKNOWN`（显示名「未知」，
  *   与响应里的 `statusText` 逐字一致 —— §5.5 要的就是这一条），**不许**悄悄算成正常。
  *
- * ## `teacher` 不投影（红线）
+ * ## 姓名：哪一格端、哪一格不端（§5.2 的红线与例外）
  *
  * 考勤记录里的上课教师名是**姓名**，契约 §5.2 的例外清单里没有它 ⇒ 本端如实留空
- *（[AttendanceWaterRecord.teacher] 给空串），屏上也不画那一格。请假记录里每个 `LeaveCourse`
- * 的 `teacherNames` 同一条红线：那一格在形状里、值是**空串**（`:core` 的屏一处都没读它）。
+ *（[AttendanceWaterRecord.teacher] 给空串），屏上也不画那一格（§5.5）。
+ *
+ * 请假那一族的两类姓名在例外 ④ 里（2026-10-15 上一级拍板）：审批人的 `name`
+ *（**我自己的申请上的审批人姓名**）与每条记录里 `LeaveCourse.teacherNames`（**我自己的课的任课
+ * 教师姓名**）—— 两格都按 `:server` 端出来的原文收下（`:server` 那一层是唯一的判据点，
+ * 本端不再拦第二道）。除了这两类，其余姓名一律仍不投影。
  *
  * ## 默认形态（campus-api）
  *
@@ -408,7 +412,7 @@ private const val LEAVE_CANCEL_PATH = "/api/attendance/leave/cancel"
 
 // ── 请假那一族的投影 helpers ──────────────────────────────────────────
 
-/** 一个审批人（两格都空的那一条不列 —— 屏上那个下拉框要的是可操作的句柄）。 */
+/** 一个审批人（`userId` 为空的那一条不列 —— 屏上那个下拉框要的就是这个句柄）。 */
 private fun JsonElement?.toApprover(): LeaveApprover? {
     val row = this as? JsonObject ?: return null
     val userId = row["userId"].safeString().trim()
@@ -468,8 +472,8 @@ private fun JsonObject.toLeaveRecord(leaveId: String) = LeaveRecord(
             courseDate = course["courseDate"].safeString(),
             startSection = course["startSection"].safeInt(),
             endSection = course["endSection"].safeInt(),
-            // 任课教师名是**姓名** ⇒ 红线不投影（见类 KDoc 的 `teacher` 那一节）
-            teacherNames = "",
+            // 任课教师姓名在 §5.2 例外 ④ 里（我自己的课）⇒ 照 `:server` 端出来的原文收下
+            teacherNames = course["teacherNames"].safeString(),
         )
     },
 )

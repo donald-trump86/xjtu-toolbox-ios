@@ -182,7 +182,7 @@ class ServeReadonlyFourDomainsApiTest {
     /**
      * 请假那一半（批③-b / D7 ②）：三读 + 三写都真走；附件上传仍然没有端点。
      *
-     * 钉的四件事：① 窗口 / 预览 / 列表三格逐格投影（含 `teacherNames` **红线不投影**）；
+     * 钉的四件事：① 窗口 / 预览 / 列表三格逐格投影（含两类姓名按 §5.2 例外 ④ **真投影**）；
      * ② 提交真发一枪、`requestId` 空串时本端补一枚（幂等键），而且**不发** `evidenceFiles`；
      * ③ 撤回 / 销假各一枪，body 只有契约那三格 / 两格；④ `uploadEvidence` 照旧抛错（屏上那个槽位
      * 给的是空表，不会调到这里）。
@@ -194,9 +194,9 @@ class ServeReadonlyFourDomainsApiTest {
                 """"semesterName":"第一学期","startDate":"2026-09-14","endDate":"2027-02-21",""" +
                 """"maxStudentLeaveMinutes":2880}}"""
         val previewBody =
-            """{"code":0,"data":{"nextNodeNo":1,"nextApprovers":[{"userId":"A1","name":"老师甲"}],""" +
+            """{"code":0,"data":{"nextNodeNo":1,"nextApprovers":[{"userId":"A1","name":"李四（假）"}],""" +
                 """"nodes":[{"nodeNo":1,"nodeRole":"TEACHER","nodeName":"辅导员","configured":true,""" +
-                """"approvers":[{"userId":"A1","name":"老师甲"}]}]}}"""
+                """"approvers":[{"userId":"A1","name":"李四（假）"}]}]}}"""
         val recordsBody =
             """{"code":0,"data":{"page":1,"size":20,"total":1,"records":[""" +
                 """{"leaveId":"L1","leaveType":"SICK","reason":"发烧","applyTime":"2026-10-10 08:00",""" +
@@ -205,7 +205,7 @@ class ServeReadonlyFourDomainsApiTest {
                 """"sourceType":"STUDENT","durationMinutes":240,"durationText":"4 小时","archiveId":"AR1",""" +
                 """"withdrawable":true,"cancellable":false,"evidenceFiles":[],"approvalNodes":[],""" +
                 """"courses":[{"courseId":"C1","courseName":"光电子学","courseDate":"2026-10-11",""" +
-                """"startSection":1,"endSection":2,"teacherNames":"高宏（不该出现）"}]}]}}"""
+                """"startSection":1,"endSection":2,"teacherNames":"张三（假）"}]}]}}"""
         val paths = mutableListOf<String>()
         val bodies = mutableListOf<String>()
         val engine = MockEngine { request ->
@@ -235,7 +235,12 @@ class ServeReadonlyFourDomainsApiTest {
 
         val preview = api.getFlowPreview(LeaveType.SICK)
         assertEquals(1, preview.nextNodeNo)
-        assertEquals("A1", preview.nextApprovers.single().userId)
+        assertEquals("A1", preview.nextApprovers.single().userId, "下拉框的句柄是 userId（提交时要原样带回）")
+        assertEquals(
+            "李四（假）",
+            preview.nextApprovers.single().name,
+            "审批人姓名在 §5.2 例外 ④ 里 ⇒ 真投影（屏上那个下拉框画的就是它）",
+        )
         assertTrue(preview.nodes.single().configured)
 
         val page = api.getLeavePage()
@@ -245,9 +250,9 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("发烧", record.reason)
         assertTrue(record.withdrawable)
         assertEquals(
-            "",
+            "张三（假）",
             record.courses.single().teacherNames,
-            "任课教师名是姓名 ⇒ 同一条红线不投影（形状里那一格仍在，值是空串）",
+            "任课教师姓名在 §5.2 例外 ④ 里 ⇒ 真投影（例外的根据是「我自己的课」）",
         )
 
         val leaveId = api.createLeave(
