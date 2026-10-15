@@ -1019,7 +1019,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | **D9** | 多账号 | **三端都支持** | Android 用现状（keystore）；桌面 DPAPI（`docs/windows-delivery.md` 那条缝）；**web = serve 进程**（DPAPI 保护），浏览器上「切换账号」= 让 serve 换一套凭据。账号页在 web 上要与 App 同一套层级（不再落「本端没有账号这回事」） |
 | **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层。**⇒ 实做现状（2026-10-15，工单 **S-a → S-d 四件全部落地**）**：serve 侧的 **14 个端点 + SSE** 已落地（契约 **§5.11**），key 确实落在 serve 那一侧（`:data` 的 `protectedSecureKeyValueStore`，Windows = DPAPI；Linux/macOS 无保护器 ⇒ 仍是明文 `0600`，与今天逐字相同）；**白名单工具层（S-c）**交给模型的是那九件（`toolAllowlist` 从真下发的定义里读出来）；**`:web` 接线（S-d）**把浏览器那一格换成 `:core` 的 `AgentScreen` 本身（驱动是本端的 `WebAgentSession` + `@JsFun` 的 fetch/SSE 桥），**路由差集 5 → 4**。逐条现状与「还剩哪几件没做」写在契约 §5.11 |
 | **D11** | HTTPS / 部署 / 鉴权 | **serve 内置 HTTPS + 鉴权，开箱可启用** | 证书目录（含自签选项）+ 令牌鉴权 + 写进交付文档；反代仍可由用户自己接。**这是相机扫码 / 剪贴板 / WebCrypto / PWA 的前置**（HTTP 非 localhost = 非安全上下文，浏览器一律禁） |
-| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-15）**：①② 见 §16.10；⑤ 与 ③ 见 §16.11（⑤：web 端真能玩、桌面仍卡载体；③：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码做不到**（缺的不是相机 API 而是二维码解码器）、**WebCrypto 没有消费方**）；④ **仍未做**（缺什么与最小可行方案在 §16.11 末段） |
+| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-16）**：①② 见 §16.10；⑤ 见 §16.11（web 端真能玩、桌面仍卡载体）；③ **已收口**（见 §16.12）：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码/选图识别做出来了**（解码链按 ① 同一套做法搬进 `:core` 的 commonMain，匹配交友那一屏的「扫一扫 / 从相册选图」在 `:web` 上真能扫）、**WebCrypto 没有消费方**；④ **仍未做**（缺什么与最小可行方案在 §16.11 末段；本批也没做） |
 | **D13** | 补端点清单 | **一律「端」**（不再逐条请示） | 我课表三端点 `/api/jwxt/changes`（调停补课）+ `exams`（考试）+ `textbooks`（教材）；教材全文库 `jiaocai1` 页图；学堂附件图片代理；成绩分项 `score-detail`；教室座位数（点亮 web 日程/详情里的 `SEAT_COUNT`）；场馆支付（D11b） |
 | **D14** | `:web` 测试源集 | **建** | 丙口径下「没人肉眼点过」不能当验收。目标：路由清单覆盖测试（与 `DesktopRouteCoverageJvmTest` 同型，钉住「清单 = 分支」）+ 存档层互认测试 + 关键屏的 wasmJs 测试 |
 
@@ -1299,3 +1299,65 @@ D11 给了 `--https` 之后这个前提**可以满足**了，所以真正的理�
 | `:core:jvmTest` / `:data:jvmTest` / `:desktop:test` / `:app:testDebugUnitTest` | 本批一列未动，实测（XML）**536 / 259 / 118 / 444**，全 0 失败 |
 
 **仍未接（如实，不是漏）**：合成计分那一步没能在无头环境里跑出分数（见上面第 3 条）；相机扫码缺解码器；PWA 整档未做。
+
+### 16.12 D12 ③ 的收尾（2026-10-16）：zxing 的**解码链**搬进 `:core` · 匹配交友那一屏在浏览器里**真能扫码** · 桌面 3 处 `then` · 点位清单 ⑩ 的陈旧行
+
+本批是 **D12 ③ 的收尾**（§16.11 把 ③ 查清了、把 ④ 标成未做）。逐项给「做了 / 做不到 + 为什么 + 最小可行方案」。
+
+#### ① 相机/选图扫码：**做出来了**，做法与 D12 ① 的编码器同一条（三端一份纯 Kotlin，JVM/Android 仍走 zxing）
+
+| 项 | 落地内容 |
+|---|---|
+| `:core`（新，`commonMain`） | `platform/qr/` —— zxing 3.5.4 解码链的**逐字对照**：`QrBitMatrix`（可改的位矩阵）、`QrBinarizer`（`HybridBinarizer` / `GlobalHistogramBinarizer` / `PlanarYUVLuminanceSource`）、`QrPerspectiveTransform` + `QrGridSampler`（透视与网格采样）、`QrReedSolomon`（GF(256) + `GenericGFPoly` + `ReedSolomonDecoder`）、`QrVersion`（40 版 × 四级的纠错块表，**从 zxing 的 `Version.java` 逐条抽出来**的，脚本生成的）、`QrFormatInformation` + `QrDataMask`、`QrBitMatrixParser` + `QrDataBlock`、`QrBitSource` + `QrCharset` + `QrDecodedBitStreamParser`、`QrDecoder`、`QrDetector`（定位图案/校正图案/交叉验证）、`QrReader`（入口：一帧 ARGB → 文本）。**每个文件头都有一张「zxing 的那个类 ⇄ 这里的这个类」对照表**，逐行是同一份算法 |
+| `:core`（新，缝） | `platform/QrDecode.kt`：`expect fun qrDecodeArgb(pixels, width, height): String?` —— 一帧 ARGB（`0xAARRGGBB`，就是 `Bitmap.getPixels` 那批 int）→ 二维码文本。**jvmMain / androidMain 两份 actual 仍是 zxing**（`PlanarYUVLuminanceSource` + `HybridBinarizer` + `QRCodeReader`，与 `:app` 的 `QrFrameDecoder` 同参数、同灰度式子），wasmJs 那份转调 `QrReader` |
+| `:app` / `:desktop` | **一行未改**（红线：Android 行为逐字不变 —— `:app` 的匹配交友屏仍走它自己那份 `qrlogin/QrFrameDecoder`，连「补定位块」那一档也在） |
+| `:web`（新） | `WebQrCamera.kt`（`getUserMedia` + `<video>` + 按需画到 canvas → ARGB；`<input type=file>` + `createImageBitmap`；两条路**共用同一段换算**）+ `WebMatchScanner.kt`（`MatchScanner` 的实现：`scan()` 与 `fromImage()`）+ `ToolboxWebApp.kt` 那一行从 `scanner = null` 改成 `scanner = remember { WebMatchScanner() }` ⇒ **那两颗按钮真画出来、真能扫** |
+| 与 Android 的关系 | **同一批像素解出同一段文本**：`:core:jvmTest` 的 `QrDecodeParityJvmTest` 拿同一批 ARGB 同时跑两份实现逐字断言（含「图里没有码」两边都 null、被遮掉一块两边同结论、Reed-Solomon 那一层逐个码字相同） |
+
+**四处如实（都不在屏幕上骗人）**：
+
+1. **「补定位块」那一档没搬** —— `:app` 的 `QrFrameDecoder` 在常规解码失败后还会补一个磨掉的定位块再解一次（图书馆那种被磨掉一角的桌贴）；那一手要 `FinderCandidates` 那一整套候选配对与重画逻辑（`:app` 自己的一份），本批没搬 ⇒ **那种码在浏览器这一端扫不出来**（Android 能）。
+2. **中日文那一档可能解不出来** —— commonMain 没有字符集码表：BYTE 段被猜成 Shift_JIS、或码里写 KANJI / HANZI 段时，这一端返回 null（落到「图里没找到二维码」那句）。匹配交友的分享码是 base64url（纯 ASCII）⇒ **这一屏不受影响**。边界表写在 `QrCharset.kt` 的文件头。
+3. **取景覆盖层是 DOM 画的，不是 Compose** —— Android 是 `QrScannerView` + 两颗 MIUIX 按钮；这一端要真画面只能用一个真 `<video>`（`:web` 的既有先例是 `WebGameMerge` 那个 `<iframe>`），所以覆盖层是 DOM：全屏 `<video>` + 一行提示 + 一颗「取消」（两句文案与 Android **逐字相同**）。观感与 MIUIX 不一致。
+4. **相机那一跳的「真流进来、逐帧扫到」没在 CI 里验过** —— 本机的测试浏览器没有摄像头。详见下面「验过 / 没验过」。
+
+**一处**实测**的互操作坑（下一个动这一块的人会撞上同一个）**：Kotlin/Wasm 的 `@JsFun` **只收 external / 基本类型 / 字符串 / 函数**这四类，`IntArray` **参数与返回值都不行**：
+
+```
+Type 'IntArray' cannot be used as value parameter type of JS interop function.
+Type 'IntArray' cannot be used as return type of JS interop function.
+```
+
+第一版写的是「JS 每 250ms 抓一帧、回调 `onFrame(pixels, w, h)`」，直接编不过。落地形态改成：**JS 把一帧包成 `{ length, valueAt(i) }` 对象（`external interface JsPixelFrame : JsAny`），Kotlin 拿 `JsAny` 句柄按需逐个读进自己那块可复用的 `IntArray`**，循环由 Kotlin 按节拍驱动（4 fps、长边 640 —— 与 `:app` 的相机分析同一档）。这一条也写进了 `WebQrCamera.kt` 的 KDoc。
+
+#### ② 验过 / 没验过（逐条）
+
+| 验的什么 | 怎么验的 | 结果 |
+|---|---|---|
+| 解码链与 zxing **同一批像素同一段文本** | `:core:jvmTest` 的 `QrDecodeParityJvmTest`（4 例）：zxing 编的码 + 纯 Kotlin 编的码、两档密度、没有码/一片白/噪声/太小/参数不对、轻伤（纠错兜住）与重伤（两边同结论）、Reed-Solomon 那一层 40 轮逐个码字相同 | 全过 |
+| 「一帧图像 → canvas → ARGB → Kotlin → 解出原文」在**真浏览器**里跑通 | `:web:wasmJsBrowserTest` 的 `WebMatchScanTest` 第 1 例：把一条真二维码摆进 canvas、用**产品那一段换算**读回来、逐个读进 `IntArray`、交给 `:core` 的解码器，判据是**逐字等于原文** | 过（ChromeHeadless 153） |
+| 相机那三条失败态各自一句人话 | 同上的第 2 例（纯函数） | 过 |
+| 这一份部署「能不能开相机」的判据 + 「测试给的流不在」那条错路 | 同上的第 3 例 | 过 |
+| **真流进来、逐帧扫到** | —— | **没验过**：karma 那颗 Chromium 没有摄像头，也没给 `--use-fake-device-for-media-stream` 那种假设备；要假流就得改 `web/build.gradle.kts` 里那套 `useChromeHeadlessNoSandbox()`（另一个决定，本批没动）。真机上照点位清单 ⑫ 手点 |
+| **`<input type=file>` 那条弹窗** | —— | **没验过**：测试里点不出系统文件选择框（`input.click()` 在用户手势下会不会被拦也只到「按标准用法写在 `onClick` 起的协程里」这一步）。「选完图之后」的那一半由上面第 1 例覆盖 |
+
+#### ③ 顺手的两条
+
+| 项 | 落地内容 |
+|---|---|
+| 桌面 3 处 `is AppRoute.Browser ->` 丢 `then` | 与 f38c2fc8 同一口径：日程 / 消息收纳 / 通知公告那三处改成 `desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }`。**今天的行为一字未变**（那三处收到的路由 `then` 都是空串 —— 课表那一族根本不造 `AppRoute.Browser`，别的几处造它时只传 url）⇒ 修的是**口径**。`DesktopBrowserJvmTest` 加一条源码断言钉住「四处都走同一个判据」 |
+| 点位清单 ⑩ 里 `Accounts` 那条陈旧行 | 改成事实：那一行原本写着「落『这一屏还没搬到 Web』」，而 `AppRoute.Accounts` 自批②（2026-10-15）起就在 `WebSupport.openableRouteIds` 里、也不在 §16.2 第 1 条那 4 条差集里 ⇒ 按它的真实形状（**跟形态走**：serve 落真账号页、campus-api 落「需要 serve 模式」页）挪进 ⑨ |
+
+#### ④ PWA（D12 ④）：**本批仍未做**（如实）
+
+缺什么、按收益排序的最小可行方案，一字不改地记在 §16.11 末段：① `manifest.webmanifest` + 图标 + `display: standalone`；② 一个 Service Worker（**只在安全上下文里能注册** ⇒ 与相机同一条前置）；③ 系统通知要 `Notification.requestPermission()` + 用户手势 + SW 里 `showNotification`；④ `periodicSync` 在桌面浏览器基本没有，而 **Android 小组件在浏览器里没有对应物**（不做，与桌面那张 `HostUnavailableScreen` 同一种诚实写法）。本批把预算花在 ①（解码链是这一批里最大的一块），PWA 整档留待下一批。
+
+#### 本批的门禁与复核计数（XML 实测）
+
+| 任务 | 结果 |
+|---|---|
+| `:core:jvmTest` | **537 → 541 例**（新增 `QrDecodeParityJvmTest` 4 例）；0 失败 |
+| `:web:wasmJsBrowserTest` | **58 → 61 例**（新增 `WebMatchScanTest` 3 例；`WebBrowserCapabilitiesTest` 的 canary 照旧）；0 失败 |
+| `:desktop:test` | **128 → 129 例**（`DesktopBrowserJvmTest` 加一条源码断言）；0 失败 |
+| `:web:compileKotlinWasmJs` / `:desktop:compileKotlin` | **BUILD SUCCESSFUL** |
+| `:server:test` / `:data:jvmTest` / `:app:testDebugUnitTest` | 本批未动这三块的**代码**，实测复核数见本批的提交说明（`:app` 仍是 456、一条未减） |
