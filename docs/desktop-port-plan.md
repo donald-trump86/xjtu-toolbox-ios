@@ -1019,14 +1019,14 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | **D9** | 多账号 | **三端都支持** | Android 用现状（keystore）；桌面 DPAPI（`docs/windows-delivery.md` 那条缝）；**web = serve 进程**（DPAPI 保护），浏览器上「切换账号」= 让 serve 换一套凭据。账号页在 web 上要与 App 同一套层级（不再落「本端没有账号这回事」） |
 | **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层 |
 | **D11** | HTTPS / 部署 / 鉴权 | **serve 内置 HTTPS + 鉴权，开箱可启用** | 证书目录（含自签选项）+ 令牌鉴权 + 写进交付文档；反代仍可由用户自己接。**这是相机扫码 / 剪贴板 / WebCrypto / PWA 的前置**（HTTP 非 localhost = 非安全上下文，浏览器一律禁） |
-| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法 |
+| **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-15）**：①② 见 §16.10；⑤ 与 ③ 见 §16.11（⑤：web 端真能玩、桌面仍卡载体；③：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码做不到**（缺的不是相机 API 而是二维码解码器）、**WebCrypto 没有消费方**）；④ **仍未做**（缺什么与最小可行方案在 §16.11 末段） |
 | **D13** | 补端点清单 | **一律「端」**（不再逐条请示） | 我课表三端点 `/api/jwxt/changes`（调停补课）+ `exams`（考试）+ `textbooks`（教材）；教材全文库 `jiaocai1` 页图；学堂附件图片代理；成绩分项 `score-detail`；教室座位数（点亮 web 日程/详情里的 `SEAT_COUNT`）；场馆支付（D11b） |
 | **D14** | `:web` 测试源集 | **建** | 丙口径下「没人肉眼点过」不能当验收。目标：路由清单覆盖测试（与 `DesktopRouteCoverageJvmTest` 同型，钉住「清单 = 分支」）+ 存档层互认测试 + 关键屏的 wasmJs 测试 |
 
 ### 16.2 「全等」的判据怎么落地（工程口径，四条）
 
 1. **路由全等**：`WebSupport.openableRouteIds` 与 `AppRoute`（43 条）的差集，只允许剩「浏览器/这一端永远做不到」的条目，且**每条都在页面上有如实说明**。
-   今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。
+   今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。**2026-10-15 起是 5 条**：`Accounts` 已由批② 的 S7b 落地、`GameMerge` 已由 D12 ⑤ 落地（§16.11）⇒ 剩下 `Agent` / `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`，外加口径上不算差集的 `Browser` —— `:web` 的 `WebRouteCoverageTest` 钉的就是这 5 条（它同时钉住「差集里每一条在 `WebSupport` 文件头都有一句为什么」）。
 2. **存档全等**：统一存档格式是唯一真源 —— 文档 + 夹具 + 三端消费方，**遵 `docs/api-contract.md` §7 的「三处同改」**。
 3. **屏全等**：每屏的四种状态（加载 / 空 / 错误 / 降级）三端**同一套文案来源**（共享字符串与共享屏，不在各端各写一遍）。
 4. **数字回归网**：§5 那张表**只增不减**（`:app:testDebugUnitTest` **429 条一条不许减**）。
@@ -1040,6 +1040,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | ③ | 写路径对齐（含真支付入口） | D7 / D11b |
 | ④ | serve 内置 HTTPS + 鉴权 | D11 |
 | ⑤ | 能力边界收口（矩阵 / deflate + Base64 / 相机·剪贴板 / PWA / `GameMerge`）+ **给用户的能力缺口清单** | D12 / D8-口径 |
+| ⑤（状态） | **① ② ⑤ 已落地、③ 已逐条查清、④ PWA 未做** —— 矩阵与分享码见 §16.10，`GameMerge` 与 ③④ 见 §16.11；用户那张清单在 `docs/serve-visual-checklist.md` ⑧⑩⑪ | §16.11 |
 | ⑥ | `:web` 测试源集 + 全量门禁 + **真站点逐屏点位清单** | D14 / D9-口径 |
 
 ### 16.4 这一节带出来的新风险（如实记，别藏）
@@ -1209,3 +1210,75 @@ D12 是「浏览器能力边界逐条收口」，这一批做的是**前两条**
 `codecAvailable == true`、Android 编的那条真码解得回、自己编的码自己解得回、以及二维码与条形码在这一端
 真编得出来。**没做的**照旧是 D12 ③（相机 / 剪贴板 / WebCrypto —— 这一批只到「HTTPS 是前置」的那一步）、
 ④（PWA）、⑤（`GameMerge`）。
+
+### 16.11 D12 的完工记录（2026-10-15）：⑤ `GameMerge` 在浏览器上真能玩 · ③ 相机·剪贴板·WebCrypto 的逐条查清 · ④ PWA 仍未做
+
+本批是 D12 的**后三条**（①② 见 §16.10），逐条给「做了 / 做不到 + 为什么 + 最小可行方案」。口径照 §16 开头那四条，
+**这是重构不是功能更新：安卓怎么做就怎么做**。
+
+#### ⑤ `GameMerge`（合成西交大）：web 端真能玩，Android 与桌面一行未改
+
+| 项 | 落地内容 |
+|---|---|
+| `:web`（新） | `web/.../web/WebGameMerge.kt`：Compose 顶栏（与 Android 那一屏同一句「合成西交大」+ 同一个 `BackButton`）+ 一个 `<iframe>`（挂在 `<body>` 上、按量出来的矩形摆位）+ `MergeGameScoreBridge`（与游戏页那份最高分对齐）。**没有一行游戏逻辑**在 `:web` 里重写 |
+| 资源从哪来 | `web/build.gradle.kts` 的 `mergeGameResources`（一个 `Sync`）：构建期把 `:app` 的 `app/src/main/assets/games/merge/`（`index.html` + `index.js` + 本地 `matter.min.js` + 9 张校徽 webp，408KB）拷进 `:web` 的资源根 `games/merge/` ⇒ 由 `wasmJsProcessResources` 进 wasm 产物目录（serve 的 `--dist` / nginx / dev-server 都是同一个静态根）。**同一份字节，不在仓库里存第二份**（`index.js` 与 `:app` 那份 md5 一致，实测过） |
+| 接线 | `ToolboxWebApp.kt` 一条 `AppRoute.GameMerge` 分支 + `WebSupport.openableRouteIds` 一条门 ⇒ **路由差集 6 → 5**（`WebRouteCoverageTest` 跟着改） |
+| `:app` / `:desktop` | **两行都没改**：Android 仍是 WebView 装 assets，桌面那张 `HostUnavailableScreen`（如实说明缺载体）照旧 |
+| `:server` | 静态 mime 表加一条 `webp` —— 那 9 张校徽是 webp，一张静态托管里的图不该发成 `application/octet-stream`（`ServeServerTest` 里一条断言钉住） |
+
+**两处如实差异**（都不在屏幕上画字，理由在 `WebGameMerge.kt` 的 KDoc）：① **没音效** —— Android 走 JS 桥 `AndroidGameBridge.playSound` ⇒ `GameSound`；
+浏览器里没有那座桥，游戏的 `sfx()` 直接静默。这一条不是本屏的缺口，而是**本端所有小游戏的共同事实**（`:core` 的 `gameAudio()` 在 wasm 上是 `SilentWebGameAudio`）。
+② **成绩回传的时机**不同 —— Android 是「游戏结束那一刻」由桥回调（`submitScore` + `bestScore`）；这里反过来：进屏把 App 侧那份最高分**镜像**进游戏页自己的
+localStorage 键（`merge-xjtu-highscore`），离开这一屏时把游戏页记的成绩**收回** App 侧那份（合集页那一行的最高分两边一致；那个键名由 `WebGameMergeTest` 与游戏页的 `STORAGE_KEY` 逐字对账）。
+
+**为什么是 iframe 而不是「同标签跳过去」**：这一屏在 Android 上是**一屏**（顶栏与返回箭头都在），而跳走之后浏览器的后退键回不到这一屏
+（外壳的路由是 `history.replaceState` 写的，不产生新条目）⇒ 用户会被困在游戏页里。iframe 让外壳原样留着；位置由 JS 按 Compose 量出来的矩形设 ——
+那个「布局 px → CSS px」的换算写成纯函数（`mergeFrameCssRect`），因为「这一端的 density 是不是等于设备像素比」不该由这一屏去猜：两个已知量（画布在 Compose 坐标里的高 × `window.innerHeight`）一比就得到倍数，两种形状各有一条测试钉住。
+
+**真浏览器证据（手工跑的，逐条可核）**：
+
+1. **渲染**：用仓库自己那颗 Chromium（`:web:wasmJsBrowserTest` 用的那颗，`~/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`）
+   无头截图游戏页，画面里出现的像素颜色正好是 `index.js` 的 `LEVELS[].color`（`#185AA8` = 哈工大、`#6C126F` = 南大、`#2F70C4` = 中科大…）—— 那正是 9 枚烘焙棋子外圈描边的颜色
+   （`rgb(0.10,0.35,0.66)` 这类取值在 `magick … histogram` 里数得出来）⇒ **棋真画出来了**。
+2. **输入与物理**：同一颗 Chromium 里给画布派发 `mousedown/mousemove/mouseup`：`Matter.Composite.add` 被计数命中（`adds: 3`）⇒ `Game.drop()` 真跑、真往物理世界里加球；
+   每帧的 `beforeTick/tick/beforeUpdate/beforeRender/afterRender` 都在涨 ⇒ 物理与渲染两个循环都活着。
+3. **合成计分那一步没能在这里验出来（如实）**：`--virtual-time-budget` 下 Matter 的 delta 被拉大 ⇒ 球会穿透、不合成（score 一直 0）。真站点上由用户照单点（点位清单 ⑪）。
+4. **采集坑（下一个动这块的人会撞上）**：那个由 agent 自己开的 Playwright 浏览器（UA `Chrome/145.0.0.0`）**画不出任何渐变** —— 实测矩阵：实心 `fillRect`/`arc` 有像素，
+   而线性与径向渐变填充一律全透明（贴在 DOM 上与否都一样）；而 `index.js` 的烘焙棋子（`createRadialGradient`）与页面上那行渐变文字都靠渐变 ⇒ 在它里面看到的
+   是「整块画布全空、看着像游戏没跑起来」。**别拿它当判据**，用仓库自己那颗 Chromium。
+
+#### ③ 相机扫码 / 剪贴板 / WebCrypto：逐条查清
+
+| 项 | 结论 | 依据 / 为什么 | 最小可行方案 |
+|---|---|---|---|
+| 剪贴板 | **能用**（前置是安全上下文，D11 已给） | CMP 1.12.1 在 wasm 上的 `ClipboardManager` 就是 `navigator.clipboard.writeText`（`PlatformClipboard.wasm.kt` 的 `WasmPlatformClipboardManager`；从 klib 里挖出的字符串：`isSecureContext` / `isFallbackWriteTextApiAvailable` / `console.warn('Clipboard API is not available in insecure contexts.')`）。共享屏里那几处复制（匹配交友的「复制文字」、社区验证码、空闲教室长按复制）走的就是它 ⇒ `127.0.0.1` 或 `--https` 下真能用；**明文 HTTP + 非 localhost 下它只 `console.warn`：点了没反应、也不报错** | 已经到位：`--https`（D11）。另把「这一份部署到底有没有」变成看得见的：`?route=probe` 上的「浏览器能力」表（本批新增，见下） |
+| 相机扫码 | **做不到**（缺的不是相机 API） | ① `getUserMedia` 的安全上下文前置 D11 已经给了；② 真正卡的是**没有二维码解码器**：D12 ① 只把 zxing 的**编码器**搬成了纯 Kotlin（`QrCodec`），解码那一侧（`QrBitmap.read` / `MultiFormatReader`）仍在 `:app`/JVM，而 `decodeImagePixels` 在 wasm 上恒 `null`、`decodeImage*` 那条路只是「图 → 位图」、不认码；③ 浏览器自带识别器也借不到：**桌面 Chrome 没有 `BarcodeDetector`**（只有 Chrome on Android / ChromeOS 有）—— 由 `WebBrowserCapabilitiesTest` 里那条 canary 钉住 | 按 D12 ① 的同一做法把 zxing 的**解码链**（二值化 + 找定位图案 + 透视变换 + Reed-Solomon）搬进 `:core` 的 commonMain，再在 `:web` 写 `WebMatchScanner`（`getUserMedia` + `canvas.getImageData` → 那份解码器）。**这是一份比编码器大得多的纯 Kotlin 移植**，要单独一批授权（本批不做）。更小的一步：先做「选一张图识别」（不需要相机），它只要那份解码器 |
+| WebCrypto | **本端没有消费方**（不是缺 API） | 全仓要密码学的地方只有三处、都在 `:data`（JVM/Android）：WebVPN 的 AES-128-CFB、体测协议（`FitnessProtocol`）的 AES-CBC + MD5、Android 凭据库（`EncryptedSharedPreferences`）。前两样在浏览器上都搬不过来：**WebCrypto 没有 CFB 模式**（只有 CBC/CTR/GCM/KW），**也没有 MD5** | 真要把 WebVPN 转换搬进浏览器：用 `crypto.subtle` 的 `AES-CBC` 单块当 `AES-ECB` 用（IV 全零时 `E(P)` / `D(C)` 就是单块 ECB），再手写 CFB-128 循环 —— 那是一份新的密码学实现，得单独授权；体测那条代价更大（要自写 MD5），且那一族今天整体在服务端 |
+
+**这一条也顺手把 §5.7 里那句旧理由收紧了**：WebVPN 转换器当初「为什么放在服务端」的第一条理由是「`crypto.subtle` 只在安全上下文里存在」——
+D11 给了 `--https` 之后这个前提**可以满足**了，所以真正的理由换成上面那一条（WebCrypto 里没有 CFB）。结论（放服务端）不变，理由更准。
+
+**新增的可见那一半**：`web/.../web/WebBrowserCapabilities.kt` + `?route=probe` 上那张「浏览器能力」卡（5 行：安全上下文 / 剪贴板写入 / 相机 / 浏览器自带二维码识别器 / WebCrypto），
+每行带 ✓/✗ **和一句「本端谁在用 / 差什么」** —— 这几条**跟地址走**（安全上下文），所以只在文档里写没用，得让用户拿自己的地址当场核。
+
+#### ④ PWA（系统通知 / 小组件 / 后台定时）：**未做**（如实）
+
+这一批**没做**。缺的东西逐条：① 一份 `manifest.webmanifest` + 图标 + `display: standalone`（「装成 App」）；② 一个 Service Worker
+（**只在安全上下文里能注册** ⇒ 与 ③ 同一条前置，`--https` 给的那条）；③ 系统通知要 `Notification.requestPermission()` + 用户手势触发 + SW 里 `showNotification`；
+④ 后台定时（`periodicSync`）在桌面浏览器基本没有（Chrome 只在「装成 PWA 且站点参与度够」之后给 `periodicBackgroundSync`），
+而 **Android 小组件在浏览器里没有对应物**。
+
+最小可行方案（按收益排序）：先 `manifest` + SW（离线壳 + 装到桌面），再 `Notification`（serve 侧已有取数路径可用），最后才是 periodicSync；
+**小组件那一档不做**（浏览器没有等价载体，与桌面那张 `HostUnavailableScreen` 同一种诚实写法）。
+
+#### 本批的门禁与复核计数
+
+| 任务 | 结果 |
+|---|---|
+| `:web:compileKotlinWasmJs` | **BUILD SUCCESSFUL** |
+| `:web:wasmJsProcessResources` | 产物里真出现 `games/merge/{index.html,index.js,matter.min.js,img/*.webp}`；`index.js` 与 `:app` 那份 **md5 一致**（`e62b963ccdf1548025e122e71d6b1744`） |
+| `:web:wasmJsBrowserTest` | **11 → 20 例**（新增 `WebGameMergeTest` 6 例 + `WebBrowserCapabilitiesTest` 3 例）；0 失败 |
+| `:server:test` | 109 例（`ServeServerTest` 里加一条 webp mime 断言，**例数不变**）；0 失败 |
+| `:core:jvmTest` / `:data:jvmTest` / `:desktop:test` / `:app:testDebugUnitTest` | 本批一列未动，实测（XML）**536 / 259 / 118 / 444**，全 0 失败 |
+
+**仍未接（如实，不是漏）**：合成计分那一步没能在无头环境里跑出分数（见上面第 3 条）；相机扫码缺解码器；PWA 整档未做。

@@ -43,6 +43,7 @@
    ⇒ 对外暴露时要么自己上 HTTPS（反代 + 证书），要么给复制路径留一条 `document.execCommand('copy')`
    的降级；**不要**默认就走降级 —— 那是把「不安全」常态化。同类受影响的还有 `crypto.subtle`、
    地理位置、Service Worker（`serve` 模式若打算做 PWA，先把这一条想清楚）。
+   **2026-10-15（D12 ③ 查清 + D11 批④）**：“对外暴露就得自己上 HTTPS”这条**已经能自己给**了（`--https`，§3 第 6 条）；而共享屏里那几处复制走的是 CMP 在 wasm 上的 `WasmPlatformClipboardManager`，它只调 `navigator.clipboard.writeText`，非安全上下文时**只 `console.warn`**（点下去没反应、也不报错 —— 上面那句“静默失败”实测就是这一条）。所以「这一份部署到底有没有」做成了 `?route=probe` 上的「浏览器能力」表（`web/.../WebBrowserCapabilities.kt`），用户拿自己的地址当场就能核。
 6. **serve 内置 HTTPS（D11 批④，2026-10-15 落地）**：`--https` 把 serve 切成 HTTPS 形态 ——
    `--host/--port` 就是 HTTPS 的地址与端口，证书默认 `<数据根>/tls/serve.p12`（`--cert` / `--cert-alias`
    可指别处，证书目录与访问令牌同一个数据根），没给 `--cert` 时**缺证书就现生成一张自签**
@@ -1094,6 +1095,10 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
      为一条**纯函数**的转换把一份密码学依赖塞进 wasm 产物，换来的是同一个算法在两处各写一遍；
   3. 而服务端本来就有这份实现（`:data` + JVM），端出去的成本与风险都是零：**纯函数**，不收会话、
      不落盘、**不改任何状态**、不碰任何上游；
+- **2026-10-15（D12 ③）按事实收紧第一条**：`--https`（D11 批④，§3 第 6 条）之后「安全上下文」这个前置
+  **可以满足**了，但这件事**仍然搬不过来** —— WebCrypto 里**没有 CFB 模式**（只有 CBC / CTR / GCM / KW），
+  要用它得拿 `AES-CBC` 单块当 `AES-ECB`（IV 全零时 `E(P)` / `D(C)` 就是单块 ECB）再手写 CFB-128 循环：
+  那是一份新的密码学实现，需单独授权。所以第二条与第三条理由照旧成立，**结论（放在服务端）不变**，只是理由更准：
 - `direction` 只认 `to_vpn`（普通网址 → 网关地址）与 `from_vpn`（网关地址 → 原网址），大小写不敏感，
   响应里**原样回**（免得消费方猜这一次的语义）。已经是网关地址的输入、或者认不出的输入
   （没有 `://`），`to_vpn` **原样返回**（`:data` 的老口径，本层不改）；`from_vpn` 解不出来
@@ -1112,7 +1117,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 |---|---|---|
 | 付款码 `PaymentCodeScreen`<br>（取数 `CampusPayApi`） | `GET /api/pay/code` + `/api/pay/vouchers` 两条都真读（屏上显示那一串**数字**，加餐券那几行（名称 / 金额分 / 到哪天为止）也真画）；`POST /api/pay/vouchers/select` 真写 ⇒ 加餐券那几行的**勾选框照旧画、勾了真同步**（`canSelectVouchers` 不再覆写） | ① **条码 / 二维码矩阵也真画**（D12 ①，2026-10-15）：`qrCodeModules` / `code128Modules` 的 wasmJs actual 转调 `:core` commonMain 里那份纯 Kotlin 编码器（`QrCodec` / `Code128Codec`）⇒ 屏上画的就是 Android 那一张（**逐模块相同**，由 `:core:jvmTest` 的 `CodeMatrixParityJvmTest` 钉住）；那一句「本端没有条码 / 二维码编码器」的降级文案仍在屏上，但三端都编得出码 ⇒ 走不到它；② **「支付」那一档本端也没有** —— 不是缺口，是上游客户端本来就没有那个动作（见本节）；③ 勾选那一次同步失败时屏上那句是 `:core` 自己的「同步失败」 —— 而本机那份落盘（`PaymentSelectionStore`，wasm 上是 localStorage）**照旧先写**，所以“已勾选”与本机记忆可能不一致（与 Android / 桌面同一条行为，不是本端改的） |
 | 反馈 `FeedbackScreen`<br>（取数 `CampusFeedbackApi`） | **三条都真走**：`GET /api/feedback/replies?tickets=` + `/api/feedback/public-qa` 两条真读（「大家在问」真画；工单号来自**屏自己的本地账本**（`:core` 的 `FeedbackStore`，wasm 上是 localStorage —— 这一端没有别的账本）⇒ 账本里有单号时「我提过的」那几张卡与它们的回复也真画）；`POST /api/feedback/submit` 真写 ⇒ 屏上那块表单**照旧画**（`FeedbackSource.canSubmit` 是默认的 `true`，本端不再覆写成 `false`），提交成功那条工单也会记进本地账本 | ① **工单号仍然是屏生成的**（`FeedbackStore.newTicket()`，落在 localStorage）⇒ **换了浏览器 / 清了站点数据，旧工单就找不回了**（服务端不代管这本账，也不下发新号）；② 提交那一枪在服务端会**真写**进多维表格，而“已提交”这一态只能看本地账本的说法 —— 换一台机器看不到自己提过的那几条；③ 部署要配 `FEEDBACK_*` 三个环境变量，否则三条端点一律 `502`（含提交那一枪），而屏把取数失败吞掉 ⇒ 页面呈现为「没有新回复 / 没有问答」—— 这一条写在页顶那句缺口说明里；④ 这一族**不套会话**，本端没有「先登录校园账号」那一步 |
-| 匹配交友 `MatchScreen` | **一个端点都没读**（这一屏一条请求都不发，与 Android / 桌面同一形状） | 2026-10-15（D12 ②）起在 `:web` 上是**真屏**（`:core` 的共享屏 + 本端宿主面 `WebMatchHost`）：出码与解码在这一端真能用（两条缝在 `:core` 的 commonMain），课表族缓存从 **localStorage** 来（与日程页同一份）⇒ 「离线算交集」是真算的。`WebMatchGapScreen` 那张说明页已删。两处如实降级（与桌面端**逐条同一个形状**）：① **学工档案**（年级 / 专业 / 学院 / 书院 / 校区 / 班级 / 生源地）本端没有 ⇒ 那一维在「分享哪些」里是禁用态（那条链是 hello.xjtu.edu.cn，实现只在 `:app` ⇒ 服务端也没有 `/api/match/profile`）；② **校园卡消费**（常在几点吃饭 / 常去哪个食堂）本端没有落盘 ⇒ 同样禁用。⚠️ **扫码那一档没有**（`scanner = null`：浏览器要开相机得走 `getUserMedia`，只在安全上下文里存在 ⇒ D12 ③ 那一档）⇒ 那两颗按钮一个字都不画，只留「粘一段文字」。⚠️ **`GET /api/match/dining` 仍然没有消费方**：它是聚合好的一发，本端读的是**本机缓存**（`MatchHost.transactions()` 空表），要接它得改宿主面的形状（不在本批） |
+| 匹配交友 `MatchScreen` | **一个端点都没读**（这一屏一条请求都不发，与 Android / 桌面同一形状） | 2026-10-15（D12 ②）起在 `:web` 上是**真屏**（`:core` 的共享屏 + 本端宿主面 `WebMatchHost`）：出码与解码在这一端真能用（两条缝在 `:core` 的 commonMain），课表族缓存从 **localStorage** 来（与日程页同一份）⇒ 「离线算交集」是真算的。`WebMatchGapScreen` 那张说明页已删。两处如实降级（与桌面端**逐条同一个形状**）：① **学工档案**（年级 / 专业 / 学院 / 书院 / 校区 / 班级 / 生源地）本端没有 ⇒ 那一维在「分享哪些」里是禁用态（那条链是 hello.xjtu.edu.cn，实现只在 `:app` ⇒ 服务端也没有 `/api/match/profile`）；② **校园卡消费**（常在几点吃饭 / 常去哪个食堂）本端没有落盘 ⇒ 同样禁用。⚠️ **扫码那一档没有**（`scanner = null`）⇒ 那两颗按钮一个字都不画，只留「粘一段文字」：D12 ③（2026-10-15）查清的是 —— 卡点**不是**相机 API（`getUserMedia` 的安全上下文前置 D11 已经给了），而是 `:core` 里**没有二维码解码器**（D12 ① 只搬了 zxing 的编码器 `QrCodec`；`QrBitmap.read` / `MultiFormatReader` 仍在 `:app`/JVM，`decodeImagePixels` 在 wasm 上恒 `null`），而桌面 Chrome 也**没有** `BarcodeDetector`（只有 Chrome on Android / ChromeOS 有）。逐条依据与最小可行方案见 `docs/desktop-port-plan.md` §16.11。另：那几颗**复制按钮只在安全上下文里真能用**（不是这一族的缺口，是部署形态：见 §3 第 5 条）。⚠️ **`GET /api/match/dining` 仍然没有消费方**：它是聚合好的一发，本端读的是**本机缓存**（`MatchHost.transactions()` 空表），要接它得改宿主面的形状（不在本批） |
 | WebVPN 转换器 `WebVpnConverterScreen`<br>（取数 `CampusWebVpnApi`） | `POST /api/webvpn/convert` 真能转（两个方向都真能）：输入一个网址、点「转换」拿到服务端那份 `WebVpnUtil` 算出来的地址；`from_vpn` 的 `400` 如实翻成 `null`（屏上那句「无法解析此 WebVPN 网址」），`401` 抛错（不把「没登录」说成「网址格式不对」） | ① 转换是**一发 HTTP**（要跨网络），而 Android / 桌面是本地纯函数 —— 屏上如实写这一条；② 「用 WebVPN 打开」那一跳只做浏览器做得到的那一件：新标签打开那个网关地址（网关自己的会话不在这个浏览器里，所以要过它自己的登录页）；③ 这一族**不收会话**，本端没有「先登录」那一步 |
 
 接线的三处实现细节（下一轮照这个看）：
@@ -1606,7 +1611,7 @@ private 拷贝、留一份 `internal`），不影响任何测试的计数。
       `:testkit`）。「夹具那一处不是每次都得动，但每次都得核」：这次核的结论就是这一句；
     - **`:web`**：**零改动** —— 形状没变，`Secure` 是 cookie 属性、由浏览器自己带（`web/.../ServeSession.kt`
       那边不需要知道这件事）。将来浏览器靠 HTTPS 换成**安全上下文**才能用的那些能力（剪贴板 /
-      `crypto.subtle` / Service Worker）属 D12，不在这一批。
+      `crypto.subtle` / Service Worker）属 D12 —— **2026-10-15（D12 ③）已经逐条查清**：剪贴板**可用**（`--https` 或 localhost 下 CMP 的 `writeText` 真在，非安全上下文下只 `console.warn`）、`crypto.subtle` **没有消费方**、Service Worker（含 PWA）**仍未做** —— 依据与最小可行方案见 `docs/desktop-port-plan.md` §16.11。
     这一批多出来的一条规矩：**「默认那一档逐字冻结」还要管命令行** —— 不给新参数时 `serve` 的行为
     不只是「端点的形状不变」，还包括启动横幅、`--host/--port` 的语义、cookie 属性一个都不多；
     `ServeHttpsTest` 的第一条与第三条（明文默认值 / HTTPS 端口上发明文必须失败）就是干这个的。
