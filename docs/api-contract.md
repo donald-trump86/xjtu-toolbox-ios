@@ -17,7 +17,7 @@
 
 | | campus-api（旧） | `/api/*`（新） |
 |---|---|---|
-| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用 ⇒ 2026-10-13 起加餐券的**只读**两发（`/api/coupon/{list,detail}`）已落地（§5.5）；⚠️ 2026-10-14 起**付款码的「拿码」**也落地了（`/api/pay/code` + `/api/pay/vouchers`，§5.7），但**领券**（`activateCoupon`）、**付款码的勾选同步**（`updateVoucherStatus`）这类真改上游状态的写路径仍**没有对应端点**（「支付/扣款」那个动作客户端本来就没有，不是本轮砍的）。⚠️ 2026-10-14 的第二批只读域（§5.6）同一条口径：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到四条链在 `:data` 里都有实现（Android 与桌面端直连在用），本轮只端**只读**那一半 —— 学堂的作业**提交**与附件**下载**、教材的**全文阅读**、成绩的**分项**与成绩**报表**都不端，签到的姓名/学号按红线不投影（逐条见 §5.6）。⚠️ 第三批（§5.7）再补三族同一条口径：反馈只端**读**（提交反馈是写路径 ⇒ 不端）、匹配交友只端**消费统计**（学工档案那一半 `:data` 里没有源 ⇒ 不端），WebVPN 那一族是**纯函数**（不收会话、不碰上游、不改任何状态）。⚠️ 第三批的 `:web` 消费方 2026-10-14 也接上了（§5.7 的消费方一节），但**“端出来了”不等于“这一端真用得上”**：付款码那一族 2026-10-15 起三端**连码阵都画得出来**（D12 ①：二维码与 Code128 的编码器搬进 `:core` 的 commonMain，见 §5.7 的消费方一节）、券只读，反馈只能读不能提，匹配交友**整屏读不了**（落一张说明页 —— wasm 上没有 deflate / Base64 ⇒ 出不了分享码） |
+| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用 ⇒ 2026-10-13 起加餐券的**只读**两发（`/api/coupon/{list,detail}`）已落地（§5.5）；⚠️ 2026-10-14 起**付款码的「拿码」**也落地了（`/api/pay/code` + `/api/pay/vouchers`，§5.7），但**领券**（`activateCoupon`）、**付款码的勾选同步**（`updateVoucherStatus`）这类真改上游状态的写路径仍**没有对应端点**（「支付/扣款」那个动作客户端本来就没有，不是本轮砍的）。⚠️ 2026-10-14 的第二批只读域（§5.6）同一条口径：思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到四条链在 `:data` 里都有实现（Android 与桌面端直连在用），本轮只端**只读**那一半 —— 学堂的作业**提交**与附件**下载**、教材的**全文阅读**、成绩的**分项**与成绩**报表**都不端，签到的姓名/学号按红线不投影（逐条见 §5.6）。⚠️ 第三批（§5.7）再补三族同一条口径：反馈只端**读**（提交反馈是写路径 ⇒ 不端）、匹配交友只端**消费统计**（学工档案那一半 `:data` 里没有源 ⇒ 不端），WebVPN 那一族是**纯函数**（不收会话、不碰上游、不改任何状态）。⚠️ 第三批的 `:web` 消费方 2026-10-14 也接上了（§5.7 的消费方一节），但**“端出来了”不等于“这一端真用得上”**：付款码那一族 2026-10-15 起三端**连码阵都画得出来**（D12 ①：二维码与 Code128 的编码器搬进 `:core` 的 commonMain，见 §5.7 的消费方一节）、券只读，反馈只能读不能提；匹配交友那一族 2026-10-15（D12 ②）起**三端都能出码了**（zlib 与 URL-safe Base64 两条缝搬进 `:core` 的 commonMain），浏览器上那张说明页已删、直接挂共享屏 |
 | **谁能做** | 一刀切只读 | **能力开关随部署与账号变**：`canBook` / `canCancel` / `canSubmit` / `hasSeatPlan` / `availableSources` 必须**如实**出现在响应里，屏按它决定画不画按钮（"点了会失败的按钮一个都不画"） |
 | **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌）。令牌先换成 cookie `serve_token`（只有它能被浏览器带着走），之后的请求就只靠它 |
 
@@ -1065,10 +1065,19 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 - `?from=` 省略 = `to` 往前 **90 天**；`?to=` 省略 = **今天**（服务端系统时区）；给了但不成形 /
   `from` 晚于 `to` ⇒ `400`；`scanned` 是**进统计的笔数**（窗口内的流水全表），`truncated` = 到页
   上限还没拉完（`true` 时那三格只覆盖了前几页，如实说）；
-- ⚠️ **分享码那一半在浏览器端不可用**：这一族的终点是 `MatchProfile.encode` / `decode`，而它要的
-  两条平台缝（deflate、Base64）在 **wasmJs 上不存在**（两个 actual 都如实返回 null）⇒
-  `MatchProfile.codecAvailable == false` ⇒ **`:web` 上生成与解析分享码都不可用**。服务端**不**代它
-  生成：码里含昵称与课表网格，是用户自己决定给谁看的东西（`MatchProfile` 的类 KDoc 就是为这条写的）；
+- ✅ **分享码那一半在浏览器端已可用**（2026-10-15，D12 ②）：这一族的终点是 `MatchProfile.encode` /
+  `decode`，它要的两条缝（压缩、URL-safe Base64）原先在 wasmJs 上不存在（两个 actual 都如实返回 null）
+  ⇒ `MatchProfile.codecAvailable == false`：**生成与解析都不可用**，`:web` 上落的是如实说明页
+  （`WebMatchGapScreen`）。本批把两条缝补进 `:core` 的 commonMain（`platform/ZlibCodec.kt` /
+  `platform/UrlSafeBase64.kt`，wasmJs 的 actual 转调它们）⇒ 三端 `codecAvailable` 都是 true，
+  出码与解码在浏览器里真能跑（`:web:wasmJsBrowserTest` 的 `WebMatchShareCodeTest` 在**真浏览器**里钉住：
+  Android 那一端编出来的真码，这一端解得回同一份档案）；
+- ⚠️ **格式是 zlib 流 + URL-safe Base64**（本批顺手纠正了旧 KDoc 里「原始 deflate，无 zlib 头」那句错话：
+  `new java.util.zip.Deflater(BEST_COMPRESSION)` 产出的是**带 zlib 头**的流 —— `78 DA` + deflate +
+  4 字节 Adler-32）。两端的判据是**互相解得开**，**不是压缩字节相同**：浏览器那一份用固定 Huffman +
+  贪心 LZ77（`ZlibCodec` 文件头有对照表），Android / 桌面那一份还是 `java.util.zip`（动态 Huffman）；
+- 服务端**仍然不**代它生成码：码里含昵称与课表网格，是用户自己决定给谁看的东西（`MatchProfile`
+  的类 KDoc 就是为这条写的）；
 - 错误码：`400` 日期形状 / `from` 晚于 `to` · `401` 没会话 · `502` 上游/网络故障。
 
 **WebVPN 转换器（`webvpn`）：纯转换，为什么放在服务端**
@@ -1103,7 +1112,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 |---|---|---|
 | 付款码 `PaymentCodeScreen`<br>（取数 `CampusPayApi`） | `GET /api/pay/code` + `/api/pay/vouchers` 两条都真读（屏上显示那一串**数字**，加餐券那几行（名称 / 金额分 / 到哪天为止）也真画）；`POST /api/pay/vouchers/select` 真写 ⇒ 加餐券那几行的**勾选框照旧画、勾了真同步**（`canSelectVouchers` 不再覆写） | ① **条码 / 二维码矩阵也真画**（D12 ①，2026-10-15）：`qrCodeModules` / `code128Modules` 的 wasmJs actual 转调 `:core` commonMain 里那份纯 Kotlin 编码器（`QrCodec` / `Code128Codec`）⇒ 屏上画的就是 Android 那一张（**逐模块相同**，由 `:core:jvmTest` 的 `CodeMatrixParityJvmTest` 钉住）；那一句「本端没有条码 / 二维码编码器」的降级文案仍在屏上，但三端都编得出码 ⇒ 走不到它；② **「支付」那一档本端也没有** —— 不是缺口，是上游客户端本来就没有那个动作（见本节）；③ 勾选那一次同步失败时屏上那句是 `:core` 自己的「同步失败」 —— 而本机那份落盘（`PaymentSelectionStore`，wasm 上是 localStorage）**照旧先写**，所以“已勾选”与本机记忆可能不一致（与 Android / 桌面同一条行为，不是本端改的） |
 | 反馈 `FeedbackScreen`<br>（取数 `CampusFeedbackApi`） | **三条都真走**：`GET /api/feedback/replies?tickets=` + `/api/feedback/public-qa` 两条真读（「大家在问」真画；工单号来自**屏自己的本地账本**（`:core` 的 `FeedbackStore`，wasm 上是 localStorage —— 这一端没有别的账本）⇒ 账本里有单号时「我提过的」那几张卡与它们的回复也真画）；`POST /api/feedback/submit` 真写 ⇒ 屏上那块表单**照旧画**（`FeedbackSource.canSubmit` 是默认的 `true`，本端不再覆写成 `false`），提交成功那条工单也会记进本地账本 | ① **工单号仍然是屏生成的**（`FeedbackStore.newTicket()`，落在 localStorage）⇒ **换了浏览器 / 清了站点数据，旧工单就找不回了**（服务端不代管这本账，也不下发新号）；② 提交那一枪在服务端会**真写**进多维表格，而“已提交”这一态只能看本地账本的说法 —— 换一台机器看不到自己提过的那几条；③ 部署要配 `FEEDBACK_*` 三个环境变量，否则三条端点一律 `502`（含提交那一枪），而屏把取数失败吞掉 ⇒ 页面呈现为「没有新回复 / 没有问答」—— 这一条写在页顶那句缺口说明里；④ 这一族**不套会话**，本端没有「先登录校园账号」那一步 |
-| 匹配交友 `MatchScreen` | **一个端点都没读**（见右栏） | 这一屏在 `:web` 上落的是**如实说明页**（`WebMatchGapScreen`），不是一个半开着的交友界面：屏本身就在 `:core`（不是「还没搬过来」），用不了的是它的能力 —— `MatchProfile.codecAvailable` 在 wasm 上是 `false`（deflate 与 URL-safe Base64 两个 actual 都如实返回 `null`；浏览器那两份是流式异步 API，而分享码这条链在共享层是同步的）⇒ **生成与解析分享码都不可用**，而整屏的价值全在那两步上（本节「分享码那一半在浏览器端不可用」）。页面逐条写清缺什么：两件平台能力 / 学工档案那条链只在 `:app`（⇒ 服务端也没有 `/api/match/profile`）/ 考试与教材那两维本端没有缓存。⚠️ **`GET /api/match/dining` 这一轮在 `:web` 上没有消费方**：它是出码的一个**输入**，出不了码就没有地方用它 —— 单独把它画成一列就是半残界面（服务端端点与它的契约测试都在，只是这一端没有地方用）；真要接，得先把 deflate / Base64 搬进 wasm（`Deflate.wasmJs.kt` 的 TODO 记着两条路） |
+| 匹配交友 `MatchScreen` | **一个端点都没读**（这一屏一条请求都不发，与 Android / 桌面同一形状） | 2026-10-15（D12 ②）起在 `:web` 上是**真屏**（`:core` 的共享屏 + 本端宿主面 `WebMatchHost`）：出码与解码在这一端真能用（两条缝在 `:core` 的 commonMain），课表族缓存从 **localStorage** 来（与日程页同一份）⇒ 「离线算交集」是真算的。`WebMatchGapScreen` 那张说明页已删。两处如实降级（与桌面端**逐条同一个形状**）：① **学工档案**（年级 / 专业 / 学院 / 书院 / 校区 / 班级 / 生源地）本端没有 ⇒ 那一维在「分享哪些」里是禁用态（那条链是 hello.xjtu.edu.cn，实现只在 `:app` ⇒ 服务端也没有 `/api/match/profile`）；② **校园卡消费**（常在几点吃饭 / 常去哪个食堂）本端没有落盘 ⇒ 同样禁用。⚠️ **扫码那一档没有**（`scanner = null`：浏览器要开相机得走 `getUserMedia`，只在安全上下文里存在 ⇒ D12 ③ 那一档）⇒ 那两颗按钮一个字都不画，只留「粘一段文字」。⚠️ **`GET /api/match/dining` 仍然没有消费方**：它是聚合好的一发，本端读的是**本机缓存**（`MatchHost.transactions()` 空表），要接它得改宿主面的形状（不在本批） |
 | WebVPN 转换器 `WebVpnConverterScreen`<br>（取数 `CampusWebVpnApi`） | `POST /api/webvpn/convert` 真能转（两个方向都真能）：输入一个网址、点「转换」拿到服务端那份 `WebVpnUtil` 算出来的地址；`from_vpn` 的 `400` 如实翻成 `null`（屏上那句「无法解析此 WebVPN 网址」），`401` 抛错（不把「没登录」说成「网址格式不对」） | ① 转换是**一发 HTTP**（要跨网络），而 Android / 桌面是本地纯函数 —— 屏上如实写这一条；② 「用 WebVPN 打开」那一跳只做浏览器做得到的那一件：新标签打开那个网关地址（网关自己的会话不在这个浏览器里，所以要过它自己的登录页）；③ 这一族**不收会话**，本端没有「先登录」那一步 |
 
 接线的三处实现细节（下一轮照这个看）：

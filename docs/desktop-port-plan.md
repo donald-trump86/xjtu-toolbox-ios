@@ -1191,3 +1191,21 @@ D12 是「浏览器能力边界逐条收口」，这一批做的是**前两条**
    结果注释嵌套、`:core:compileKotlinJvm` 报 `Syntax error: Unclosed comment` 加一串假错
    （`Unresolved reference` 之类全是连带）。另外 `Throwable.fillInStackTrace` **wasm 上没有**
    （覆盖它会报 `overrides nothing`），commonMain 里不要覆盖它。
+
+#### ② 匹配交友分享码：把 zlib 与 URL-safe Base64 两条缝搬进 `commonMain`/wasm
+
+| 项 | 落地内容 |
+|---|---|
+| `:core`（新） | `platform/ZlibCodec.kt`（zlib 流的压缩与解压：固定 Huffman + 贪心 LZ77 压、三种块都解的通用解压、Adler-32）、`platform/UrlSafeBase64.kt`（URL-safe Base64 编解码，宽松边界与 `java.util.Base64` 逐条对齐） |
+| `:core`（改） | wasmJs 的 `deflateBytes` / `inflateBytes` / `base64UrlEncode` / `base64UrlDecode` 四件从「如实返回 null / 空串」改成**转调上面两份**，`deflateAvailable` / `base64Available` 在这一端变成 `true` ⇒ `MatchProfile.codecAvailable` 三端都是 `true` |
+| `:app` / `:desktop` | **一行未改**（androidMain / jvmMain 那两份 actual 仍是 `java.util.zip` + `java.util.Base64`） |
+| `:web` | 新宿主面 `WebMatchHost`（课表族缓存 = localStorage，与日程页同一份；学工档案 / 校园卡流水如实没有 ⇒ 那两维禁用，与桌面同一个形状）；`AppPage` 的 `AppRoute.Match` 从 `WebMatchGapScreen` 改成挂 `:core` 的 `MatchScreen`（`scanner = null`：浏览器相机属 D12 ③）——**那张如实说明页删掉**（`WebFallbackScreens.kt`） |
+| 互认怎么钉的 | `core/src/jvmTest/.../ShareCodeInteropJvmTest.kt` 跑**两个方向**：`MatchProfile.encode`（= jvm/Android 那份实现）出的码 → 纯 Kotlin 的 Base64Url + zlib 解回同一段明文；纯 Kotlin 编出来的码 → `MatchProfile.decode`（= Android 那份实现）解回**逐字段相等**的档案。另有 `ZlibCodecJvmTest`（两个方向 + 存储块/固定/动态三种块 + 坏数据两边都 null + 截断与上限）与 `UrlSafeBase64JvmTest`（编码逐字节相同、解码宽松边界与 JDK 一致，含 `QQ` / `QQ=` / `QR` 这些边界）。`:web:wasmJsBrowserTest` 的 `WebMatchShareCodeTest` 在**真浏览器**里再解一遍同一条冻结真码 |
+| ⚠️ 一处**允许**的不一致 | **压缩字节不同**（这一份固定 Huffman，zlib 动态 Huffman ⇒ 压缩率略低），所以「同一份档案在两端各编一次」得到的分享码**字符串不同**；判据是**互相解得开**，不是字节相同（`:platform/ZlibCodec.kt` 文件头有逐条对照表）。要字节也相同就得把 zlib 的匹配启发式整份搬过来，代价与收益不成比例 |
+| ⚠️ 顺手纠正的一处旧错话 | 两条缝的旧 KDoc 写着「原始 deflate，无 zlib 头」—— **那句是错的**：`new java.util.zip.Deflater(BEST_COMPRESSION)` 产出的是**带 zlib 头**的流（`78 DA` + deflate + 4 字节 Adler-32，实测过），也正因为如此喂它随便一串字节能得到 `incorrect header check`。本批按真实格式实现并改正了那两处 KDoc |
+| 接线与文档 | 契约 §5.7 的「分享码那一半在浏览器端不可用」那一段与消费方那一行、点位清单 ⑧ 那一行同步改；`WebSupport` 文件头与 `WebRouteCoverageTest` 的文件头里「Match 落说明页」那两句也改了 |
+
+**渲染与运行时证据**：`:web:wasmJsBrowserTest` 的 `WebMatchShareCodeTest`（3 例）在真浏览器里断言
+`codecAvailable == true`、Android 编的那条真码解得回、自己编的码自己解得回、以及二维码与条形码在这一端
+真编得出来。**没做的**照旧是 D12 ③（相机 / 剪贴板 / WebCrypto —— 这一批只到「HTTPS 是前置」的那一步）、
+④（PWA）、⑤（`GameMerge`）。

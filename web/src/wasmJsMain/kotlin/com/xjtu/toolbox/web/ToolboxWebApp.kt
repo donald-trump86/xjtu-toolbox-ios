@@ -27,6 +27,7 @@ import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
 import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
+import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
@@ -858,11 +859,21 @@ private fun AppPage(
             }
         }
 
-        // 匹配交友：这一屏在浏览器里**整屏用不了** —— 它的全部动作都是「把自己的档案压成一段码」与
-        // 「解朋友的码」，而那两步要 deflate 与 URL-safe Base64（wasm 上两个 actual 都如实返回 null）
-        // ⇒ `MatchProfile.codecAvailable` 是 false。学工档案那一半服务端也没有端点（hello 那条链只在
-        // `:app`）。所以这里画的是**如实说明页**，不是半开着的交友界面（见 [WebMatchGapScreen]）。
-        AppRoute.Match -> WebMatchGapScreen(onNavigate)
+        // 匹配交友（`AppRoute.Match`）：与 App / 桌面**同一张共享屏**（`:core` 的 `MatchScreen` + 本端
+        // 宿主面 `WebMatchHost`）。2026-10-14 接线的第一版在这里落的是**如实说明页**（`WebMatchGapScreen`）：
+        // 那时 wasm 上没有 deflate 与 URL-safe Base64 ⇒ `MatchProfile.codecAvailable` 是 false，出码与解码
+        // 都不可用，而整屏的价值全在那两步上。2026-10-15（D12 ②）两条缝补进 `:core` 的 commonMain
+        // （`ZlibCodec` / `UrlSafeBase64`）⇒ 这一端真能出码、真能解朋友的码，那张说明页随之删掉。
+        //
+        // 这一屏一条请求都不发（只读本机缓存：课表族缓存 = localStorage，与日程页同一份）⇒ 与后端是
+        // 哪一形态无关。`scanner = null`：浏览器里开相机要 `getUserMedia`（只在安全上下文里存在）
+        // 与权限那一档，属 D12 ③；传 null 的效果是那两颗按钮一个字都不画（与桌面同一处置），
+        // 而不是画两颗点了没反应的按钮。
+        AppRoute.Match -> MatchScreen(
+            host = remember { WebMatchHost() },
+            onBack = back,
+            scanner = null,
+        )
 
         AppRoute.WebVpnConverter -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
