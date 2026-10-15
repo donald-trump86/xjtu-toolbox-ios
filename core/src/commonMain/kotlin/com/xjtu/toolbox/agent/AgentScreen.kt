@@ -231,7 +231,12 @@ fun AgentScreen(
                         onSave = { newConfig ->
                             // 即改即存：每次配置变动立即写入，不必等到用户点「保存」
                             host.saveConfig(newConfig)
-                            config = newConfig
+                            // 「这一端配没配 Key」是宿主提供的一格（浏览器上 Key 在 serve 侧，本端拿不到）：
+                            // 面板自己拼的那份不带它 ⇒ 保存后按宿主那份补回来，否则页面会当「没配」显示
+                            // （Android / 桌面的默认实现恒为 false ⇒ 这一行与搬迁前逐字同值）
+                            config = newConfig.copy(
+                                keyConfigured = newConfig.keyConfigured || host.loadConfig().keyConfigured,
+                            )
                         },
                         modifier = Modifier
                             .fillMaxSize()
