@@ -811,9 +811,9 @@ private fun AppPage(
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "一处如实不画：条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
-                        "`qrCodeModules` / `code128Modules` 如实返回 null）⇒ 只画付款码**数字**那一档，" +
-                        "两个矩阵一个都不画（不是画一张假的）。加餐券的勾选**照旧真能勾**" +
+                    "这一屏与 App / 桌面**同一个屏、同一张码**：二维码与 Code128 条形码在自己这一端算出来" +
+                        "（D12 ①：编码器在 `:core` 的 commonMain，与 Android 那份 zxing 逐模块相同）⇒ 手机上" +
+                        "扫出来就是下面那串付款码数字。加餐券的勾选**照旧真能勾**" +
                         "（POST /api/pay/vouchers/select 真把「这一轮用哪几张」推给上游）。" +
                         "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
                 )

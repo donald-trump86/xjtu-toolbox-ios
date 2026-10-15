@@ -1165,3 +1165,29 @@ WebView：`BrowserScreen.syncCookiesToWebView` 把 App 的 cookie 罐灌进 `Coo
 下一步是让 serve **代理**支付页（同源发出去、连表单与 JS 一起转）—— 那是新的写/支付暴露面，需单独授权。
 施工坑照旧：KDoc 里不要写 `/**`（§16.7）。
 
+### 16.10 D12 的完工记录（2026-10-15）：① 付款码矩阵 / ② 分享码两条缝
+
+D12 是「浏览器能力边界逐条收口」，这一批做的是**前两条** —— 两条都属于「让浏览器能做出 Android 已经能做的东西」
+（③ 相机·剪贴板·WebCrypto、④ PWA、⑤ `GameMerge` **不在本批**，如实记在下面「没做的」那一段）。
+
+#### ① 付款码矩阵：QR + Code128 的编码器按「三端一份」搬进 `:core` 的 commonMain
+
+| 项 | 落地内容 |
+|---|---|
+| `:core`（新） | `platform/QrCodec.kt`（模式选择 / 版本选择 / 终止位 / Reed-Solomon / 交织 / 掩码罚分选优）、`platform/QrLayout.kt`（框架排布：定位与校正图案、时序、格式与版本信息、数据位填充）、`platform/QrMaskUtil.kt`（八种掩码与四条罚分规则）、`platform/QrVersionTable.kt`（1~40 版的纠错块表，L 那一列）、`platform/Code128Codec.kt`（码集 A/B/C 自动选择 + 校验位 + 停止符 + 静默区）。全部是 zxing 3.5.4（Apache-2.0）同名实现的**逐字对照**（文件头写了对照表） |
+| `:core`（改） | wasmJs 的两份 actual 从「如实返回 null」改成**转调上面两份**：`qrCodeModules` / `code128Modules` ⇒ 浏览器这一端真出码（`CodeMatrix.wasmJs.kt`） |
+| `:app` / `:desktop` | **两行都没改**：androidMain / jvmMain 两份 actual 仍走 zxing（C1 红线：Android 行为逐字不变） |
+| 与 Android 的关系 | **逐模块相同**（这是「逐字同口径」的机器判据）：`core/src/jvmTest/.../CodeMatrixParityJvmTest.kt` 拿同一批输入（付款码那串 20 位数字、分享码那串 base64url、按长度铺开的数字串、字母数字与字节模式、随机 fuzz）同时跑**两份实现**并逐格断言；并且拿 zxing 的**解码器**把这一份纯 Kotlin 编出来的矩阵扫回原文 —— 「看着像码、扫不出来的假矩阵」过不了这一条 |
+| 接线与文档 | `:web` 的付款码页顶那行缺口说明改成「与 App / 桌面同一张码」；契约 §5.7 的消费方那一行、点位清单 ⑧ 那一行同步改 |
+
+**踩到的两个坑（如实记，下一个动这块的人会撞上同一个）**：
+
+1. **`CodeMatrix` 那份矩阵的「一个模块一个像素」不能直接喂 zxing 的解码器**：`iSkip = MIN_SKIP = 3`
+   的行扫描 + 找定位图案那一套，在**每模块 1 像素 + 有静默区**的图上会抛 `NotFoundException`
+   （同一个矩阵**不留**静默区反而扫得出来 ⇒ 问题在解码侧的找图案，不在矩阵）。所以那两条「扫回原文」
+   的用例按屏幕/相机的真实密度摆图：**4 像素/模块 + 静默区**（二维码 4 个模块、条形码 10 个模块，
+   上下也要留 —— 条形码阵列只有 1 个模块高，不给上下留白等于把整张图剪成一条）。判据一个字没放宽。
+2. **KDoc 里不要写 `/**`**（§16.7 那条施工坑，这次又踩了）：这次是在注释里举反例时写了那个符号，
+   结果注释嵌套、`:core:compileKotlinJvm` 报 `Syntax error: Unclosed comment` 加一串假错
+   （`Unresolved reference` 之类全是连带）。另外 `Throwable.fillInStackTrace` **wasm 上没有**
+   （覆盖它会报 `overrides nothing`），commonMain 里不要覆盖它。
