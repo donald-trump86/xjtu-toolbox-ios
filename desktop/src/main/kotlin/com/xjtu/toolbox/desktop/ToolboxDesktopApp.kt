@@ -93,6 +93,7 @@ import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.desktop.lms.DesktopLmsSaver
+import com.xjtu.toolbox.desktop.media.DesktopDownloadedFilesHost
 import com.xjtu.toolbox.desktop.media.DesktopDownloads
 import com.xjtu.toolbox.desktop.media.DesktopVideoPlayerHost
 import com.xjtu.toolbox.media.DownloadManagerScreen
@@ -611,12 +612,15 @@ private fun DesktopPage(
             )
         }
 
-        // 考勤：有自己的独立登录入口，会话进门时才建；桌面没有 SAF 选择器 ⇒ 不发附件。
+        // 考勤：有自己的独立登录入口，会话进门时才建。请假附件走系统文件对话框
+        // （`DesktopFileDialogs.pickEvidenceFiles`，与 `:app` 的 SAF 那一格同语义：取消 = 空表）。
         AppRoute.Attendance -> DesktopSiteGate(auth, DesktopAuth.ATTENDANCE_SITE_KEY, "考勤") { site ->
             AttendanceScreen(
                 source = remember(site) { AppAttendanceSource(site) },
                 onBack = back,
                 onOpenIclassface = { onNavigate(DesktopTarget.App(AppRoute.Iclassface)) },
+                // FileDialog 是**阻塞**的，不在 UI 线程上弹（主线程那侧会卡住整张画面）
+                pickEvidenceFiles = { withContext(Dispatchers.IO) { DesktopFileDialogs.pickEvidenceFiles() } },
             )
         }
         is AppRoute.Lms -> DesktopSiteGate(auth, DesktopAuth.LMS_SITE_KEY, "思源学堂") { site ->
@@ -719,7 +723,8 @@ private fun DesktopPage(
             manager = DesktopDownloads.manager,
             onBack = back,
             dirInfo = DesktopDownloads.dirInfo,
-            files = null,
+            // 文件那一组：桌面的「登记表」就是 ~/Downloads 这个目录本身（见那个 object 的 KDoc）
+            files = DesktopDownloadedFilesHost,
             onPlayTask = { task -> DesktopDownloads.openDownloadedFile(task.filePath) },
         )
         // 设置：屏在 `:core`（`SettingsScreen`，与 `:app` 同一份），
@@ -813,6 +818,10 @@ private fun DesktopPage(
             host = remember(auth) { DesktopMatchHost(auth) },
             onBack = back,
             scanner = null,
+            // 那两颗扫码按钮不画（桌面没有相机/相册），但"为什么没有"得说一句：
+            // 否则用户会以为这一端坏了，或以为码只能手打。
+            gapNote = "这一端没有相机，也没有相册，扫不了码：请用手机的「匹配」扫一下，或者让对方把文字码发给你、" +
+                "粘在下面那一格（粘进来的码照常能算，契合度是在本机算的）。",
         )
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
 
@@ -846,6 +855,9 @@ private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> U
         }
         AgentScreen(
             host = host,
+            // 挑图走系统文件对话框（`rememberDesktopAgentImagePicker`）；这一档由 honored 里
+            // 的 IMAGE_INPUT 决定要不要给入口，两边同源。
+            imagePicker = rememberDesktopAgentImagePicker(),
             onNavigate = { route -> onNavigate(DesktopTarget.App(route)) },
             onTitleChange = { title = it },
             onActionsChange = { actions = it },

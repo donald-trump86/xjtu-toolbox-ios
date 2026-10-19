@@ -1,10 +1,13 @@
 package com.xjtu.toolbox.desktop.archive
 
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.archive.ArchiveCodec
 import com.xjtu.toolbox.archive.ArchiveFileBackend
 import com.xjtu.toolbox.archive.ArchiveImportTarget
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveManifest
+import com.xjtu.toolbox.archive.ArchivePaths
+import com.xjtu.toolbox.archive.ArchiveScoreReport
 import com.xjtu.toolbox.archive.ArchiveSource
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ImportResult
@@ -14,6 +17,7 @@ import com.xjtu.toolbox.archive.StoreValue
 import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveSourceOf
 import com.xjtu.toolbox.archive.archiveStoreBackend
+import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.secureKeyValueStore
@@ -21,7 +25,9 @@ import java.io.File
 
 /**
  * 桌面端的导入写侧：`:core` 的 [ArchiveImportTarget] 在 jvm 上的落点。
- * `files/` 里 `agent_sessions<suffix>/` 写成文件，三族行数组并进键值店（[DesktopArchiveRows]），其余不落地。
+ * `files/` 里 `agent_sessions<suffix>/` 写成文件，三族行数组并进键值店（[DesktopArchiveRows]），
+ * 成绩缓存那一族（[ArchiveScoreReport]）并回它自己的店（`score_report<suffix>` 的 `score_report_<学号>`），
+ * 其余不落地。
  *
  * 已知问题：三族的店名按当前账号解析，启动时那次导入还没登录，带后缀的两族会落到 `<店名>default`。
  */
@@ -34,6 +40,8 @@ class DesktopArchiveImportTarget(
     private val files: ArchiveFileBackend? = archiveFileBackend(),
     /** 数据根（`<数据根>/agent_sessions<suffix>/…` 的父目录）。 */
     private val dataRoot: File? = archiveDataRootOrNull(),
+    /** 墙上时钟（重建旧档案里裸数组的 `at` 用）。 */
+    private val now: () -> Long = { System.currentTimeMillis() },
 ) : ArchiveImportTarget {
 
     override fun readStore(rawName: String): StoreSnapshot? = storeBackend.readStore(rawName)
@@ -52,15 +60,71 @@ class DesktopArchiveImportTarget(
         if (at != null) store.putString(key + ArchiveCodec.WRITTEN_AT_SUFFIX, at.toString())
     }
 
-    override fun readFile(suffix: String, relPath: String): String? = files?.read(suffix, relPath)
+    override fun readFile(suffix: String, relPath: String): String? {
+        // 成绩缓存那一族在桌面端内是 KV 店（`score_report<suffix>` 的 `score_report_<学号>`）⇒ 现状从店里读：
+        // §6.4 文件层那条「本端有 ⇒ 保持不变」对 KV 载体一样成立。
+        scoreReportValue(suffix, relPath)?.let { return it }
+        return files?.read(suffix, relPath)
+    }
+
+    /**
+     * 键名归一（§6.3）：档案里那一族的名字**不含学号**，桌面端内名要它（键 `score_report_<学号>`）。
+     * 档案里那一档账号先查，没有时用本机当前账号；两边都拼不出 ⇒ null（这一条跳过并计数）。
+     */
+    override fun fileRelPath(suffix: String, accountId: String?, relPath: String): String? {
+        if (!ArchiveScoreReport.isFamily(relPath)) return relPath
+        val studentId = ArchiveScoreReport.studentIdOf(suffix, accountId ?: activeAccountId()) ?: return null
+        return ArchiveScoreReport.endRelPath(studentId)
+    }
+
+    /**
+     * 形状归一（§6.3）：桌面端内本来就是 `{"at","grades"}`，旧档案里的裸数组用导入时刻重建 `at`。
+     * 转不动 ⇒ null（跳过并计数）。
+     */
+    override fun fileContent(suffix: String, accountId: String?, relPath: String, content: String): String? =
+        if (!ArchiveScoreReport.isFamily(relPath)) content else ArchiveScoreReport.toCanonical(content, now())
 
     override fun putFile(suffix: String, relPath: String, content: String) {
+        // 成绩缓存那一族并回它自己的店（不归键值店 / 也不落成文件）
+        if (landScoreReport(suffix, relPath, content)) return
         if (DesktopArchiveRows.land(suffix, relPath, content, storeOf = storeOf) != null) return
         val root = dataRoot ?: return
         if (!relPath.startsWith(AGENT_SESSIONS_PREFIX)) return
         val target = File(File(root, "agent_sessions$suffix"), relPath.removePrefix(AGENT_SESSIONS_PREFIX))
         DesktopArchiveIo.writeFile(target, content.toByteArray(Charsets.UTF_8))
     }
+
+    /** 本机当前账号（没登录 / 取不到 ⇒ null）。 */
+    private fun activeAccountId(): String? =
+        runCatching { AccountContext.activeAccountId }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    /**
+     * 成绩缓存那一族在桌面端内所在的店名：`score_report` + 账号后缀（`DesktopScoreReportCache.storeName(accountId)`
+     * 的同一个口径；档案里的 suffix 与 `AccountContext.suffixFor` 同一种写法）。
+     */
+    private fun scoreReportStoreName(suffix: String): String = DesktopScoreReportCache.STORE_NAME + suffix
+
+    /** 这一条是成绩缓存那一族时给出端内键（`score_report_<学号>`）；不是 / 名字里没有学号（规范名）⇒ null。 */
+    private fun scoreReportKey(relPath: String): String? =
+        if (ArchiveScoreReport.isFamily(relPath)) {
+            ArchiveScoreReport.legacyStudentId(relPath)?.let { DesktopScoreReportCache.keyFor(it) }
+        } else {
+            null
+        }
+
+    /** 端内店里那一族的现状（§6.4：本端有 ⇒ 保持不变）。 */
+    private fun scoreReportValue(suffix: String, relPath: String): String? {
+        val key = scoreReportKey(relPath) ?: return null
+        return runCatching { storeOf(scoreReportStoreName(suffix)).getString(key) }.getOrNull()
+    }
+
+    /** 把档案里那一族写回它自己的店；不是这一族 ⇒ false（交给别的落点）。 */
+    private fun landScoreReport(suffix: String, relPath: String, content: String): Boolean {
+        val key = scoreReportKey(relPath) ?: return false
+        storeOf(scoreReportStoreName(suffix)).putString(key, content)
+        return true
+    }
+
 
     private companion object {
         /** 桌面 `files/` 里唯一落成文件的一族。 */
@@ -124,7 +188,8 @@ object DesktopArchiveImport {
                 Log.i(
                     TAG,
                     "导入 ${archive.name}：:core 的 StoreArchive.import 写入 ${result.keysWritten} 个键 /" +
-                        " 保持 ${result.keysKept} 个 / 写回 ${result.filesWritten} 个文件",
+                        " 保持 ${result.keysKept} 个 / 写回 ${result.filesWritten} 个文件" +
+                        (if (result.filesSkipped > 0) " / 跳过 ${result.filesSkipped} 条" else ""),
                 )
                 DesktopImportOutcome.Imported(archive, identity, result)
             }
@@ -140,6 +205,7 @@ object DesktopArchiveImport {
                 appendLine("keysWritten=${result.keysWritten}")
                 appendLine("keysKept=${result.keysKept}")
                 appendLine("filesWritten=${result.filesWritten}")
+                appendLine("filesSkipped=${result.filesSkipped}")
             },
         )
     }

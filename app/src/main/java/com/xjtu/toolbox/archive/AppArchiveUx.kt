@@ -101,7 +101,8 @@ object AppArchiveUx {
             is ArchiveImportOutcome.Imported -> Log.i(
                 TAG,
                 "导入 ${outcome.archive.name}：写入 ${outcome.result.keysWritten} 个键 /" +
-                    " 保持 ${outcome.result.keysKept} 个 / ${outcome.result.filesWritten} 个文件",
+                    " 保持 ${outcome.result.keysKept} 个 / ${outcome.result.filesWritten} 个文件" +
+                    (if (outcome.result.filesSkipped > 0) " / 跳过 ${outcome.result.filesSkipped} 条" else ""),
             )
             is ArchiveImportOutcome.AlreadyImported ->
                 Log.i(TAG, "${outcome.archive.name} 已经导过（标记与这份档案一致）—— 什么都不做")

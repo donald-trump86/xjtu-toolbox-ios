@@ -72,6 +72,7 @@ object AppArchiveImport {
                 appendLine("keysWritten=${result.keysWritten}")
                 appendLine("keysKept=${result.keysKept}")
                 appendLine("filesWritten=${result.filesWritten}")
+                appendLine("filesSkipped=${result.filesSkipped}")
             },
         )
     }

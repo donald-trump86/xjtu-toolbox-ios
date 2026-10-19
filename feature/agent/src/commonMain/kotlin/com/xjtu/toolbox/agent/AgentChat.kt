@@ -63,6 +63,8 @@ internal fun ChatPanel(
     host: AgentHost,
     /** 系统相册挑图（`:app` 实现；没有相册的端那一档不画，见 [AgentCapability.IMAGE_INPUT]）。 */
     imagePicker: AgentImagePicker,
+    /** 「这一端的屁岱比手机朴素在哪」那段话（见 [AgentHost.gapNote]）：给文案就画在对话最上面，默认不画。 */
+    gapNote: String? = null,
     padding: PaddingValues,
     scrollBehavior: ScrollBehavior,
     onNavigate: (AppRoute) -> Unit,
@@ -156,6 +158,11 @@ internal fun ChatPanel(
                     contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+            // 这一端的屁岱缺什么：说在最前面（用户一眼看到"这一端少的那几样"，
+            // 而不是点了一颗不存在的按钮或以为工具坏了）。
+            if (gapNote != null) {
+                item(key = "host-gap") { com.xjtu.toolbox.ui.components.GapNote(gapNote) }
+            }
             if (vm.messages.isEmpty()) {
                 item(key = "welcome") {
                     AgentWelcome(

@@ -67,13 +67,34 @@ object AppArchiveHost {
                     fb.list(suffix, "agent_sessions").forEach { rel ->
                         fb.read(suffix, rel)?.let { add(ArchiveFile(suffix, rel, it)) }
                     }
+                    // §6.3 逐族迁移：`schedule/` 之下的条目里，成绩缓存那一族要转形状 + 归一名字
+                    //（专到 [scheduleFileOf]）
                     fb.list(suffix, "schedule").forEach { rel ->
-                        fb.read(suffix, rel)?.let { add(ArchiveFile(suffix, rel, it)) }
+                        scheduleFileOf(fb, suffix, rel)?.let { add(it) }
                     }
                 }
             }
         }
         return assemble(accounts, stores, files, appVersion, now = now)
+    }
+
+    /**
+     * `files/schedule/` 之下的一个端内条目 → 档案条目（§6.3 逐族迁移）。
+     *
+     * 不属于迁移族的照原样搬（§2.3）；成绩缓存那一族（[ArchiveScoreReport]）端内是**裸数组 + mtime**，
+     * 档案里统一成 `{"at":<mtime>,"grades":[…]}` 与不含学号的规范名。转不动 ⇒ null（这一条不进档案，
+     * 与导入侧的「跳过并计数」同一句话；导出不因此抛）。
+     */
+    private fun scheduleFileOf(
+        filesBackend: ArchiveFileBackend,
+        suffix: String,
+        relPath: String,
+    ): ArchiveFile? {
+        val content = filesBackend.read(suffix, relPath) ?: return null
+        if (!ArchiveScoreReport.isFamily(relPath)) return ArchiveFile(suffix, relPath, content)
+        val canonical = ArchiveScoreReport.toCanonical(content, filesBackend.mtimeMs(suffix, relPath) ?: 0L)
+            ?: return null
+        return ArchiveFile(suffix, ArchiveScoreReport.CANONICAL_REL, canonical)
     }
 
     /** 把档案字节映射落盘到目录（目录即档案本体，§2.0；每个条目一个文件，父目录按需建）。 */

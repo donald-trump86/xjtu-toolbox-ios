@@ -8,6 +8,7 @@ import com.xjtu.toolbox.archive.StoreSnapshot
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveFile
 import com.xjtu.toolbox.archive.ArchiveNames
+import com.xjtu.toolbox.archive.ArchiveScoreReport
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ArchiveFileBackend
 import com.xjtu.toolbox.archive.ExportOptions
@@ -17,8 +18,11 @@ import com.xjtu.toolbox.archive.archiveDataRoot
 import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.DesktopBuildConfig
+import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.keyValueStoreRoot
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import java.io.File
 import kotlin.time.Clock
@@ -100,10 +104,19 @@ object DesktopArchiveHost {
     ): Map<String, String> {
         val accounts = accountsFrom(AccountStore().list())
         val suffixes = (accounts.map { it.suffix } + ANONYMOUS_SUFFIXES).distinct()
+        val stores = readStores(archiveStoreBackend())
+        // §6.3 逐族迁移（「成绩缓存」那一族）：端内是键值店、档案里是文件 ⇒ 这一族的店**不进 `stores/`**
+        // （否则同一份缓存会在档案里出现两份，Android 那边还会把它当 prefs 店落下来）。族名按 base 认，
+        // 用的就是 [StoreArchive.export] 自己的拆分口径（[ArchiveNames.split]）。
+        val scoreStores = ArchiveNames.split(stores.map { it.rawName }, suffixes)
+            .filter { it.base == DesktopScoreReportCache.STORE_NAME }
+            .map { it.raw }
+            .toSet()
         return buildArchive(
             accounts = accounts,
-            stores = readStores(archiveStoreBackend()),
-            files = readFiles(archiveFileBackend(), suffixes) + readRowFiles(storeOf, accountId),
+            stores = stores.filterNot { it.rawName in scoreStores },
+            files = readFiles(archiveFileBackend(), suffixes) + readRowFiles(storeOf, accountId) +
+                readScoreFiles(accounts.map { it.accountId }, now = now),
             now = now,
         )
     }
@@ -113,6 +126,36 @@ object DesktopArchiveHost {
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
         accountId: String? = AccountContext.activeAccountId,
     ): List<ArchiveFile> = DesktopArchiveRows.filesOf(storeOf, accountId)
+
+    /**
+     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是键值店 `score_report<账号后缀>` 的 `score_report_<学号>`
+     * （[DesktopScoreReportCache]），档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，
+     * 名字里不带学号（账号维度由 `accounts/<suffix>/` 承担）。
+     *
+     * 读不到这一族的缓存 ⇒ 不出这一条。旧端内形状（裸数组）用那份 properties 的 mtime 补 `at`（§6.3「mtime → at」）；
+     * 连 mtime 也没有 ⇒ 用导出时刻。转不动的那份跳过（导出不报错，§8.6）。
+     */
+    fun readScoreFiles(
+        accountIds: List<String>,
+        now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+        storeOf: (String) -> KeyValueStore = { keyValueStore(it) },
+    ): List<ArchiveFile> = accountIds.mapNotNull { id ->
+        val rawName = DesktopScoreReportCache.storeName(id)
+        val key = DesktopScoreReportCache.keyFor(id)
+        val legacyName = DesktopScoreReportCache.STORE_NAME
+        val raw = runCatching { storeOf(rawName).getString(key) }.getOrNull()
+            ?: runCatching { storeOf(legacyName).getString(key) }.getOrNull()
+            ?: return@mapNotNull null
+        val at = scoreStoreMtime(rawName) ?: scoreStoreMtime(legacyName) ?: now()
+        ArchiveScoreReport.toCanonical(raw, at)?.let {
+            ArchiveFile(ArchiveNames.suffixFor(id), ArchiveScoreReport.CANONICAL_REL, it)
+        }
+    }
+
+    /** 端内那份店的落盘文件的 mtime（没有这一份 / 取不到 ⇒ null）。 */
+    private fun scoreStoreMtime(rawName: String): Long? = runCatching {
+        File(keyValueStoreRoot(), "$rawName.properties").takeIf { it.isFile }?.lastModified()
+    }.getOrNull()
 
     /** 导出到数据根：目录形态（`<数据根>/archive/`，可整拷）+ zip 形态（`<数据根>/archive.zip`，给另一台机器 / 给 Android）。 */
     fun exportToDataRoot(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): ExportOutcome {

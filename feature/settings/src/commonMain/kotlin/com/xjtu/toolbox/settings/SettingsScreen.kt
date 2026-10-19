@@ -55,6 +55,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.HapticsSettingItem
+import com.xjtu.toolbox.ui.components.GapNote
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -518,6 +519,9 @@ fun SettingsScreen(
                     ) {
                         Spacer(Modifier.height(glassTop))
                         groups[selectedGroup.coerceIn(groups.indices)].body()
+                        // 宽屏把这一端缺的设置汇总放右栏底部（左栏只有组名，放不下这一句长文）。
+                        host.gapNote?.let { GapNote(it) }
+
                         Spacer(Modifier.height(16.dp))
                         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
                     }
@@ -538,6 +542,11 @@ fun SettingsScreen(
             ) {
                 Spacer(Modifier.height(glassTop))
                 groups.forEach { it.body() }
+                // 屏底那一句：这一端没有哪些设置（见 SettingsHost.gapNote，默认 null ⇒ 不多一行）。
+                host.gapNote?.let {
+                    Spacer(Modifier.height(8.dp))
+                    GapNote(it)
+                }
 
                 Spacer(Modifier.height(16.dp))
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))

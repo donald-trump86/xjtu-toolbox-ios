@@ -60,6 +60,19 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
     override val honoredRows: Set<SettingsRow> =
         setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_THEME)
 
+    /**
+     * 屏底那一句（见 `SettingsHost.gapNote`）。
+     *
+     * 缺的 8 行加两个整组挤成一段：设置页里逐条贴“本端没有”会读成一串故障；用户要的是
+     * 一句“这些去 App 调”加一句“为什么”。触感（D26 豁免）与小组件刷新（D22 豁免）不列：
+     * 桌面没有振动器、也没有主屏，说了对用户没意义。
+     */
+    override val gapNote: String =
+        "桌面版没有这些设置（要调请用 App）：常用功能、界面风格、启动 Tab、连接模式、考勤角标、场馆验证码" +
+            "——前四项是手机上的底栏与界面形态，桌面外壳照桌面习惯另做了一套；场馆验证码要先登录站点。" +
+            "课表来源只有教务一个：考勤那一路桌面还没接。" +
+            "这里也没有「通知与提醒」和「更新」两组——桌面没有系统通知与后台排程，安装包自带版本，不走单独的更新通道。"
+
     override val changelog: List<ChangelogEntry> = emptyList()
 
     override val scheduleSourceOptions: List<ScheduleSourceOption> = emptyList()

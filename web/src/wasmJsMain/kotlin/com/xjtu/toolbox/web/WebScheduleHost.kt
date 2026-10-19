@@ -23,18 +23,26 @@ import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import kotlinx.datetime.LocalDate
 
-/** Web 端的日程页宿主面（`ScheduleHost`）。 */
+/**
+ * Web 端的日程页宿主面（`ScheduleHost`）。
+ *
+ * 座位数两种形态都有真取数（[CampusEmptyRoomApi.seatCount]：serve 打 `seat-count`，
+ * CAMPUS_API 则在当天已拉过的教室行里查），所以 [honored] 里不再按形态分叉。
+ */
 internal class WebScheduleHost(
     private val client: HttpClient,
     private val mode: ApiMode,
 ) : ScheduleHost {
 
-    /** 见类 KDoc：自建日程与课表变更气泡两种形态都有；座位数只在 serve 形态下真有取数。 */
+    /**
+     * 见类 KDoc：自建日程 / 课表变更气泡 / 座位数三样，两种形态都真会照着办。
+     * 座位数在 CAMPUS_API 形态下也不是空实现：算的是 [CampusEmptyRoomApi.seatCount] 的 `cachedRooms` 那一档。
+     */
     override val honored: Set<ScheduleCapability> = buildSet {
         add(ScheduleCapability.CUSTOM_COURSE_EDIT)
         // 调课/停课的气泡：一条自己的提醒写进 `:core` 的收纳（见类 KDoc 与 [postScheduleChange]）
         add(ScheduleCapability.SCHEDULE_CHANGE_BUBBLE)
-        if (mode == ApiMode.SERVE) add(ScheduleCapability.SEAT_COUNT)
+        add(ScheduleCapability.SEAT_COUNT)
     }
 
     /** 课表变更（调课/停课/换教室）冒一条气泡。 */
@@ -63,7 +71,10 @@ internal class WebScheduleHost(
     /** 课程详情的两项下钻本端没有 ⇒ 不画。 */
     override val courseLinks: CourseLinkAccess? = null
 
-    /** 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`（见类 KDoc 的 `honored`）。 */
+    /**
+     * 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`；CAMPUS_API 形态从
+     * 本次会话已经拉到的那一天教室行（`cachedRooms`）里按教室名查，查不到就是 null（那一格不画数字）。
+     */
     private val emptyRoom = CampusEmptyRoomApi(client, API_BASE, mode)
 
     override suspend fun roomSeatCount(location: String): Int? = emptyRoom.seatCount(location)

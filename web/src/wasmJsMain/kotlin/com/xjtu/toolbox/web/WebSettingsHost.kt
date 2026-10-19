@@ -60,6 +60,17 @@ internal class WebSettingsHost(
     /** 「更新」整组：本端的更新就是服务端换一份 dist（刷新一次页面） ⇒ 整组不画。 */
     override val updateSection: (@Composable () -> Unit)? = null
 
+    /**
+     * 屏底那一句（见 `SettingsHost.gapNote`）：缺的 7 行加两个整组，挤成一段。
+     *
+     * 动态取色（W14）与触感（W13）不列：浏览器里那不是“缺”，是没有这个概念（豁免那一档）。
+     */
+    override val gapNote: String =
+        "网页版没有这些设置（要调请用 App）：常用功能、界面风格、启动 Tab、连接模式、考勤角标、场馆验证码" +
+            "——前四项是手机上的底栏与界面形态，网页外壳另做了一层；场馆验证码要先登录站点。" +
+            "课表来源只有教务一个：考勤那一路要站点会话，serve 端还没有转发。" +
+            "这里也没有「通知与提醒」和「更新」两组——网页版随 serve 一起更新，没有单独的更新通道；" +
+            "提醒能不能弹，看这个站点有没有拿到浏览器通知权限。"
     override val onNetworkModeChanged: (() -> Unit)? = null
 
     override fun onAppearanceChanged() = notifyAppearanceChanged()

@@ -2,6 +2,7 @@ package com.xjtu.toolbox.archive
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.data.AppDatabase
 import java.io.File
@@ -17,6 +18,11 @@ class AppArchiveImportTarget(
     private val storeBackend: ArchiveStoreBackend,
     /** `files/` 那一层的写侧（Room 行数组 + 两族真文件）。 */
     private val files: AppArchiveFileWriter?,
+    /**
+     * `accounts/<suffix>` → 学号（= 账号 id，`AppLoginState` 的 `activeUsername`）：
+     * 键名归一要用它把端内原名拼回来（[ArchiveScoreReport]）。
+     */
+    private val studentIdOf: (String, String?) -> String? = { suffix, accountId -> defaultStudentIdOf(suffix, accountId) },
 ) : ArchiveImportTarget {
 
     override fun readStore(rawName: String): StoreSnapshot? = storeBackend.readStore(rawName)
@@ -42,6 +48,26 @@ class AppArchiveImportTarget(
         files?.write(suffix, relPath, content)
     }
 
+    /**
+     * 键名归一（§6.3）：档案里那一族的名字**不含学号**，端内原名（`score_report_<学号>.json`）在这里拼回去。
+     *
+     * 档案里那一档账号先查（[ArchiveImportTarget.fileRelPath] 的 `accountId`）；档案里没有（`global/` /
+     * `default` / `_`）时用本机当前登录的账号。两边都拼不出 ⇒ null（这一条跳过并计数，绝不抛）。
+     */
+    override fun fileRelPath(suffix: String, accountId: String?, relPath: String): String? {
+        if (!ArchiveScoreReport.isFamily(relPath)) return relPath
+        val studentId = studentIdOf(suffix, accountId) ?: return null
+        return ArchiveScoreReport.endRelPath(studentId)
+    }
+
+    /**
+     * 形状归一（§6.3）：档案里是 `{"at","grades"}`，`:app` 端内是**裸数组**（年龄交给文件 mtime）。
+     * 转不动 ⇒ null（跳过并计数；端内一个字节不改）。
+     */
+    override fun fileContent(suffix: String, accountId: String?, relPath: String, content: String): String? =
+        if (!ArchiveScoreReport.isFamily(relPath)) content else ArchiveScoreReport.toBareGrades(content)
+
+
     companion object {
         /** 默认装配：`Context` 的 prefs + `:core` 的 store 投影 + [AndroidArchiveFileWriter] （Room 三表现状按 [AccountStore] 的账号列表 + 档案里的账号列表枚举）。 */
         fun of(context: Context, archiveAccountIds: List<String> = emptyList()): AppArchiveImportTarget =
@@ -57,6 +83,12 @@ class AppArchiveImportTarget(
                     ),
                 ),
             )
+
+        /** 档案里的账号 → 学号；档案里没有那一档时用本机当前账号（本机也没登录 ⇒ null）。 */
+        private fun defaultStudentIdOf(suffix: String, accountId: String?): String? =
+            ArchiveScoreReport.studentIdOf(suffix, accountId)
+                ?: runCatching { AccountContext.activeAccountId }.getOrNull()?.takeIf { it.isNotBlank() }
+
 
         /** 端内的账号列表（`AccountStore` 的既有读法）；取不到就当没有（不抛）。 */
         private fun localAccountIds(): List<String> =

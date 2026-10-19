@@ -48,6 +48,20 @@ interface ScheduleHost {
     /** 这一端**真会照着办**的那些能力（见 [ScheduleCapability]）。 */
     val honored: Set<ScheduleCapability>
 
+    /**
+     * 缺的那几档能力各自一句说明（键 = [ScheduleCapability]）。
+     *
+     * 为空 = 本端没什么要交代的（三端都没有的、或显而易见的不写）——这是默认值，所以不填这一格的端
+     * 行为与本槽位出现之前**一模一样**：屏上不会多画一行字。
+     *
+     * 只对「这一端不干这件事」的能力有意义：不用 [honored] 里有的东西去配说明，屏上也只在
+     * `capability !in honored` 的分支里找它。文案要同时说清三件事：这一端没有什么 / 为什么 / 去哪儿能用。
+     */
+    val gapNotes: Map<ScheduleCapability, String> get() = emptyMap()
+
+    /** [capability] 的缺口说明；null = 本端不交代（有这一档，或没什么好说的）。 */
+    fun gapNote(capability: ScheduleCapability): String? = gapNotes[capability]
+
     /** 本地落盘那一族（[cache] / [customCourses]）的调度器。 */
     val io: CoroutineDispatcher get() = Dispatchers.Default
 

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.GapNote
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.drawBehind
@@ -88,6 +89,13 @@ fun TodayTimeline(
     upcoming: List<UpcomingItem> = emptyList(),
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
+    /**
+     * 补在「接下来」底下的一句：本端没接作业截止那一档（见 `ScheduleHost.gapNotes`）。
+     *
+     * null（默认）= 不画。没接这一档的端，`upcoming` 里永远没有作业，不交代一句
+     * 就会被读成「这几天真没作业」。
+     */
+    dueHomeworkGap: String? = null,
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
@@ -223,6 +231,7 @@ fun TodayTimeline(
             item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
             itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item) } }
         }
+        dueHomeworkGap?.let { gap -> item { GapNote(gap) } }
     }
 }
 

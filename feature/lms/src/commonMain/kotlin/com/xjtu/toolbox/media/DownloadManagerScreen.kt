@@ -91,8 +91,9 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /**
  * 下载管理页面（共享屏）。
  *
- * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。桌面端没有那张登记表
- *   ⇒ 传 null，屏上只列排队下载的回放视频（如实，不是列表被吞了）。
+ * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。传 null = 这一端没有落盘通道
+ *   ⇒ 屏上只列排队下载的回放视频（如实，不是列表被吞了）。桌面端传的是一份
+ *   **直接扫 `~/Downloads`** 的实现（见 `DesktopDownloadedFilesHost`）：那边没有登记表，目录本身就是登记表。
  * @param onPlayTask 播放一个**已下载完**的回放文件：Android = 外部播放器（Media3 那套只播流，
  *   播本地文件走的还是 `ACTION_VIEW`），桌面 = 系统播放器。
  */

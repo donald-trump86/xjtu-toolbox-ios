@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.archive.ArchiveFile
+import com.xjtu.toolbox.archive.ArchiveScoreReport
 import com.xjtu.toolbox.archive.ArchiveImportTarget
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
@@ -11,11 +12,12 @@ import com.xjtu.toolbox.archive.ExportOptions
 import com.xjtu.toolbox.archive.ImportResult
 import com.xjtu.toolbox.archive.StoreArchive
 import com.xjtu.toolbox.archive.StoreSnapshot
+import com.xjtu.toolbox.archive.StoreValue
 import com.xjtu.toolbox.archive.archiveSourceOf
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import kotlin.time.Clock
 
-/** Web 这一端的档案宿主装配；没有文件系统，`files/` 里只有自建日程一族（[WebArchiveRows]）。 */
+/** Web 这一端的档案宿主装配；没有文件系统，`files/` 里只有自建日程（[WebArchiveRows]）与成绩缓存那一族（[ArchiveScoreReport]）。 */
 internal object WebArchiveHost {
 
     /** §2.1 `createdBy`：本端固定写 `web`。 */
@@ -44,8 +46,33 @@ internal object WebArchiveHost {
         )
 
     /** 端内 → 完整档案字节映射（只读端内，不写任何 store）。 */
-    fun exportArchive(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): Map<String, String> =
-        buildArchive(readStores(), now = now)
+    fun exportArchive(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): Map<String, String> {
+        val stores = readStores()
+        // §6.3 逐族迁移（「成绩缓存」那一族）：端内是店、档案里是文件 ⇒ 这一族的店**不进 `stores/`**
+        // （否则同一份缓存会在档案里出现两份；Android 那边还会把它当 prefs 店落下来）。
+        return buildArchive(
+            stores = stores.filterNot { it.rawName == WebScoreReportCache.STORE_NAME },
+            files = WebArchiveRows.filesOf() + listOfNotNull(scoreFileOf(stores)),
+            now = now,
+        )
+    }
+
+    /**
+     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是店 `score_report_cache` 的 `all` 键（[WebScoreReportCache]），
+     * 档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，名字里不带学号。
+     *
+     * 本端没有账号维度（全在 `global/`）。端内值已经带着 `at`；旧形状（裸数组）用导出时刻补上。
+     * 没这份缓存 / 转不动 ⇒ null（不出这一条）。
+     */
+    private fun scoreFileOf(
+        stores: List<StoreSnapshot>,
+        now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    ): ArchiveFile? {
+        val raw = stores.firstOrNull { it.rawName == WebScoreReportCache.STORE_NAME }
+            ?.keys?.get(WebScoreReportCache.KEY) as? StoreValue.S ?: return null
+        val canonical = ArchiveScoreReport.toCanonical(raw.v, now()) ?: return null
+        return ArchiveFile("", ArchiveScoreReport.CANONICAL_REL, canonical)
+    }
 
     /** 导出：组装 + 交给浏览器下载，返回结论文本。 */
     fun exportToDownload(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): String {

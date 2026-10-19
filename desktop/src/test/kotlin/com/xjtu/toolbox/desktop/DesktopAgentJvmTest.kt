@@ -146,7 +146,11 @@ class DesktopAgentJvmTest {
             )
         }
 
-        assertTrue(host.honored.isEmpty(), "honored 不该有值：${host.honored}")
+        assertEquals(
+            setOf(com.xjtu.toolbox.agent.AgentCapability.IMAGE_INPUT),
+            host.honored,
+            "桌面只声明它真接得上的那一档（挑图；见 DesktopAgentHost 的表）",
+        )
     }
 
     @Test
