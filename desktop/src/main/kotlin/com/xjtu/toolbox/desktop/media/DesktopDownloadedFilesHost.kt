@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.desktop.media
 
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.media.DownloadedFile
 import com.xjtu.toolbox.media.DownloadedFilesHost
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,14 @@ import java.net.URLConnection
  *   没有上限的话这一页会被别人的文件淹掉。
  */
 object DesktopDownloadedFilesHost : DownloadedFilesHost {
+
+    /**
+     * 当前账号（见 [DownloadedFilesHost.accountId]）。桌面这一端**必须有**：
+     * `DesktopDownloads` 是按账号一份管理器（`download_tasks<账号后缀>`），换账号之后下载页要整套重读
+     * —— 共享屏把这个值当 `LaunchedEffect` 的 key。
+     * 文件这一组本身（`~/Downloads`）与账号无关：给的是「这一页服务哪个账号」，不是「列哪些文件」。
+     */
+    override val accountId: String? get() = AccountContext.activeAccountId
 
     /** 扫几层子目录。思源课件一般就一层（课程名），留一层余量。 */
     private const val MAX_DEPTH = 3

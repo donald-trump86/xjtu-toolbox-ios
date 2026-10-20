@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.archive.ArchiveImportMode
 import com.xjtu.toolbox.settings.ChangelogEntry
 import com.xjtu.toolbox.settings.ScheduleSourceOption
 import com.xjtu.toolbox.settings.SettingsHost
@@ -42,8 +43,23 @@ internal class WebSettingsHost(
     /** 版本那一行：本端没有版本号这个概念（页面是同一个 dist，服务端直接托管它）。 */
     override val versionText: String = "Web 构建（wasm）"
 
+    /**
+     * 真会照着办的行：深色模式与首页主题（外壳/首页读那两个键），加上 B-2 起接上的「默认启动 Tab」——
+     * `?route=` 没给时开场页就是它（[initialWebTarget] → `webStartTarget` 那张映射表），
+     * 再加 C-1b 接上的「界面风格」（外壳读它，判据就是 `:shared:designsystem` 的 `glassNavStyle`）。
+     *
+     * 「场馆验证码」**不列**：本端没有识别器（`WebSlideCaptchaHost.solve` 恒 null），列了就是假开关——
+     * 那一档写在 [gapNote] 里如实说明。
+     */
     override val honoredRows: Set<SettingsRow> =
-        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_THEME)
+        setOf(
+            SettingsRow.DARK_MODE,
+            SettingsRow.DYNAMIC_COLOR,
+            SettingsRow.HOME_THEME,
+            SettingsRow.DEFAULT_TAB,
+            // C-1b：外壳真读这个键了（`ToolboxWebApp` → `glassNavStyle` → `AppShell(glassStyle=…)`）
+            SettingsRow.NAV_STYLE,
+        )
 
     /** 本端没有更新日志（`:app` 的 `AppChangelog` 在更新域里）⇒ 那一行不画。 */
     override val changelog: List<ChangelogEntry> = emptyList()
@@ -61,13 +77,14 @@ internal class WebSettingsHost(
     override val updateSection: (@Composable () -> Unit)? = null
 
     /**
-     * 屏底那一句（见 `SettingsHost.gapNote`）：缺的 7 行加两个整组，挤成一段。
+     * 屏底那一句（见 `SettingsHost.gapNote`）：缺的那几行加两个整组，挤成一段。
      *
      * 动态取色（W14）与触感（W13）不列：浏览器里那不是“缺”，是没有这个概念（豁免那一档）。
      */
     override val gapNote: String =
-        "网页版没有这些设置（要调请用 App）：常用功能、界面风格、启动 Tab、连接模式、考勤角标、场馆验证码" +
-            "——前四项是手机上的底栏与界面形态，网页外壳另做了一层；场馆验证码要先登录站点。" +
+        "网页版没有这些设置（要调请用 App）：常用功能、连接模式、考勤角标、场馆验证码" +
+            "——常用功能是手机首页上的快捷入口，网页外壳另做了一层；场馆验证码要靠图片解码，" +
+            "而本端那个解码恒空（`WebSlideCaptchaHost`），停在手动滑动那一档。" +
             "课表来源只有教务一个：考勤那一路要站点会话，serve 端还没有转发。" +
             "这里也没有「通知与提醒」和「更新」两组——网页版随 serve 一起更新，没有单独的更新通道；" +
             "提醒能不能弹，看这个站点有没有拿到浏览器通知权限。"
@@ -94,7 +111,12 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
             title = "导入数据存档",
             summary = "选一份 zip 档案读进来（先自校验，默认不覆盖本机数据）",
             startAction = { WebSettingsIcon(Icons.Default.Download) },
-            onClick = { archive.import() },
+            // 选 zip → 算两份差异（默认档 MERGE / 镜像档）→ 弹窗选档；本机数据到确认前一个字不动。
+            // 每次都从默认档起步：镜像档只能由用户自己点，不会预先选中。
+            onClick = {
+                archive.mode = ArchiveImportMode.MERGE
+                archive.choose()
+            },
         )
         archive.status?.let {
             Text(
@@ -105,6 +127,9 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
             )
         }
     }
+
+    // 有待确认的导入 ⇒ 弹窗选档（默认档恒为 MERGE）；确认调 confirm()、取消调 cancel()。
+    if (archive.pending) WebArchiveImportDialog(archive)
 }
 
 /** 设置页一行左侧的图标（与 `:core` 设置屏的 `SettingsIcon` 同一视觉）。 */

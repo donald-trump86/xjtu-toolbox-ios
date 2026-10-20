@@ -35,6 +35,9 @@ private class FileKeyValueStore(private val file: File) : KeyValueStore {
     }
 
     private fun persist() {
+        // 只读（单实例锁被别人掌着 ⇒ `StoreWriteGate`）：整份回写会把写者刚存的凭据抹掉，
+        // 所以一个字都不落盘（B-13）。读照旧：内存那份就是 init 时从这个文件读回来的。
+        if (!StoreWriteGate.allowsWrites) return
         val dir = file.parentFile
         if (dir != null && !dir.exists()) dir.mkdirs()
         FileOutputStream(file).use { props.store(it, null) }

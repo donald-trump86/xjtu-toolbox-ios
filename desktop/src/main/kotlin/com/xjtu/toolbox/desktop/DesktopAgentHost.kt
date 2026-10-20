@@ -21,6 +21,7 @@ import com.xjtu.toolbox.platform.SecretProtector
 import com.xjtu.toolbox.platform.protectedSecureKeyValueStore
 import com.xjtu.toolbox.platform.secretProtectorForPlatform
 import com.xjtu.toolbox.platform.secureKeyValueStore
+import com.xjtu.toolbox.schedule.ScheduleCacheStore
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -54,16 +55,20 @@ internal class DesktopAgentHost(
      *
      * 两件事分开写清，因为它们都表现为"手机上有的东西这里没有"，但一个是工具面（能查/能办什么），
      * 一个是形象面（长什么样、谁在说话）：
-     * - 工具：本端的工具表只有黄页、教师检索、偏好、功能引导、算一算（另加校园地图；配了联网搜索
-     *   再添一份搜索）—— 课表、考试、成绩、一卡通、考勤、通知、图书馆、教材、加餐券、思源学堂、
-     *   空教室、全校课表、体测、学辅资料都还没有取数，设闹钟 / 改设置 / 写自建日程同样没有宿主。
+     * - 工具：本端的工具表与 serve **同一档**（黄页、教师检索、偏好、功能引导、算一算、校历、课表、
+     *   考试、空教室；另加校园地图，配了联网搜索再添一份搜索）—— 成绩、一卡通、考勤、通知、图书馆、
+     *   教材、加餐券、思源学堂、全校课表、体测、学辅资料都还没有取数，设闹钟 / 改设置 / 写自建日程
+     *   同样没有宿主。课表与考试两件读的是本机缓存（`ScheduleCache`）而不是现拉：桌面没有教务取数
+     *   通路，缓存空时会直说“去日程页刷一次”。
      * - 形象：`hero` / `appearanceSection` 都没交（见 [AgentScreen] 的槽位）⇒ 问候是纯文字的一句，
      *   形象、角色、皮肤在手机上调过的那套不会同步过来。
      */
     override val gapNote: String =
-        "这一端能查的比手机少：课表、考试、成绩、一卡通、考勤、通知、图书馆、教材、加餐券、思源学堂、" +
-            "空教室、全校课表、体测、学辅资料都还没接（现在会查的是黄页、教师、校园地图、算一算、" +
+        "这一端能查的比手机少：成绩、一卡通、考勤、通知、图书馆、教材、加餐券、思源学堂、全校课表、" +
+            "体测、学辅资料都还没接（现在会查的是黄页、教师、校历、课表、考试、空教室、校园地图、算一算、" +
             "功能引导，以及记住的偏好；配了联网搜索还能查网）⇒ 问这些它会说查不到，不是它偷懒。" +
+            "课表与考试读的是本机缓存（桌面不直连教务），缓存空时它会让你先去「日程」页刷一次；" +
+            "空教室只有 CDN 的逐节空闲表，没有智慧教室那种「此刻几个人在」。" +
             "设闹钟、改设置、写进自建日程这几件在这里同样做不到。" +
             "另外，这一端的屁岱是简单模样：问候只有一句文字，没有形象、角色和皮肤（那三样在手机上调，" +
             "调过的那套不会同步过来）。"
@@ -79,6 +84,8 @@ internal class DesktopAgentHost(
             memory = agentMemory(),
             yellowPage = YellowPageApi(yellowPageClient),
             faculty = FacultyApi(),
+            // 课表族那三件读的缓存：与日程屏同一个账号命名空间（切账号即切文件）。
+            cache = DesktopScheduleHost(auth).cache(accountId),
         ),
         extras = listOfNotNull(
             com.xjtu.toolbox.campusmap.CampusMapAgentTools(),

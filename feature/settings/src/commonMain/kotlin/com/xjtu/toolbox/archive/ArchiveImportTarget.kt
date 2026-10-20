@@ -33,4 +33,21 @@ interface ArchiveImportTarget {
      * 落地路径用 [fileRelPath] 算出来的那个。
      */
     fun fileContent(suffix: String, accountId: String?, relPath: String, content: String): String? = content
+    /**
+     * **删键**（镜像档「以档案为准」要用，§6.4）：端上不支持 ⇒ `false`，这一笔当「本端保留」。
+     *
+     * 红线清单上的店不会走到这里（[ArchiveRedLines] 在共享层先挡掉了）。
+     */
+    fun removeKey(rawName: String, key: String): Boolean = false
+
+    /**
+     * 端内某个账号档 `files/` 之下 `family` 那一族**真有的**相对路径（与 [readFile] 的入参同一套写法）。
+     *
+     * 镜像档只用它枚举「档案里出现过的族」在本端多出来的条目；默认空 = 这一端不可枚举 ⇒ 这一族一个都不删。
+     */
+    fun listFiles(suffix: String, family: String): List<String> = emptyList()
+
+    /** 删掉端内一条 `files/`；默认 `false` = 这一端不删（保守口径：拿不准就留着）。 */
+    fun removeFile(suffix: String, relPath: String): Boolean = false
+
 }

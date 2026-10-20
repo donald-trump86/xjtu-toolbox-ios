@@ -146,7 +146,7 @@ internal class AndroidAgentHost(
             append("• home_theme（首页主题）：${cs.homeTheme}　可选 card/icon\n")
             append("• nav_bar_style（界面风格）：${cs.navBarStyle}　可选 floating（玻璃，默认）/classic（经典，不透明、更省电）\n")
             append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
-            append("• default_tab（启动页）：${cs.defaultTab}　可选 HOME/COURSES/TOOLS/PROFILE\n")
+            append("• default_tab（启动页）：${cs.defaultTab}　可选 home/schedule/agent/services/profile\n")
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
             append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
@@ -195,9 +195,17 @@ internal class AndroidAgentHost(
                 "已${if (b) "显示" else "隐藏"}首页常用功能（已即时生效）。"
             }
             "default_tab" -> {
-                val v = value.trim().uppercase()
-                if (v !in listOf("HOME", "COURSES", "TOOLS", "PROFILE")) ToolReply.badValue("default_tab", "HOME/COURSES/TOOLS/PROFILE")
-                else { cs.defaultTab = v; "已将启动页设为 $v（下次冷启动生效）。" }
+                // 存的是规范化值（见 `SettingsStore.normalizeDefaultTab`）；中文/旧名都认，写下去的一律是规范值。
+                val v = when (value.trim().lowercase()) {
+                    "home", "首页", "主页" -> com.xjtu.toolbox.settings.SettingsStore.TAB_KEY_HOME
+                    "schedule", "courses", "日程", "课表" -> com.xjtu.toolbox.settings.SettingsStore.TAB_KEY_SCHEDULE
+                    "agent", "pidai", "屁岱" -> com.xjtu.toolbox.settings.SettingsStore.TAB_KEY_AGENT
+                    "services", "tools", "学辅" -> com.xjtu.toolbox.settings.SettingsStore.TAB_KEY_SERVICES
+                    "profile", "我的" -> com.xjtu.toolbox.settings.SettingsStore.TAB_KEY_PROFILE
+                    else -> return ToolReply.badValue("default_tab", "home/schedule/agent/services/profile")
+                }
+                cs.defaultTab = v
+                "已将启动页设为 $v（下次冷启动生效）。"
             }
             "network_mode" -> {
                 val v = when (value.trim().lowercase()) {

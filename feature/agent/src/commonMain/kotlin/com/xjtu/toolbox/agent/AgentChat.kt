@@ -249,7 +249,8 @@ internal fun ChatPanel(
                             fontWeight = FontWeight.Medium,
                         )
                         Text(
-                            "API Key 配好就能聊",
+                            // 文案槽位（默认就是原来那句）：Key 不在本机的端（浏览器）在自己的 host 里换掉。
+                            host.configHint,
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -270,7 +271,8 @@ internal fun ChatPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "改上一条",
+                    // 同上：做不到「真把上一轮换掉」的端在这句话里如实说清它实际做了什么。
+                    host.editLastLabel,
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f),

@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.shell.ShellTabs
 import com.xjtu.toolbox.shell.ShellTarget
@@ -59,7 +60,21 @@ fun BottomTab.shellTab(): ShellTab = ShellTab(
 
 /** Android 那一份 tab 集合（顺序 = 底栏从左到右 = [BottomTab.entries]）。 */
 fun androidShellTabs(): ShellTabs = ANDROID_SHELL_TABS
-
+/**
+ * 规范化落点 → 这一端的 tab（三张映射表之一：另两张是 `:desktop` 的 `desktopStartTarget()`
+ * 与 `:web` 的 `webStartTarget()`）。
+ *
+ * 认不出（老文件、手工改过的值）退 [BottomTab.COURSES]：与 `SettingsStore.TAB_KEY_DEFAULT` 同一档。
+ * 注：老版本存的是 [BottomTab.name]，`SettingsStore.normalizeDefaultTab` 已经把那五个名字翻成规范值，
+ * 所以这张表只认规范值。
+ */
+fun bottomTabOf(defaultTab: String): BottomTab = when (SettingsStore.normalizeDefaultTab(defaultTab)) {
+    SettingsStore.TAB_KEY_HOME -> BottomTab.HOME
+    SettingsStore.TAB_KEY_AGENT -> BottomTab.PIDAI
+    SettingsStore.TAB_KEY_SERVICES -> BottomTab.TOOLS
+    SettingsStore.TAB_KEY_PROFILE -> BottomTab.PROFILE
+    else -> BottomTab.COURSES
+}
 /** 见 [androidShellTabs]。 */
 val ANDROID_SHELL_TABS: ShellTabs = ShellTabs(BottomTab.entries.map { it.shellTab() })
 

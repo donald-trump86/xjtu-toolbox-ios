@@ -223,6 +223,7 @@
 | 51 | `schedule_cache` | **桌面=是，web=否** | `DesktopScheduleHost.kt:84` / `WebScheduleHost.kt:73,104` | 见 §3.3 | 全 |
 | 52 | `custom_courses` | 无 | `KeyValueCustomCourseStore.KEY`；桌面 `DesktopScheduleHost.kt:88`；web `WebScheduleHost.kt:76,107`；Android = Room 表 | `custom_courses`（单键，含全部账号的行） | 全 |
 | 53 | `data_cache_meta` | 无 | `DataCache.kt:68` | `install_stamp` —— 不进档案 | 全 |
+| 54 | `lms_due<suffix>` | 是 | `:data` 的 `LmsDueStore`（**B-5 下沉，2026-10-20**） | `lms_due_items`（键名**逐字不变**；旧数据在 `data_cache<suffix>/lms_due_items.json`，首次读时一次性搬迁、**旧文件只读不写**） | 全 |
 
 ### 3.3 课表族键名（唯一真源：`ScheduleCache`，值走 `ScheduleCacheStore` 缝）
 
@@ -389,7 +390,7 @@ fun suffixFor(accountId: String?): String {
 | **A10** | **`#written_at` 归一化**：档案的 `keys` 里**永不出现** `*#written_at`；该时间出现在 `at`；导回桌面/web 后 `KeyValueScheduleCacheStore.ageMsOfJson` 能算出同一个 age。⚠️ **本判据只对桌面/web 成立** —— Android 侧不产旁挂键（2026-10-19 拍板不引入；Android 那一方向由 §6.4 的**显式镜像档**覆盖） | `:core` + 桌面 |
 | **A11** | **桌面的断言对象只能是「解析后的键值」** —— `.properties` 的首行注释带时间戳，**字节不可比**（本机实测：`#Wed Oct 14 08:10:56 CST 2026`）；`Properties.store` 还把所有非 ASCII 转成 `\uXXXX`（`DesktopScheduleJvmTest` 已有一条注释钉着这点） | 桌面门禁的写法约束 |
 | **A12** | **`:app:testDebugUnitTest` 通过数不低于当前基线**：**450**（2026-10-19 实测：79 个 XML / 0 失败；`@Test` 注解数复算同值）。⚠️ 交接文档里的 **453 是对着 kmp-tail 工作区测的过时基线**：差 3 条来自 dev 线的**功能变更**（「联网改用 DeepSeek」删掉旧搜索解析代码 ⇒ `AgentWebTest` 少 5 条；新增公式测试 ⇒ `TexLiteTest` 多 2 条），**不是重构丢的** | 现有门禁，不需新写 |
-| **A13** | **桌面「档案→数据根」的映射是纯字符串拼接**：`accounts/_2253415556/stores/schedule_cache.json` ⇄ `schedule_cache_2253415556.properties`（可用一次 `cp -r` + import + 读值三连来端到端钉） | 桌面 jvmTest（`dataRootOverride`） |
+| **A13** | **桌面「档案→数据根」的映射是纯字符串拼接**：`accounts/_2253415556/stores/course_colors.json` ⇄ `course_colors_2253415556.properties`（可用一次 `cp -r` + import + 读值三连来端到端钉）。⚠️ **2026-10-20 起示例店改用 `course_colors` / `app_settings`** —— 课表族（`schedule_cache*`）在档案里**只走 `files/schedule/`**（桌面导出时已把对应 store 剔掉，B-9 收口，与成绩族同一套“剔店”做法），拿它当示例会指向一个已不存在的路径 | 桌面 jvmTest（`dataRootOverride`） |
 
 ---
 

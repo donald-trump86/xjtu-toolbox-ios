@@ -34,6 +34,9 @@ internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
     }
 
     private fun persist() {
+        // 只读（单实例锁被别人掌了 ⇒ `StoreWriteGate`）：**整份回写**会直接抹掉写者最近的改动，
+        // 所以一个字都不落盘（B-13）。读不受影响：内存那份就是这个文件 init 时读回来的。
+        if (!StoreWriteGate.allowsWrites) return
         val dir = file.parentFile
         if (dir != null && !dir.exists()) dir.mkdirs()
         FileOutputStream(file).use { props.store(it, null) }

@@ -334,9 +334,9 @@ honored 的默认值是 `emptySet()`：`feature/agent/.../AgentHost.kt:21`。
 
 | # | 枚举值（工具名） | Android `:app` | 桌面 `desktop` | Web `:web` | serve `:server` |
 |---|---|---|---|---|---|
-| 1 | `ALARM`（`set_alarm`） | ✅ honored 全量 `AndroidAgentHost.kt:47`；真实现 `AlarmClock.ACTION_SET_ALARM` `AndroidAgentHost.kt:94`；工具门 `AgentToolCatalog.kt:88` | ❌ `honored = emptySet()` `DesktopAgentHost.kt:37` ⇒ 走 `AgentHost.kt:46` 默认 `notFound`；工具表也裁掉 `DesktopAgentTools.kt:24-31` | ❌ `WebAgentHost` 不 override `honored`（`WebAgentScreen.kt:112-190`）⇒ `AgentHost.kt:21` 的 `emptySet` | ❌ `honored = AGENT_HONORED` `AgentRoutes.kt:46`，而 `AGENT_HONORED = emptyList()` `AgentRoutes.kt:426` |
+| 1 | `ALARM`（`set_alarm`） | ✅ honored 全量 `AndroidAgentHost.kt:47`；真实现 `AlarmClock.ACTION_SET_ALARM` `AndroidAgentHost.kt:94`；工具门 `AgentToolCatalog.kt:88` | ❌ `honored = emptySet()` `DesktopAgentHost.kt:51` ⇒ 走 `AgentHost.kt:46` 默认 `notFound`；工具表也裁掉 `DesktopAgentTools.kt:44-56` | ❌ `WebAgentHost` 不 override `honored`（`WebAgentScreen.kt:112-190`）⇒ `AgentHost.kt:21` 的 `emptySet` | ❌ `honored = AGENT_HONORED` `AgentRoutes.kt:46`，而 `AGENT_HONORED = emptyList()` `AgentRoutes.kt:426` |
 | 2 | `APP_SETTINGS`（`app_setting`） | ✅ `AndroidAgentHost.kt:47`；`readAppSettings` `:134` / `writeAppSetting` `:152`（白名单 `:131`）；工具门 `AgentToolCatalog.kt:172` | ❌ 同 #1；`AgentHost.kt:50`/`:54` 默认 `notFound` | ❌ 同 #1；且 Key 与设置都在 serve 那台机器上，浏览器只画只读徽标 `WebAgentScreen.kt:173-183` | ❌ 工具表自己列 9 件、不含它 `ServeAgentTools.kt:65-76` |
-| 3 | `SCHEDULE_EVENT_WRITE`（`add_schedule_event`） | ✅ `AndroidAgentHost.kt:47`；工具门 `AgentToolCatalog.kt:99`；实现 Room `custom_courses` `AgentTool.kt:424`/`:1820-1887` | ❌ `DesktopAgentHost.kt:37` + 白名单不含 `DesktopAgentTools.kt:24-31` | ❌ | ❌ |
+| 3 | `SCHEDULE_EVENT_WRITE`（`add_schedule_event`） | ✅ `AndroidAgentHost.kt:47`；工具门 `AgentToolCatalog.kt:99`；实现 Room `custom_courses` `AgentTool.kt:424`/`:1820-1887` | ❌ `DesktopAgentHost.kt:51` + 白名单不含 `DesktopAgentTools.kt:44-56` | ❌ | ❌ |
 | 4 | `IMAGE_INPUT`（`tool = null`） | ✅ 槽位在：`imagePicker = rememberAndroidAgentImagePicker()` `MainScreen.kt:490`，适配器 `AndroidAgentHost.kt:306-330`（`PickMultipleVisualMedia`） | ❌ `DesktopAgentScreen` 不传 `imagePicker`（`ToolboxDesktopApp.kt:843-850`）⇒ 默认 `AgentImagePicker.None` `AgentScreen.kt:55` | ❌ `WebAgentScreen.kt:95-110` 同样不传 | ❌ 没有相册这一档 |
 | 5 | `FILE_SAVE`（`tool = null`） | ✅ 槽位在：`saveZyxfFile` `AndroidAgentHost.kt:296`；`save_file` 工具 `AgentTool.kt:441`/`:1376`/`:1387` | ❌ `AgentHost.kt:96` 默认 `null`；`save_file` 被白名单裁掉 | ❌ | ❌ |
 
@@ -356,15 +356,15 @@ honored 的默认值是 `emptySet()`：`feature/agent/.../AgentHost.kt:21`。
 |---|---|---|---|---|
 | Android `:app` | 26 | `AgentTool.kt:349` `agentToolDefinitions(host.honored)`，honored = 全量 `AndroidAgentHost.kt:47` | `SelfTodoAgentTools`、`CampusMapAgentTools(locate=…)`、`PidaiTaskAgentTools`、`WeChatSearchTools`、`DeepSeekWebTools`（配 Key 时）：`AndroidAgentHost.kt:68-74` | 基准（含 `set_alarm`/`add_schedule_event`/`app_setting`/`save_file`） |
 | serve `:server` | 9 | `ServeAgentTools.kt:65-76`（`NAMES`），下发名从真定义读：`ServeAgent.kt:114-119`；端点投影见 `docs/api-contract.md` §5.11「S-d 落地实况」 | `CampusMapAgentTools()`（无 locate）、`DeepSeekWebTools`（配 Key 时）：`ServeAgent.kt:508-524` | **少 17 件** |
-| 桌面 `desktop` | 5 | `DesktopAgentTools.kt:24-31`（`DESKTOP_AGENT_TOOLS`），按它裁目录：`:35-41` | `CampusMapAgentTools()`（无 locate）、`DeepSeekWebTools`（配 Key 时）：`DesktopAgentHost.kt:47-56` | **少 21 件** |
+| 桌面 `desktop` | 9 | `DesktopAgentTools.kt:44-56`（`DESKTOP_AGENT_TOOLS`，与 serve `NAMES` **同档同顺序**），按它裁目录：`:59-63` | `CampusMapAgentTools()`（无 locate）、`DeepSeekWebTools`（配 Key 时）：`DesktopAgentHost.kt:80-95` | **少 17 件**（与 serve 同档；B-8 补上的四件：`get_calendar` 读 `SchoolCalendarApi`、`get_schedule`/`get_exam_schedule` 读本机 `ScheduleCache`（桌面不直连教务，缓存空时直说“先去日程页刷一次”）、`get_empty_rooms` 读 `EmptyRoomApi` 的 CDN 逐节空闲表、无智慧教室实时状态） |
 | Web `:web` | 0（不下发） | 浏览器不自带工具层：`WebAgentHost` 无 `tools()` override（`WebAgentScreen.kt:112-190`），工具在 serve 上跑 | 同 serve | 同 serve（**少 17 件**） |
 
 **差集明细**
 
 - serve ⊂ Android（少 17）：`add_schedule_event`、`app_setting`、`get_attendance`、`get_card_info`、`get_coupons`、`get_fitness_score`、`get_grades`、`get_library`、`get_lms`、`get_lms_activity`、`get_notifications`、`get_textbooks`、`list_zyxf`、`read_zyxf_file`、`save_file`、`search_school_courses`、`set_alarm`。
-- 桌面 ⊂ serve（少 4）：`get_calendar`、`get_schedule`、`get_exam_schedule`、`get_empty_rooms`。
+- 桌面 ⊂ serve：**已收平**（B-8 补上 `get_calendar`/`get_schedule`/`get_exam_schedule`/`get_empty_rooms`，两边的口径差异——serve 现拉、桌面读缓存——写在 `DesktopAgentHost.gapNote` 里）。
 - 三端都并进来的「外挂」：`campus_map`（全部）、`my_location`（**只有 Android**，因为只有它给了 `locate`：`MainScreen.kt` 侧的 `AgentLocation.current`，`CampusMapAgentTools.kt:62-75`）、`web_search`/`web_fetch`（三端都只在配了 `webSearchKey` 时并 `DeepSeekWebTools`）、`add_todo`/`get_todos`/`complete_todo`（`SelfTodoAgentTools.NAMES` `SelfTodoAgentTools.kt:25`，仅 Android）、`schedule_task`/`list_tasks`/`cancel_task`（`PidaiTasks.kt:87-98`，仅 Android）、`wechat_search`（`WeChatSearchTools.kt:23`，仅 Android）。
-- 合计真下发：Android 35（配 Key 37）/ serve 10（配 Key 12）/ 桌面 6（配 Key 8）/ Web = serve。
+- 合计真下发：Android 35（配 Key 37）/ serve 10（配 Key 12）/ 桌面 10（配 Key 12）/ Web = serve。
 
 ---
 
@@ -788,3 +788,51 @@ Web 侧自洽核对：`openableRouteIds` 39 条 = 26 真屏 + 13 serve-only；39
 - 批 3b + 4：剩余家族的缺口说明 + 4 条能力归位（共享文件登记/ICS/请假附件/屁岱存文件与挑图 + 工具门一致性）
 - **C 组**（已拍板、待排期）：C-1 = #13 丁（两端玻璃风 + 首页两块 + 8 行设置）；C-2 = #9 丙 三屏 + #10 丙 账号写侧（HTTPS 硬前提）；C-3 = 存档镜像档
 - 议程 **B 组**第一簇已提出（两进程互写 / `then` 口径 / 目录形态），**尚未收到答复**
+
+---
+
+## 7. 2026-10-20：B 组全部定案 + C 组排期 + 本轮进度
+
+### 7.1 B 组定案（全部）
+
+| 条 | 定案 |
+|---|---|
+| B-1 web Monet | **❌ 物理不可能**（已验：web 的 `Main.kt:19` 根本没读/传 `dynamicColor`；miuix 在非 Android 平台是按固定种子取色 ⇒ 开了就是假开关） |
+| B-2 默认启动 Tab | (a) 存规范化值 + 三端各一张映射表（已落地） |
+| B-3/B-11 端点 | **(c) 一次性全做**（13 屏 + 10 端点 + 考勤三栏） |
+| B-4 `CourseLinkAccess` | (a) 下沉 `:core` + 各端取数 |
+| B-5 `DUE_HOMEWORK` | (a) 下沉 `:data` + serve 端点 |
+| B-7 桌面通知/更新 | (a) 只做 `SystemTray`（**已落地**）；更新链保持如实说明 |
+| B-8 屁岱白名单 | (a) 桌面补到与 serve 同档（**已落地 5→9**）；做不到的如实写明 |
+| B-9 存档 files 家族 | **(a) 全补齐**（web 部分依赖 C-2） |
+| B-10 web 账号维度 | (a) 取 serve 当前账号 + 顺带收口未决 #8 |
+| B-12 写端点缺口 | (b) 卡挂失 + 评教提交都排进 C-2 |
+| B-13 两进程互写 | (a) 单实例闸门（**已落地**；含只读进程不回写的 guard） |
+| B-14 `then` | (a) 统一「不保证」+ 修桌面矛盾（**已落地**） |
+| B-15 目录形态 | (a) 不拉平 + Android 目录导出真接上（**已落地**） |
+| B-16 ① 成绩单 | **① = (b) 显式两段式提交**（开契约第三条例外 + 幂等；契约里那两句过期描述已更正） |
+| B-16 ②③ 文案 | 抽槽位（**已落地**；默认文案不动 ⇒ `:app` 零变化） |
+| B-16 ④ 场馆支付口径 | **无需修改**（文档已是最保守写法，代码一致） |
+
+### 7.2 C 组排期（已定）
+
+| 批 | 内容 | 状态 |
+|---|---|---|
+| C-1a | 接线类（B-2 / 考勤角标 / 场馆开关 / 白名单 / `SystemTray`） | **已完成** |
+| C-1b | 玻璃风（**一步到位 = 真模糊**） | 进行中（先技术验证再铺开） |
+| C-1c | 首页两块（`BULLETIN_BAR` + `GLANCE`，**对齐 Android**、不新增端点） | **等 #147 合**（那个第三方 PR 在重排首页） |
+| C-2 | 端点批（账号写侧 HTTPS 硬前提 → 高频屏 → 考勤三栏 → ①/B-4/B-5/B-12/B-9-web） | 进行中（第①步：账号写侧） |
+| C-3 | 存档镜像档（三端同框 + 先算差异 + 失败回滚） | 排最后（唯一会删用户数据） |
+
+### 7.3 本轮已落地（提交）
+
+- `9a0dde7c` A 批剩余（缺口说明槽位 / 档案成绩族 / 能力归位 / 文档 21 处）
+- `4ab162be` 批 1（跨端机制）+ C-1a（设置与能力接线）
+- `fe9f756e` **CI 修复**：`InstanceLock` 把「自己 pid 永远算活着」写进代码
+- 分支 `chore/parity-a-batch`，PR **#150**（draft / WIP，stacked 在 #142 上）
+
+### 7.4 门禁（重要）
+
+本机门禁**必须与 `.github/workflows/core-gate.yml` 一致**（清单与当前基线见 `docs/desktop-port-plan.md` §14.8）。
+2026-10-20 曾出现「本机绿、CI 红」—— 实为**本机没跑** `:shared:*:jvmTest` 与 `:feature:*:jvmTest`。
+当前基线：**25 个测试任务 / 1721 条用例 / 0 失败**；`:app` 基线 **450**（453 是过时数）。

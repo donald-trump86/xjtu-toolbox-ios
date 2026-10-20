@@ -45,6 +45,20 @@ internal class WebScheduleHost(
         add(ScheduleCapability.SEAT_COUNT)
     }
 
+    /**
+     * 这一端没接的那一档一句（见 [ScheduleHost.gapNotes]，共享日程屏把它画在**本该有那一块的位置**）。
+     *
+     * 只写 [ScheduleCapability.SHARE_FILE]：日程页顶那条总说明（`WebScheduleGapNote`）讲的是**取数**
+     * 与在屏上没有落点的能力级缺口，而「导出日历 (ICS)」这一行落在导出菜单里 —— 那一格空着最像
+     * 「坏了」，所以缺口说明就放在它本该出现的地方。文案：这一端没有什么 / 为什么 / 去哪儿能用。
+     */
+    override val gapNotes: Map<ScheduleCapability, String> = mapOf(
+        ScheduleCapability.SHARE_FILE to
+            "Web 版没有「导出日历 (ICS)」：这一步要落一个文件给系统，本端没接（不是浏览器做不到 ——" +
+                "只是这一端还没接上下载那一步）。要 .ics 请用 App 或桌面版：日程 → 右上「导出」，" +
+                "桌面会弹系统保存框。",
+    )
+
     /** 课表变更（调课/停课/换教室）冒一条气泡。 */
     override fun postScheduleChange(message: String) {
         InboxStore.post(OwnInbox.scheduleChange(message))

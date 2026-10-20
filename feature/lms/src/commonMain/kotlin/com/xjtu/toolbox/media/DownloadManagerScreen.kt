@@ -133,7 +133,11 @@ fun DownloadManagerScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    // 首次进屏读一次；**换账号也要重读**：
+    // 桌面的 `DesktopDownloads.manager` 是按账号一份（换账号 = 换一份实例），`LaunchedEffect(Unit)`
+    // 的 key 不变就永远不会再跑 ⇒ 这一页会抱着上一个账号的任务列表不放。`files?.accountId` 兜另一头：
+    // 管理器由各账号共用的端，换账号时靠它也重读一次（默认 null ⇒ 行为与以前一样）。
+    LaunchedEffect(manager, files?.accountId) {
         loadTasks()
     }
 

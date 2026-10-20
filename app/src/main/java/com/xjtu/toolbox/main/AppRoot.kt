@@ -103,7 +103,8 @@ fun AppRoot(
     val backStack = rememberNavBackStack<AppRoute>(AppRoute.Main)
     val navigator = remember(backStack) { AppNavigator(backStack) }
     val tabs = rememberSaveable(saver = MainTabState.Saver) {
-        MainTabState(BottomTab.entries.firstOrNull { it.name == credentialStore.defaultTab } ?: BottomTab.HOME)
+        // `defaultTab` 存的是规范化值（`SettingsStore.TAB_KEY_*`）：映射表在 [bottomTabOf]，不在这里猜名字。
+        MainTabState(bottomTabOf(credentialStore.defaultTab))
     }
     val router = remember(navigator, tabs) {
         AppRouter(navigator, tabs, loginState, credentialStore, context.applicationContext, scope)

@@ -232,16 +232,17 @@
 `respondUpstreamFailure` 统一改回 `401`「请先登录」。
 能力开关一律**如实**：`canBook` / `canCancel` / `canSubmit` / `availableSources` / `contactsAvailable` 出现在各自响应里。
 
-**红线（四处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
-「响应不含学号/姓名/手机号」对登录者本人成立；例外的四处是 ① `fitness/score` 的姓名/学号（本人数据），
+**红线（五处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
+「响应不含学号/姓名/手机号」对登录者本人成立；例外的五处是 ① `fitness/score` 的姓名/学号（本人数据），
 ② `yellowpage`/`faculty` 的教师名与部门电话（公开通讯录），③ `emptyroom/rooms` 实时档的上课教师名，
 ④ **请假这一族的两个姓名**（2026-10-15 上一级拍板）：`/api/attendance/leave/preview` 的
 `nextApprovers[].name` 与 `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**，学校工作人员），
 以及 `/api/attendance/leave/records` 的 `courses[].teacherNames`（**我自己的课的任课教师姓名**）。
-④ 的理由与 ③ 同性质 —— 都是「**我自己的那条记录**」上的真人名（不是别人的、也不是花名册）；
-不加它的代价是屏上那个审批人下拉框会退化成一行 `userId`（`:core` 写的是
-`it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，但少了一个人名）。⚠️ **例外 ④ 只覆盖这两类**：
-考勤流水那一格的 `teacher`（当堂上课的教师名）、学生本人姓名/学号/手机号、通讯录仍一律不端；
+⑤ **考勤流水那一格的 `teacher`**（**当堂上课的教师名**，2026-10-19 会议批准）：与 ③④ 同性质 ——
+都是「**我自己的那条记录**」上的真人名；不加它，流水那一栏就只剩一节节次。
+④ 的理由与 ③ 同性质；不加 ④ 的代价是屏上那个审批人下拉框会退化成一行 `userId`
+（`:core` 写的是 `it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，但少了一个人名）。
+⚠️ **仍然一律不端**：学生本人姓名/学号/手机号、通讯录（除 ② 已列的公开项）。
 拍板与落地记录见 §7 的 12g。
 
 | 端点 | 请求 | 响应 `data`（逐字段） | 备注 |
@@ -588,8 +589,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 
 **D7 ⑤「成绩单 PDF 落盘」的结论（2026-10-15 批③-b，如实报告：本轮不做）**
 
-先回答“`:data` 侧到底有没有 PDF 能力”这个问题：**有**。`TranscriptApi` 上就有
-`generatePreviewPdf(workflowId, typeValue): String`（第 3 步，服务端生成预览 PDF、回一个 docId）
+先回答“`:data` 侧到底有没有 PDF 能力”这个问题：**有**。但 ⚠️ **下面这段写的是 `994e9c3b`（2026-10-17）之前的旧形状**（契约写于 10-16）：旧签名 `generatePreviewPdf(workflowId, typeValue): String`（第 3 步、不建单也能出预览、旧请求体 `reqid=-1&sfybc=0`）。**今天代码里不是这样**：预览是 **Step 4**、**必须传 Step 3（`submitCreate`，`src=save`，就是创建申请单）拿到的 `requestId`**、返回 `Unit`（`TranscriptModels.kt:70-74`、`TranscriptApi.kt:218-237`、`TranscriptViewModel.kt:68-69`）⇒ **「预览不产生申请记录」今天不成立**（2026-10-20 核实，把握高）。
 与 `downloadPdf(url): ByteArray`（第 7 步，下载字节）。**所以不是“做不到”，是“不能这么做”**，三条理由：
 
 1. **那是真的往学校提交一份申请，不是下载一个文件**：七步链的第 4、5 步是两次提交（`submitCreate`
@@ -607,13 +607,11 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
    `application/pdf` 的**第三条例外**是契约变更（§4 明文写的“要开新例外就写进这一条”）。
    而浏览器侧的**落盘**（`Content-Disposition: attachment`）与 Android 的「保存到下载目录」是两件事。
 
-**最小可行方案（分两步，本轮都不做，列在这里给下一批拍板）**：
+**方案（已按 2026-10-19 会议改为「显式两段式提交」）**：
 
-- **第一步（风险最小）**：只端「第 1~3 步」——即 `POST /api/dzpz/transcript/preview`（联动 + 生成预览
-  PDF），**不提交、不签章**：它不产生学校的申请记录，也有确定的尽头。它仍要开一次
-  `application/pdf` 的例外（或者用一个临时端点把 docId 换成一次性下载链接）；
-- **第二步（要先有产品决定）**：完整七步。它必须先是**两段式**（预览 → 确认提交），并且要在 §2 的
-  能力开关里加一格（`canSubmitApplication`）——“点了会失败的按钮一个都不画”那条口径在写路径上
+- ⚠️ **原「第一步（风险最小）：只端第 1~3 步、不提交不签章、不产生申请记录」已作废** —— 上一条已核实：今天代码里预览必然先建申请单。
+- **已拍板（① = b）**：做**显式两段式提交** —— 第一步按钮直接写「**提交成绩单申请**」+ 说明「会在教务留一条待审批记录」；第二步出预览 / 下载；配套**幂等**（重复点不建第二张单）与失败 / 重放处理。它必须**开契约第三条例外**（`application/pdf`，或者用一个临时端点把 docId 换成一次性下载链接），并在 §2 的能力开关里加一格（`canSubmitApplication`）——“点了会失败的按钮一个都不画”那条口径在写路径上同样成立。
+- **落地排期**：与 C-2 的端点批一起做（会议记录见 `docs/parity-ledger.md` §6）。
   就是它。没拍这个板之前，`:web` 的成绩单屏**保持现状**（只画「选类型」那一步 + 页顶那句“要出 PDF
   请在 App 或桌面端申请”）。
 
@@ -1347,15 +1345,39 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 - **不要求已登录**：未登录时 `authenticated:false`，账号表照旧列出来（那张表在磁盘上，与任何会话无关）。
   错误码只有 `401`（令牌闸门那一档：没带 / 令牌不对）。
 
-#### 这一批**没有**写端点（如实降级，不是漏）
+#### 写侧（2026-10-20 落地）：`/api/accounts/{switch,add,delete,password}` —— **HTTPS 是硬前提**
 
-D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实现上就是 serve 自己的**登录态迁移**
-（账号命名空间 + 凭据 + 站点快照一起换）。本批按工单的「只读优先」只端**读**那一半 ⇒ 切换 / 新增 /
-删除 / 改密四个动作**一个端点都没有**，`readOnly:true` 就是这件事的能力开关（与
-`/api/jwxt/evaluations` 的 `canSubmit:false` 同型：客户端不得靠猜）。浏览器那一端照它如实说：
-页顶那一行（`WebGapNote`）与动作失败的 toast（`WebAccountsNotWritable`，中文短句、由 `FriendlyError`
-原样透出）都写「要去 App 或桌面端做」——不画一个点了没反应的「切换」按钮，也不把这一屏落成
-「还没搬到 Web」（屏真在这里，看见的是真数据）。
+**决策来源**：2026-10-19 会议 **#10 = 丙**（写侧全做；**HTTPS 变硬前提**）。
+⚠️ 下面这段旧文字（「这一批**没有**写端点」）**已作废**，保留作历史记录：
+
+> ~~D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实现上就是 serve 自己的**登录态迁移**……
+> 本批按工单的「只读优先」只端**读**那一半 ⇒ 四个动作**一个端点都没有**，`readOnly:true` 就是这件事的能力开关……~~
+
+**现在的实现**（`server/.../AccountRoutes.kt`，2026-10-20）：
+
+| 端点 | 方法 | 请求体 | 响应 `data` |
+|---|---|---|---|
+| `POST /api/accounts/switch` | POST | `{"id":"2023****0001"}` | `{ok, changed, message, snapshot}` |
+| `POST /api/accounts/add` | POST | `{"username","password","accountType"?:"undergraduate|postgraduate","activate"?:false}` | 同上 |
+| `POST /api/accounts/delete` | POST | `{"id","confirm":true}`（缺 `confirm` ⇒ **400**） | 同上 |
+| `POST /api/accounts/password` | POST | `{"id","newPassword"}` | 同上 |
+
+- `snapshot` = 动作之后那一瞬间的 `GET /api/accounts` 形状（客户端不用补发一次读）。
+- `id` 接受**完整学号/手机号**或 `GET` 返回的**打码 id**；打码形式命中多条 ⇒ **409**（不猜）。
+- **HTTPS 硬前提**：判据只有一个 —— `ServeModule` 的 `config.tls != null`（与既有的 `secureCookie` 同一先例），
+  作为 `httpsEnabled` 往下传。每个 POST 的**第一句**先 `requireHttps`，**再**读 body ⇒ **明文链路上密码根本不会被收取**。
+  拒绝形态：**HTTP 403 + `code:403`（`ApiErrors.HTTPS_REQUIRED`）**，文案里带可操作信息（`--https` 会自动生成
+  `<数据根>/tls/serve.p12`，另附 `keytool -genkeypair … -storetype PKCS12` 的完整命令）。
+  **读端点不受影响**；明文下 `readOnly = !httpsEnabled` 如实报 `true`。
+- **幂等按目标态**（不使用 Idempotency-Key）：switch（「当前账号就是它」）/ add（「它在表里」）/ delete（「它不在表里」）/
+  password（「密码已经是新的」）的重复提交一律 `ok:true` + `changed:false`；**add 同 id 异密码 ⇒ 409 指向 `/password`**；
+  **绝不写第二行、不二次删、不二次清缓存**。四个动作共用一个 `Mutex` 串行执行。
+- 删除**当前**账号 ⇒ `session.logout()`（先放会话再删，避免 debounce 把 TGC 写回）；删除**其他**账号 ⇒ `SessionBackend.wipe(suffix)`；
+  改密且目标是当前账号 ⇒ 内存会话与落盘凭据一起替换（`ServeSession.rekeyAccount`）。
+- **switch / add 不联网、也不写 `AccountStore.active_account`**（那是桌面端的主键，上文已写明 serve 不写不读它）。
+- **add 不探活**：密码打错要到下一次取数才暴露（`401/502`）。理由：探活会触发短信二验，且违反「可重放」要求。
+
+**消费方（`:web`）**：`WebAccountsHost` 的四个写方法已接上（2026-10-20）；未启用 HTTPS 时页顶与失败 toast 说明「要开 HTTPS」。
 
 #### 消费方（`:web`）：**已落地**（2026-10-15，本批）
 
@@ -1536,6 +1558,29 @@ D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实�
   **原有的 S8 快照机制**多用了一次：`:server` 的 `ServeAgentTools.kt` 也在构建期读进快照 ⇒ 它能把「页面说明
   盖了每一件真下发的工具」当场对一次（换了名单不改页面说明就红）；`web/build.gradle.kts` 里那份清单多一行。
 
+
+### 5.12 C-2 端点批（2026-10-20 落地）：考勤三栏 / 评教提交 / 成绩单两段式 / 作业截止 / 思源配对
+
+**决策来源**：2026-10-19 会议 **B-3/B-11 = (c) 一次性全做**、**B-12 = (b)**、**① = (b) 显式两段式提交**、**B-5 = (a)**、**B-4 = (a)**。
+统一口径照 §5.2（信封、`code == HTTP 状态码`、`401` 指路、`502` 上游/网络故障）。
+
+| 端点 | 方法 | 参数 / 请求体 | 响应 `data` | 说明 |
+|---|---|---|---|---|
+| `/api/attendance/stats` | GET | `term` | 整学期按课程的考勤统计 | 缺勤按学期全量算（不用「本周」接口） |
+| `/api/attendance/streams` | GET | `term` | 打卡流水（`id/location/collectTime/effective`） | 日期窗由学期起止推 |
+| `/api/attendance/records` | GET | `term&from&to` | **新增投影 `teacher`** | **红线例外 ⑤ 只覆盖这一个字段、只在这个端点**（2026-10-19 批准）；请假族仍不投影任何姓名 |
+| `POST /api/jwxt/evaluations/submit` | POST | `{term,type,wjdm,jxbid}` | `{submitted:bool}` | 自动填答后提交；**已在已评名单 ⇒ 200 + `submitted:false`（幂等）**；上游拒 ⇒ **409**；`/status` 的 `canSubmit` 改为如实 `true` |
+| `POST /api/dzpz/transcript/submit` | POST | `{type?}` | `{created,requestId,…}` | **① 两段式第一步**：建申请单（**真的会在教务留一条待审批记录** ⇒ 消费方按钮文案必须写清）；**幂等**：10 分钟内重复点 ⇒ `created:false` 同一个 `requestId` |
+| `POST /api/dzpz/transcript/preview` | POST | — | `{ok,filename,filesize,downloadPath}` | 第二步：生成预览 PDF + 取下载信息 |
+| `GET /api/dzpz/transcript/download?ticket=` | GET | 一次性内存票据 | `application/pdf`（RFC 5987 文件名） | **契约第三条例外**（`application/pdf`）落在这里；**上游 host / link 永不出现在响应里**；票据重放 ⇒ 404 |
+| `/api/lms/due` | GET | — | `{count,items[]}` | 作业截止：读 `:data` 的 `LmsDueStore` 落盘缓存，**不为作业发任何请求** |
+| `/api/lms/course-match` | GET | `courseCode?/courseName?/teacher?` | `{matched,course|null}` | 思源课程配对；判据复用 `:model` 的 `lmsCourseMatched`（与桌面/App 同一份） |
+
+**B-4 的说明（避免被当成漏做）**：日程屏那三格（考勤角标 / 思源下钻 / 本次考勤）在 web 上**不需要新端点** —— `/api/attendance/records` 已给 `week/startSection/date/status`，web 侧直接用 `:model` 的纯函数 `attendanceMarksOf` 建索引即可（匹配器已由 B-4 下沉到 `shared/model/.../schedule/CourseLinkMatching.kt`）。
+
+**B-12 的如实结论**：**卡挂失上报做不了** —— 全仓只有只读的 `CampusCardApi`（读 `barflag`），`:app` 与 legacy 都没有挂失写的 URL / 参数；**猜上游违反规矩** ⇒ 需要一次**真实抓包**才能端。评教提交已端（见上）。
+
+⚠️ **§5.5 里两句已过时**（以本节为准）：「考勤只投学期选择 + 流水表」（三栏已于 2026-10-20 补齐）、「请假族一律不端姓名」（2026-10-15 起真投影，见 §5.2 例外 ④）。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 

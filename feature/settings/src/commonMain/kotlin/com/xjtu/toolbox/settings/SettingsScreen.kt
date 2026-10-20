@@ -163,12 +163,13 @@ fun SettingsScreen(
         SettingsStore.NAV_STYLE_CLASSIC
     )
     val tabOptions = listOf("首页", "日程", "屁岱", "学辅", "我的")
+    // 存的是规范化值（`SettingsStore.TAB_KEY_*`），三端各有一张映射表把它翻成自己的 tab。
     val tabValues = listOf(
-        SettingsStore.TAB_HOME,
-        SettingsStore.TAB_COURSES,
-        SettingsStore.TAB_PIDAI,
-        SettingsStore.TAB_TOOLS,
-        SettingsStore.TAB_PROFILE
+        SettingsStore.TAB_KEY_HOME,
+        SettingsStore.TAB_KEY_SCHEDULE,
+        SettingsStore.TAB_KEY_AGENT,
+        SettingsStore.TAB_KEY_SERVICES,
+        SettingsStore.TAB_KEY_PROFILE
     )
     val networkOptions = listOf("自动检测", "强制直连", "强制 WebVPN")
     val networkValues = listOf(

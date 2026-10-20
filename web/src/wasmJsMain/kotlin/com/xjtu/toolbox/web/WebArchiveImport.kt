@@ -39,6 +39,19 @@ internal class WebArchiveImportTarget(
     }
 
     /**
+     * 删键（镜像档，§6.4）：wasm 的店就是 `localStorage` 的一面，[KeyValueStore.remove] 就是删掉；
+     * 侧挂时间戳一起删（回滚时 [putKey] 会把两者一起放回去）。
+     *
+     * 红线清单（[ArchiveRedLines]）上的店在共享层就被挡下了，走不到这里。
+     */
+    override fun removeKey(rawName: String, key: String): Boolean = runCatching {
+        val store = storeOf(rawName)
+        store.remove(key)
+        store.remove(key + ArchiveCodec.WRITTEN_AT_SUFFIX)
+        true
+    }.getOrDefault(false)
+
+    /**
      * 本端没有文件系统 ⇒ 非迁移族恒为 null（自建日程每次都走 [putFile] 的合并，幂等）；
      * 成绩缓存那一族端内其实有（`score_report_cache` 的 `all` 键）⇒ 按它读，§6.4「本端有 ⇒ 保持不变」照样成立。
      */
@@ -81,4 +94,3 @@ internal fun unlandedFilesCount(entries: Map<String, String>): Int =
 /** 这条 `files/` 路径在本端有没有落点：自建日程（限 `global/`）与成绩缓存那一族。 */
 private fun lands(relPath: String, suffix: String): Boolean =
     ArchiveScoreReport.isFamily(relPath) || (suffix.isEmpty() && WebArchiveRows.of(relPath) != null)
-

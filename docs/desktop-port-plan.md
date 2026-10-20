@@ -848,6 +848,34 @@ current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 
 **兼容性扩展**（`termStart(term: String? = null)`）与一批未跟踪的 `web/src/wasmJsMain/…` 文件参与了编译
 （它们仍在 `git status` 里 —— 本轮提交只 `git add` 了自己那三个路径）。
 
+### 14.8 门禁任务表与当前基线（2026-10-20 记，**以后照这张表抄**）
+
+⚠️ **教训**：2026-10-20 有一次“本机绿、CI 红”其实是**本机没跑** —— 本机门禁只跑了
+`:core` / `:data` / `:shared:data` / `:desktop` / `:feature:settings`，**漏了
+`:shared:{model,navigation,designsystem,network}:jvmTest` 与全部 20 个 `:feature:*:jvmTest`**，
+于是 `:shared:model:jvmTest` 里那条新测试从来没在本机跑过（CI 上它红了）。
+
+⇒ **本机门禁必须与 `.github/workflows/core-gate.yml` 的任务表一致**（照抄那两条 `run:`）：
+
+```
+:core:jvmTest
+:shared:model:jvmTest :shared:navigation:jvmTest :shared:designsystem:jvmTest :shared:network:jvmTest
+:feature:account:jvmTest :feature:agent:jvmTest :feature:attendance:jvmTest :feature:campus:jvmTest :feature:community:jvmTest :feature:game:jvmTest :feature:home:jvmTest :feature:jiaocai:jvmTest :feature:library:jvmTest :feature:lms:jvmTest :feature:notice:jvmTest :feature:schedule:jvmTest :feature:score:jvmTest :feature:settings:jvmTest :feature:webvpn:jvmTest
+:testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test
+:core:compileKotlinWasmJs :web:compileKotlinWasmJs :web:wasmJsBrowserTest
+```
+
+（本机另加 `:app:testDebugUnitTest` 与 `:server:test` —— 它们不在 core-gate 里，但受红线与契约保护。）
+
+**当前基线（2026-10-20 实测，独占 + `--max-workers=1`）：25 个测试任务 / 1721 条用例 / 0 失败**
+
+`:app` 450 · `:core` 18 · `:data` 14 · `:desktop` 139 · `:server` 144 · `:web` 69 ·
+`:shared:data` 271 · `:shared:model` 202 · `:shared:network` 109 · `:shared:designsystem` 21 · `:shared:navigation` 8 ·
+20 个 `:feature:*` 合计 333。
+
+⚠️ 另记：`:app` 的历史基线 **453 是过时数**（那是对着 kmp-tail 工作区测的）——
+**当前基线是 450**，差 3 条来自 dev 线的功能变更，不是重构丢的（见 `docs/storage-layout.md` 判据 A12）。
+
 
 ## 15. 阶段 C：`:web` 换成共享壳（2026-10-13 实做）
 

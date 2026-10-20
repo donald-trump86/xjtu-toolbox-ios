@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -93,6 +94,7 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.calculateIsWideLayout
+import com.xjtu.toolbox.ui.glass.glassNavStyle
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.withTimeoutOrNull
@@ -115,6 +117,15 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var afterLogin by remember { mutableStateOf<WebTarget>(WebTarget.App(AppRoute.Schedule)) }
+    // 界面风格（`nav_bar_style`）：与深色模式同一条路——外壳自己读一次，设置页改完回调捅一下重读。
+    // 宽屏时期壳走侧栏，玻璃底栏不会出现，判据见 `:shared:designsystem` 的 `glassNavStyle`。
+    val shellSettings = remember { SettingsStore() }
+    var shellTick by remember { mutableIntStateOf(0) }
+    val navBarStyle = remember(shellTick) { shellSettings.navBarStyle }
+    val notifyShellAppearance = {
+        shellTick++
+        onAppearanceChanged()
+    }
     DisposableEffect(Unit) {
         WebBriefMessages.sink = { message -> scope.launch { snackbar.showSnackbar(message) } }
         onDispose { WebBriefMessages.sink = null }
@@ -156,14 +167,16 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     )
     // 窗口形状喂给共享壳（`:app` 那边由 `AppNavigation` 算好往下提供）：窗口够宽时底栏换侧栏，
     // 判据就是 `:core` 那条 `calculateIsWideLayout` —— 与 Android 在宽屏 / 折叠屏上同一套。
-    CompositionLocalProvider(LocalIsWideLayout provides calculateIsWideLayout()) {
+    val wideLayout = calculateIsWideLayout()
+    CompositionLocalProvider(LocalIsWideLayout provides wideLayout) {
       Box(Modifier.fillMaxSize()) {
         AppShell(
             nav = navState,
             // 这一端的导航模型是**路由表**（`:core` 的路由里多数不属于底栏任何一格）⇒ 只画当前这一页，
             // 不做「进过的 tab 常驻」（那是 `:app` 五格的形态，见 ShellPageHost）。
             pageHost = ShellPageHost.CURRENT_ONLY,
-            glassStyle = false,
+            // 真读设置里的界面风格（与 `:app` 同一个键）：不宽屏时是玻璃胶囊底栏，选「经典」就是今天这一套
+            glassStyle = glassNavStyle(navBarStyle, wideLayout),
             bottomInset = 0.dp,
             contentWindowInsets = WindowInsets(0),
             page = { opened, insets ->
@@ -181,7 +194,8 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
                             mode = backend,
                             session = session,
                             insets = insets,
-                            onAppearanceChanged = onAppearanceChanged,
+                            // 最后一格（设置屏）改完外观要回到外壳这一层重读（含界面风格）
+                            onAppearanceChanged = notifyShellAppearance,
                             archiveActions = archiveActions,
                             onNavigate = { target = it },
                         )
@@ -232,9 +246,28 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
 /** 探测后端最多等多久。 */
 private const val BACKEND_DETECT_TIMEOUT_MS = 3_000L
 
+/**
+ * 规范化默认启动落点 → 这一端开场那一页（三张映射表之一：另两张是 `:app` 的 `bottomTabOf()`
+ * 与 `:desktop` 的 `desktopStartTarget()`）。
+ *
+ * 本端五格与 `:app` 逐字同构（`WebShell.WEB_SHELL_TABS`），所以这里是一一对应：
+ * `home → Main`、`schedule → Schedule`、`agent → Agent`、`services → WebTarget.Services`、
+ * `profile → WebTarget.Profile`。认不出（老文件、手工改过的值）退日程：与
+ * `SettingsStore.TAB_KEY_DEFAULT` 同一档。
+ */
+internal fun webStartTarget(defaultTab: String): WebTarget =
+    when (SettingsStore.normalizeDefaultTab(defaultTab)) {
+        SettingsStore.TAB_KEY_HOME -> WebTarget.App(AppRoute.Main)
+        SettingsStore.TAB_KEY_AGENT -> WebTarget.App(AppRoute.Agent)
+        SettingsStore.TAB_KEY_SERVICES -> WebTarget.Services
+        SettingsStore.TAB_KEY_PROFILE -> WebTarget.Profile
+        else -> WebTarget.App(AppRoute.Schedule)
+    }
+
 /** `?route=<id>`。 */
 internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()) {
-    null -> WebTarget.App(AppRoute.Schedule)
+    // 没给 `?route=` 时落到设置里那格「默认启动 Tab」（以前写死 Schedule，那一行没人读）。
+    null -> webStartTarget(SettingsStore().defaultTab)
     WebRoutes.PROBE -> WebTarget.Probe
     WebRoutes.EULA -> WebTarget.Eula
     // `?route=serve`：serve 模式的会话屏（登录 / 短信二验 / 登出）。非 serve 模式下它也在路由表里
@@ -271,6 +304,8 @@ private fun AppPage(
                     contentBottomPadding = insets.bottomBarReserve,
                     onNavigate = { r ->
                         when (r) {
+                            // 只认 url：then 这一端丢掉（没有内置浏览器那层就做不了第二跳）——
+                            // 见 `WebSupport` 文件头那条「如实说明」。
                             is AppRoute.Browser -> if (r.url.isNotBlank()) navigateSameTab(r.url)
                             else -> onNavigate(WebTarget.App(r))
                         }
@@ -302,6 +337,8 @@ private fun AppPage(
         }
 
         // 内置浏览器：同标签导航（深链没有用户手势，`window.open` 会被拦）。⚠️ 必须写 `is`：裸写会被当成构造默认实例再比相等。
+        // 只交第一跳 `url`：`then`（先登录再跳下一站）在浏览器里做不到 —— 整个标签页交出去了就没有回调，
+        // 本端**不保证**会走到 then，也不假装会（`WebSupport` 文件头那条｜桌面端 `desktopBrowserTarget` 同口径）。
         is AppRoute.Browser -> {
             LaunchedEffect(route.url) {
                 if (route.url.isNotBlank()) navigateSameTab(route.url) else back()

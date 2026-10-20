@@ -150,7 +150,13 @@ interface HolidaySource {
     suspend fun refresh(cache: ScheduleCacheStore, force: Boolean = false): Map<LocalDate, String>
 }
 
-/** 课程详情里那两项下钻（`:data` 的 `CourseLinks`：要会话内核、`LmsApi` 与 `AttendanceRecordStore`）。 */
+/**
+ * 课程详情里那两项下钻。
+ *
+ * 判据（配对 / 建索引）在共享层的 `CourseLinkMatching.kt`，各端只需要把数据取来：
+ * Android 与桌面用 `:shared:data` 的 `CourseLinks`（要会话内核、`LmsApi` 与 `AttendanceRecordStore`），
+ * web 等 serve 端点接上 `CourseLinkSource` 即可（driver 用 `SourceBackedCourseLinkAccess`）。
+ */
 interface CourseLinkAccess {
 
     /** 拉一学期考勤并建索引。 */
@@ -164,7 +170,7 @@ interface CourseLinkAccess {
     suspend fun lmsCourseFor(course: CourseItem): LmsCourseSummary?
 }
 
-/** 一学期的考勤流水按课表格子建的索引。`:data` 的 `CourseLinks.AttendanceIndex` 直接实现它。 */
+/** 一学期的考勤流水按课表格子建的索引。共享层的 [SlotAttendanceMarks] 直接实现它（wasm 也能编）。 */
 interface AttendanceMarks {
 
     /** 这一格记的是什么；查无此格（未来的课、或这门课不考勤）返回 null。 */

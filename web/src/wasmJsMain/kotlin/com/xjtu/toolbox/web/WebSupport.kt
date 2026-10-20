@@ -11,7 +11,11 @@ import com.xjtu.toolbox.nav.AppRoute
  *
  * ## 什么不在清单里
  *
- * - `Browser`：有分支但不是一屏，直接 `navigateSameTab` 交给浏览器；
+ * - `Browser`：有分支但不是一屏，直接 `navigateSameTab` 交给浏览器。
+ *   ⚠️ **只认 `url`，`then` 一律丢掉（如实说明）**：`then` 的约定是「先加载 url、走完登录，再自动跳下一站」，
+ *   那第二跳要有内置浏览器（`:app` 的 `isAuthHop`）才做得到。浏览器这一端把整个标签页交给目标站，
+ *   之后就什么都不剩下了（没有回调、也无法跟地址栏对话）⇒ **不保证跳到 `then`，也不假装会**。
+ *   用户会在那个站里看到登录页，登录完自行继续（与桌面端 `desktopBrowserTarget` 同一条口径：只交第一跳）。
  * - `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`：本端没有屏，落 `NotPortedScreen`。
  */
 internal object WebSupport {

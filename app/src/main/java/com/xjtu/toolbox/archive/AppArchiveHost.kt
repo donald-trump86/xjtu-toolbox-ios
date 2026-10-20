@@ -14,9 +14,21 @@ object AppArchiveHost {
     /** §6.1：SAF 选中的档案先落地 `filesDir/archive_staging/`，下次启动由导入触发点消费。 */
     const val STAGING_DIR = "archive_staging"
 
+    /**
+     * 导出的**目录副本**落在这里（B-15）。
+     *
+     * ⚠️ 不能复用 [ARCHIVE_DIR]：那个目录是**导入的投放口**（`pendingArchiveRoots` 会扫它，
+     * 见到 `manifest.json` 就当一份待导入档案），导出写进去 = 下次启动自己导自己一遍。
+     * 名字分开就不必指望「导入幂等」把这件事撮合过去。
+     */
+    const val EXPORT_DIR = "archive_export"
+
     fun archiveRoot(context: Context): File = File(context.filesDir, ARCHIVE_DIR)
 
     fun stagingRoot(context: Context): File = File(context.filesDir, STAGING_DIR)
+
+    /** 导出时落的那一份目录的根（[EXPORT_DIR]）。 */
+    fun exportRoot(context: Context): File = File(context.filesDir, EXPORT_DIR)
 
     /** `manifest.accounts[]`（§2.1）的纯映射：账号表 → [ArchiveAccount]。 */
     fun accountsFrom(accounts: List<Account>): List<ArchiveAccount> = accounts.map { a ->

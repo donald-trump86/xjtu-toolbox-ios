@@ -72,7 +72,8 @@ fun Application.serveModule(
             matchRoutes(session)
             webVpnRoutes()
 
-            accountRoutes(session)
+            // 写侧只在 HTTPS 下服务（会议 #10 = 丙）：没开 HTTPS 时四条写端点一律 403 + 怎么开的指引。
+            accountRoutes(session, httpsEnabled = config.tls != null)
 
             // 屁岱（契约 §5.11）：`POST /api/agent/chat` 是 SSE；不要求已登录，没配 key 是 409。
             agentRoutes(agent)
