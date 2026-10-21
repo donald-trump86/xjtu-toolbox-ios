@@ -745,7 +745,7 @@ private fun DesktopPage(
             )
         }
         AppRoute.DownloadManager -> DownloadManagerScreen(
-            manager = DesktopDownloads.manager,
+                host = DesktopDownloads.manager,
             onBack = back,
             dirInfo = DesktopDownloads.dirInfo,
             // 文件那一组：桌面的「登记表」就是 ~/Downloads 这个目录本身（见那个 object 的 KDoc）

@@ -835,4 +835,116 @@ Web 侧自洽核对：`openableRouteIds` 39 条 = 26 真屏 + 13 serve-only；39
 
 本机门禁**必须与 `.github/workflows/core-gate.yml` 一致**（清单与当前基线见 `docs/desktop-port-plan.md` §14.8）。
 2026-10-20 曾出现「本机绿、CI 红」—— 实为**本机没跑** `:shared:*:jvmTest` 与 `:feature:*:jvmTest`。
-当前基线：**25 个测试任务 / 1721 条用例 / 0 失败**；`:app` 基线 **450**（453 是过时数）。
+当前基线（2026-10-21 复算，见 `docs/desktop-port-plan.md` §14.8）：**25 个测试任务 / 1764 条用例 / 0 失败**；
+`:app` 基线 **450**（453 是过时数）。本节原先记的 1721 是更早一次测量，§14.8 已就地更正。
+
+---
+
+## 8. 2026-10-21：W-E1 剩余两条里的 jiaocai1 + 下载契约（本节只记口径与结论）
+
+### 8.1 本次拍的两条口径（用户 2026-10-21 定）
+
+| 题 | 定案 |
+|---|---|
+| jiaocai1 的**页图 / 封面**怎么过 `/api` | **二进制端点直出 `image/jpeg`** —— 即 §4 的**第四条例外**（与成绩单那条 `application/pdf` 同一种东西）。理由：扫描页一张几百 KB，data URI 要乘 1.33 且整张进内存；而屏上就是一张位图，`serve_token` 是 `Path=/` 的 cookie ⇒ 直接当图片取即可。**不**用 `venue/captcha` 那条 data URI 先例。 |
+| **教材书架**落在哪一端 | **serve 侧、按账号**（店名 `serve_jiaocai1_shelf<账号后缀>`）—— 照会议 **#9**（下载队列）的先例「serve 装真的那一层、浏览器只当界面」，与桌面 `DesktopJiaocai1ShelfStore` 同性质：跟着账号、换浏览器还在。**代价如实记着**：web 的档案导出是同步的、读不到 serve 侧的东西 ⇒ `files/jiaocai/jiaocai1_shelf.json` 这一族在 web 的档案里仍不落地。 |
+
+### 8.2 落地（细节读契约，本节不复述）
+
+| 想知道的 | 读哪里 |
+|---|---|
+| jiaocai1 那一族九个端点、逐字段、不端什么 | `docs/api-contract.md` **§5.14** |
+| 下载那一族四条、逐字段、本批修的三处 | `docs/api-contract.md` **§5.13** |
+| §4 的例外清单（三条 → **四条**）与那句过时的「只有两条」 | `docs/api-contract.md` **§4** |
+| 用例与夹具那一处的核 | 两节末尾的「夹具与用例」段；`server/src/test/.../Serve{Jiaocai1,DownloadRoutes}Test.kt` |
+
+### 8.3 ⚠️ 本批的**重头**：补契约测试补出来的三处线上缺陷
+
+下载那一族上一轮**只落了实现、没写测试也没写契约**（交接文件里自己记着的「如实清单」）。本批补测试时
+逐条撞出来（均已修、均已在 `ServeDownloadRoutesTest` 里钉住）：
+
+1. **整族 404**：`DownloadRoutes` 把绝对路径 `/api/downloads` 又挂在 `route("/api")` 之下 ⇒ 实际注册成
+   `/api/api/downloads`。**在线上也是 404**，不是测试环境的差别。
+2. **回裸对象**：四条都 `respond(DTO)` ⇒ 没有 §4 的信封。客户端按 `code`/`data` 读会直接解不开。
+3. **删「正在下载」那一条是静默空操作**（`:data` 的 `deleteTask` 只在非 `downloading` 时真删），
+   旧代码照旧回 `200` + 成功形状 ⇒ 屏上点删除看起来成功、那一行还在。
+
+另补一条**进门条件**：这四条原本只挂令牌闸门、**不要求登录**（拿到令牌就能让那台机器去取任意 URL、
+往操作者的下载目录写文件；未登录时登记表还会落到 `_default` 命名空间）⇒ 本批与其余二十多族拉齐。
+
+### 8.4 仍未做完（下一轮的入口，别当已完成）
+
+1. **W-E1 剩下一条**：**账号 suffix 字段**（给 web 一个「serve 当前账号的 suffix」来源，B-10 要用）。
+   本批**有意不动** —— 「后缀要不要原样端给浏览器」牵到红线（`AccountContext.suffixFor` 就是 `_<学号>`）
+   与档案 `accounts/<后缀>/` 的跨端对得上对不上，要先把档案导入那一侧的匹配读清楚再拍，**不猜**。
+2. **W-E2（最大的一块）**：13 条 serve-only 屏真屏化 + `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` 三屏
+   + B-4/B-5 的 web 取数 + B-10。⚠️ 下载那一族**没有**暂停 / 恢复 / 取消三条端点 —— web 的下载管理屏
+   要么只画这四件，要么在 W-E2 里拍要不要补（已记在契约 §5.13）。
+3. **C-1c**：首页两块（等 **#147** 合）。
+4. 其余仍见 §6.4 与 §7.4。
+
+### 8.5 门禁（2026-10-21，独占 + `--max-workers=1`）
+
+清单照 `.github/workflows/core-gate.yml` 那两条 `run:`（§14.8 那张表），本机另加 `:app:testDebugUnitTest`
+与 `:server:test`：**`BUILD SUCCESSFUL in 15m 14s`**，635 个任务（130 executed / 505 up-to-date）。
+
+⚠️ 如实记：本批只动了 `:server`（main + test）与文档 ⇒ 其余 24 个测试任务 Gradle 判 `UP-TO-DATE`
+（输入哈希未变，不是「跳过」）；`:server:test` 是同一天真跑过的 **169 例 / 0 失败**（本批新增 10 例在内）。
+复算的逐模块数见 §14.8（总数 1721 → **1764**）。
+
+### 8.6 批 2（2026-10-21 晚）：下载族补齐三个动作动词
+
+**背景**：上一节那批把下载族修到「能用了」，但只有 列 / 建 / 进度 / 删 四件 —— 桌面那一屏本来就直调
+`DownloadManager` 的 `pauseDownload` / `resumeDownload` / `cancelDownload`，web 的下载管理屏要用就得有端点。
+
+**落地**：`POST /api/downloads/{id}/{pause,resume,cancel}`（契约 §5.13 已同步）。两条口径：
+
+1. **`{ok,id}` 不回状态** —— `:data` 的 `resumeDownload` 只丢一个协程（那一刻状态还没变）⇒ 报状态就是编事实；
+2. **与 `DELETE` 分工**：`DELETE` 是「删掉就没了」（幂等 200）；三个动词是「对这一条做一件事」⇒
+   目标不在表里、或状态不允许时一律 `409` + 中文短句。**两处状态闸门是必要的**：`:data` 的 `pauseDownload`
+   **不看当前状态**（拿一个已完成的任务调它会把那一行改回「已暂停」，之后 `resumeAll` 还会把它重新下一遍）；
+   同理对已完成的任务调 `resume` 会把那一集重下一遍。可暂停 = `downloading`/`pending`；可恢复 = `paused`/`pending`；
+   取消任意状态都行。
+
+**门禁**：`:server:test` **BUILD SUCCESSFUL in 7m 9s**，**170 例 / 0 失败**（`ServeDownloadRoutesTest` 4 → 5 例）。
+
+### 8.7 本次拍定的三条口径（2026-10-21，用户）
+
+| 题 | 定案 | 备注 |
+|---|---|---|
+| B-10：web 的账号命名空间 | **丙：端内数据搬到 serve 侧** | ⚠️ **有硬障碍**（见下） |
+| B-9：web 的档案带上 serve 侧那几族 | **丙：浏览器异步多走几跳**（导出前先 fetch） | 依赖上一条的形状 |
+| C-10：MFA 弹窗的手机号 | **端打码手机号**（`138****0000`） | 首次让手机号进响应 ⇒ §5.2 要加一条 |
+
+⚠️ **B-10 = 丙 的硬障碍（必须记着，别当成“还没做”）**：web 的端内数据全都压在 `keyValueStore(name)` 上，
+而 **`KeyValueStore` 是同步接口**（`getString` / `putString` / `getBoolean` …）—— 浏览器里只有 `localStorage`
+能同步实现它。搬到 serve 意味着每次读写都是 HTTP 往返 ⇒ **接口必须改异步** ⇒ 动的是 `:shared:model` 的
+公开面（三端 + 全部测试）。所以**可行的丙 = 只搬那些本来就是 `suspend` 接口的族**（例如 `CustomCourseStore`
+全家都是 suspend），同步接口支撑的那些（`ScheduleCacheStore` 等）留在浏览器并如实记账；
+要“连缓存也搬”，得单独拍一次 `KeyValueStore` 改异步（三端公开面）的代价表。
+本轮的施工顺序：先做与它无关的批 2–5（下载族 / 三屏 / C-2 web 半），B-10 与 B-9 的形状单独出代价表。
+
+### 8.8 批 3（2026-10-21 晚）：web 的下载管理屏真屏化（W-E2 的第一屏）
+
+**背景**：`DownloadManager` 是 web 那三条「门在、屏不在」里的一条（`NotPortedScreen`）。端点齐了（§8.6 补完三个动词），
+缺的是**屏**。
+
+**关键设计（会议 #9「不做影子版」的落地方式）**：屏原来直接收一个具体的 `DownloadManager` —— 那是「本机引擎 +
+本机登记表」的装配，浏览器里造不出来；在浏览器里造一个假引擎**恰恰就是影子版**。所以抽了一层窄接口
+**`DownloadsHost`**（`:feature:lms`）：
+
+- Android / 桌面：`DownloadManager` 自己实现它（语义一字未改；只有 `resumeDownload` / `resumeAll` 声明成 `suspend`，
+  它们本来仍是「丢一个协程就返回」）；
+- web：`WebDownloadsHost`（`:web`）走 §5.13 的 `/api/downloads`，取数用 `ServeDownloadsApi`
+  （住在 `:feature:lms`，因为这一族的模型就在那里，而 `:shared:network` 看不见 `:feature:*`）。
+
+**三处如实差异**（屏上按宿主能力画，不画假按钮）：没有推送 ⇒ 轮询；目录那一格要等第一次列表；**不画播放按钮**
+（文件在运行 serve 那台机器上）。另加一条**错误通道** `DownloadsHost.notices`（默认空流）：serve 那一份用它报
+`409` 与网络故障，屏弹一张一次性提示；**本机那一份永远不发**，所以那张弹窗在 App / 桌面上永不出现。
+
+**顺带修的两处**（都不改语义）：① 屏的 `loadTasks()` 原来分两发（任务 / 计数）—— 合成一次 `snapshot()`，
+任务与计数不会一前一后对不上，serve 那一侧也少一半请求；② 屏原来**没有任何错误面**（本机那份的取数几乎不会失败），
+web 上「点了没反应」不可接受 ⇒ 加了 `notices` + `DownloadNoticeDialog`。
+
+**门禁**：`:feature:lms:jvmTest` **22 → 26**（新增 `ServeDownloadsApiTest` 4 例，`MockEngine`）·
+`:web:wasmJsBrowserTest` **69 / 0**（`WebRouteCoverageTest` 的差集 4 → **3** 条）· `:shared:network:jvmTest` 109 / 0。

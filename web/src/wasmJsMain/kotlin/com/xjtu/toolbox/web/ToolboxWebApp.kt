@@ -59,6 +59,8 @@ import com.xjtu.toolbox.iclassface.IclassfaceScreen
 import com.xjtu.toolbox.jiaocai.TextbookScreen
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
 import com.xjtu.toolbox.lms.LmsScreen
+import com.xjtu.toolbox.media.DownloadManagerScreen
+import com.xjtu.toolbox.media.ServeDownloadsApi
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
@@ -773,6 +775,22 @@ private fun AppPage(
             )
         } else {
             WebAccountsScreen(client = client, mode = mode, onBack = back)
+        }
+        // 下载管理：屏是 `:core` 那份 `DownloadManagerScreen`，宿主走契约 §5.13 的 `/api/downloads`
+        // —— 队列 / 进度 / 落盘都真的发生在**运行 serve 那台机器**上（会议 #9 = 丙「做法①」）。
+        // 三处如实差异（见 `WebDownloadsHost` 的 KDoc）：没有推送（轮询）、目录那一格要等第一次列表、
+        // **不画播放按钮**（文件在那台机器上，浏览器打不开它 ⇒ 传 `onPlayTask = null`）。
+        AppRoute.DownloadManager -> {
+            val host = remember(client, mode) {
+                WebDownloadsHost(ServeDownloadsApi(client, API_BASE, mode))
+            }
+            DownloadManagerScreen(
+                host = host,
+                onBack = back,
+                dirInfo = host.dirInfo,
+                // 文件那一组不画：浏览器没有「本机下载目录」这一回事（那边是 serve 那台机器的）
+                files = null,
+            )
         }
 
         AppRoute.Settings -> SettingsScreen(
