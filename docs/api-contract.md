@@ -1759,6 +1759,45 @@ web 那一份逐条调：好处是**失败只影响那一条**，坏处是 N 发
 - **取页图失败会重开一次**：`jpgPath` 是会话令牌，上游轮换之后旧路径会一直给空体（`:data` 那层靠图片魔数判成败），
   本层在 `page` 那一条上「取不到 ⇒ 重开这本书 ⇒ 再取一次」，仍拿不到才回 `502`。
 
+
+#### 消费方（`:web`）：**已落地**（2026-10-22，批 4）
+
+两屏就是 `:feature:jiaocai` 那两份（`Jiaocai1LibraryScreen` / `Jiaocai1ReaderScreen`，与 Android / 桌面同一份），
+浏览器只当界面（会议 #9 = 丙「做法①」）：**检索、页表、页图、书架都真的发生在运行 serve 的那台机器上**。
+
+| 谁 | 实现 | 说明 |
+|---|---|---|
+| 取数（两屏共用） | `ServeJiaocai1Api`（`:feature:jiaocai`，与它的模型同模块） | 九条端点里的七条 JSON；`page` / `cover` 只给**路径构造**（`pagePath` / `coverPath`），字节由 `:web` 取 |
+| `Jiaocai1Source` | `WebJiaocai1Source`（`:web`） | 页图 / 封面走**同源 `fetch`**（`Jiaocai1Bytes`，`ArrayBuffer` → URL-safe Base64 → `ByteArray`）；`prefetchWindow` / `evictBook` / `closePages` 是**空操作** |
+| `Jiaocai1ShelfStore` | `WebJiaocai1ShelfStore`（`:web`） | `observeAll()` 是**冷流**（收一次先拉一份）；写端点回整份 ⇒ 直接覆盖本地那份 |
+
+四处**如实差异**（都已经想清楚理由，不是「还没做」）：
+
+1. **页图 / 封面是一发一发同源 fetch**，不是「本机磁盘缓存 + 预取窗口」那一套 —— 预取是「一台设备上本地磁盘 +
+   内存 LRU」的优化（本节上面那条「如实边界」已明说本层不为它多开端点），而 `serve_token` 是 `Path=/` 的
+   cookie ⇒ 同源请求自动带上，不必自己塞头；
+2. **取字节不产生 `:data` 的 `AuthExpiredException`** ⇒ 屏上那条 `authExpired` 通路在浏览器这一端走不到；
+   会话过期由 `/api/*` 的 `401` 与 `WebAuthEvents`（`Data.kt` 那个钩子）接住，与其余 serve 屏同一条；
+3. **书架取数失败会画 `ErrorState`**（不是「书架还是空的」——那是编事实）：为此刻意给 `Jiaocai1ShelfStore`
+   补了两个**带默认实现**的成员（`refresh()` / `notices`，默认空实现 / 空流），Android 与桌面那两份
+   一个字节都没改；屏上那句「取不到」与那条「重试」是同一份共享屏画的；
+4. **`jiaocai1` 的分类树缓存不传**（`jiaocai1Cache = null`）：浏览器这边没有 `DataCache` 的等价物，
+   不假装有 30 天缓存（与 `lms` 的 `cacheStore = null`、成绩那屏的 `cache = null` 同一条）。
+
+⚠️ **档案导出读不到书架**：浏览器那一侧的导出是**同步**的（在页面里拼 zip）⇒ `files/jiaocai/jiaocai1_shelf.json`
+这一族在 web 的档案里**仍不落地**（上面「书架」那一段已经写着，本批没有改变这一条）。
+
+**用例**：`:feature:jiaocai:jvmTest` 新增 `ServeJiaocai1ApiTest` **14** 例（`MockEngine`）—— 分类树两级递归
+与「`nodes` 不是数组就报错」· 检索八格 + 分页四格 + 四个参数都进 query（空 `cls` **不发**、中文关键词百分号编码）·
+空结果那一档与「两格分页缺了就按第一页」· `book` 的八组页型逐组 + 摊平 34 页 + **`jpgPath` 不投影** +
+`book:null` 与「页表不是八组」分开 · 书架一行八格（两个时间**是毫秒**、原样读）· `upsert` / `progress` 的请求体
+逐格、`delete` 走 `DELETE` 不带体 · 业务拒绝（`code != 0`）是异常且文案原样带上 · `pagePath` / `coverPath`
+的参数编码 · campus-api 形态一律 `serveOnly`。
+`:web` 那一侧：`WebRouteCoverageTest` 的差集从 3 条降到 **2** 条（`Jiaocai1` 出差集），
+`wasmJsBrowserTest` 全绿（见 `docs/parity-ledger.md` §8.9 里那条：`Jiaocai1Reader` 仍在差集里，
+但**不是「本端做不到」**——它是带参数的深链，门在 `Jiaocai1` 那一屏内部）。
+夹具那一处：`:testkit` **零改动**（这一族的假上游上一批已经齐了）。
+
 **夹具与用例（2026-10-21）**：`:server:test` 新增 `ServeJiaocai1Test` **6** 例 —— 分类树两级与检索八格逐字段
 （含第二页与空结果那一档）· 检索的参数形状（两个条件都空 `400` / `field` 认不出 `400` / `page` 不是正整数 `400`）·
 `book` 的八组页型与总页数 34 且 **`jpgPath` 不投影** · `page` 真回 JPEG 字节（Content-Type + 魔数）与页序越界 `400` ·

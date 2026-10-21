@@ -948,3 +948,44 @@ web 上「点了没反应」不可接受 ⇒ 加了 `notices` + `DownloadNoticeD
 
 **门禁**：`:feature:lms:jvmTest` **22 → 26**（新增 `ServeDownloadsApiTest` 4 例，`MockEngine`）·
 `:web:wasmJsBrowserTest` **69 / 0**（`WebRouteCoverageTest` 的差集 4 → **3** 条）· `:shared:network:jvmTest` 109 / 0。
+
+### 8.9 批 4（2026-10-22）：web 的教材全文库两屏真屏化（W-E2 第二、三屏）
+
+**背景**：`Jiaocai1` / `Jiaocai1Reader` 是 web 那三条「门在、屏不在」里的另两条（`NotPortedScreen`）。
+端点上一批（§8.2）已经齐了九个（含两条二进制），缺的是**屏**：`:feature:jiaocai` 那两份屏与 Android /
+桌面是同一份，但它们要的 `Jiaocai1Source` / `Jiaocai1ShelfStore` 在浏览器里没有实现。
+
+**落地**（细节读 `docs/api-contract.md` §5.14 末尾那段「消费方」）：
+
+1. `ServeJiaocai1Api`（`:feature:jiaocai`，与它的模型同模块 —— 同 `ServeDownloadsApi` 那条）
+   包住七条 JSON 端点；`page` / `cover` 只给 `pagePath` / `coverPath`（路径构造），字节由 `:web` 取。
+   两处**刻意**：`nodes` 不是数组就报错（空分类树与形状漂了不是一件事）；页表不是 8 组也报错
+   （`Jiaocai1Paging` 会整体错位，宁可当场炸）。
+2. `WebJiaocai1Source` / `WebJiaocai1ShelfStore`（`:web`）：页图 / 封面走**同源 `fetch`**
+   （`ArrayBuffer` → URL-safe Base64 → `ByteArray`，复用 `:shared:model` 的 base64 缝，不写第二份）；
+   书架是**冷流**（收一次先拉一份），写端点回整份 ⇒ 直接覆盖。`prefetchWindow` / `evictBook` 空操作
+   （预取是「一台设备上本地磁盘 + 内存 LRU」的优化，本层不为它多开端点）。
+3. **顺带给 `Jiaocai1ShelfStore` 补了两个带默认实现的成员**（`refresh()` / `notices`）：
+   书架取数失败时屏上画 `ErrorState` + 重试，而不是「书架还是空的」（那四个字在 serve 形态下是**编事实** ——
+   库里有几本书只是这一发没读到）。Android / 桌面那两份**一个字节没改**（默认空实现 / 空流）。
+4. `AppRoute.Jiaocai` 那一屏也把全文库那一半真接上了（它原来那句「书架与全文库两栏不画」的说明随之改写）。
+
+**⚠️ 一处对交接文件预期的更正（如实记）**：交接文件 §3.1 写「`WebRouteCoverageTest` 的差集 3 → 1（只剩 Browser）」，
+**实际只到 2**：`AppRoute.Jiaocai1Reader` 的 `id` 恒带 ssno（`jiaocai1_reader/<ssno>?title=…`），没有定值形态，
+而 `openableRouteIds` 是一份**定值 id** 的清单（`AppRoute.Lms()` 能进清单正是因为它有「无参数」那一形态）
+⇒ 它的门在 `Jiaocai1` 那一屏内部（书架与检索结果的「阅读全文」），**不进清单**。所以：
+
+- 差集 = `[Browser, Jiaocai1Reader]`，两条都在 `WebSupport` 文件头里写了理由（前者「不是一屏」，
+  后者「清单只认定值 id」）；
+- 第 3 条断言顺带**换成了更紧的形态**：`AppPage` 里多出清单的分支必须**正好等于差集**
+  （原来写死 `listOf("Browser")`）—— 「每个分支要么有门、要么在差集里且写了理由」，比原来更不容易漏。
+
+**门禁（2026-10-22，独占 + `--max-workers=1`）**：照 `.github/workflows/core-gate.yml` 那张表 + `:app:testDebugUnitTest`
+与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 10m 17s`**，635 个任务（101 executed / 534 up-to-date）；
+复算的逐模块数见 `docs/desktop-port-plan.md` §14.8：**25 个测试任务 / 1783 条用例 / 0 失败**（1769 → 1783，
++14 全在 `:feature:jiaocai`）。本批相关的那几项：`:feature:jiaocai:jvmTest` 16 → **30**（新增 14 例）·
+`:web:wasmJsBrowserTest` **69 / 0**（差集 3 → 2）· 三个编译面 `:core:compileKotlinWasmJs` / `:desktop:compileKotlin` /
+`:app:compileDebugKotlin` 全过。
+
+**仍未做完**（本批之后的入口，顺序不变）：C-2 的 web 半 + B-4/B-5（**下一批**，端点齐了而客户端一个引用都没有）、
+13 条 serve-only 屏的**真接线**（`WebScheduleHost` 那几格全是空的）、B-10/B-9 代价表、C-10（端打码手机号）。

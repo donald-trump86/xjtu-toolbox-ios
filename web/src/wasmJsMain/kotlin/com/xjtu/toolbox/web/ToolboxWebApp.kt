@@ -57,6 +57,12 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.iclassface.IclassfaceScreen
 import com.xjtu.toolbox.jiaocai.TextbookScreen
+import com.xjtu.toolbox.jiaocai1.Jiaocai1LibraryScreen
+import com.xjtu.toolbox.jiaocai1.Jiaocai1PageImages
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ViewModel
+import com.xjtu.toolbox.jiaocai1.ServeJiaocai1Api
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.media.DownloadManagerScreen
@@ -587,9 +593,12 @@ private fun AppPage(
                         "（那一段的数据在**教务**的报表里，serve 契约 §5.8 已端出它：`GET /api/jwxt/textbooks`，" +
                         "学号由服务端从会话里取 ⇒ 与日程屏的教材那一栏同一个端点）。「查教材」那一栏检索只有一个关键词输入：" +
                         "没有院系/教师筛选，也没有翻页；结果里的书目号（ssno）在列表里恒为空，要它进详情才补。" +
-                        "全文阅读（`jiaocai1` 的页图与阅读器）是另一个域名、另一套会话，本轮没有端点 ⇒ 书架与" +
-                        "全文库两栏不画，各处的「读全文 / 阅读全文」入口也不画（拿了书目号只够显示「这本书有本地全文」）。",
+                        "全文阅读（`jiaocai1`）在 serve 形态下**真能用了**（2026-10-22 批④）：那一半走契约 §5.14" +
+                        "的 `/api/jiaocai1/*` ⇒ 书架与全文库两栏真画，「读全文 / 阅读全文」的入口也都接上了。" +
+                        "⚠️ 页图与封面是**一发一发同源 fetch**（不做本机预取窗口），见 `WebJiaocai1Source`。",
                 )
+                // 全文库那一半的取数（契约 §5.14）：屏自己不去打 HTTP —— 它只认 `Jiaocai1Source` / `Jiaocai1ShelfStore` 两个端口
+                val api = remember(client, mode) { ServeJiaocai1Api(client, API_BASE, mode) }
                 Box(Modifier.weight(1f)) {
                     TextbookScreen(
                         source = remember(client, mode) { CampusJiaocaiApi(client, API_BASE, mode) },
@@ -598,14 +607,70 @@ private fun AppPage(
                         termTextbooks = remember(client, mode) {
                             WebJiaocaiTermTextbooks(CampusJwxtScheduleApi(client, API_BASE, mode))
                         },
-                        // 全文库那一半（`jiaocai1Source` / `jiaocai1Shelf`）一个都不传 = 本端没有那一档
-                        // ⇒ 屏上只留「查教材」一栏，也不画任何阅读全文的入口（见那个参数的 KDoc）。
+                        // 全文库那一半（`jiaocai1Source` / `jiaocai1Shelf`）：serve 形态下走契约 §5.14，
+                        // 数据取自在**运行 serve 的那台机器**上（会话借的是教材中心那个站点）。
+                        // 这一支只在 serve 形态下走到（上面那个 `if (mode != ApiMode.SERVE)`），所以无条件给。
+                        jiaocai1Source = remember(api) { WebJiaocai1Source(api) },
+                        jiaocai1Shelf = remember(api) { WebJiaocai1ShelfStore(api) },
+                        // 分类树的落盘缓存不传：浏览器这边没有 `DataCache` 的等价物（不假装有 30 天缓存）
+                        jiaocai1Cache = null,
                         onBack = back,
-                        // 走不到：没有全文库那一半时那个入口一个都不画（拿不到的东西不摆入口）
-                        onOpenBook = { _, _ -> },
+                        onOpenBook = { ssno, title ->
+                            onNavigate(WebTarget.App(AppRoute.Jiaocai1Reader(ssno, title)))
+                        },
                     )
                 }
             }
+        }
+
+        // 教材全文库（2026-10-22）：屏是 `:feature:jiaocai` 那两份（与 Android / 桌面同一份），
+        // 宿主走契约 §5.14 的 `/api/jiaocai1/*` —— 检索 / 页表 / 页图 / 书架都真的发生在
+        // **运行 serve 那台机器**上（会议 #9 = 丙「做法①」）。
+        // 三处如实差异见 `WebJiaocai1Source` / `WebJiaocai1ShelfStore`：页图是一发一发同源 fetch
+        //（不做本机预取窗口）· 书架是 serve 侧的（跟着账号，换浏览器还在）· 取不到就画 ErrorState。
+        AppRoute.Jiaocai1 -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "教材全文",
+                endpoints = "GET /api/jiaocai1/{classify,search,book,page,cover,shelf} + POST/DELETE /api/jiaocai1/shelf{,/progress}",
+                why = "全文库借的是**教材中心**那个站点的会话（全文库自己的会话由 `jiaocai.lib` 的 `portalLogin` 桥接过来）。",
+                section = "§5.14",
+            )
+        } else {
+            val api = remember(client, mode) { ServeJiaocai1Api(client, API_BASE, mode) }
+            val source = remember(api) { WebJiaocai1Source(api) }
+            val shelf = remember(api) { WebJiaocai1ShelfStore(api) }
+            // ⚠️ key 与 `TextbookScreen` 内部那个（`jiaocai1-library`）**刻意不同**：两屏可能前后脚都进过，
+            // 共用一个 key 会让后进来的那一屏拿到先前那个 VM（工厂不会再跑），而两边的装配并不等价
+            //（`TextbookScreen` 那一份是三栏共用、还带着「查教材」那一半）。
+            val vm: Jiaocai1ViewModel = viewModel(key = "jiaocai1-library-web") { Jiaocai1ViewModel(source, shelf) }
+            vm.bind()
+            Jiaocai1LibraryScreen(
+                vm = vm,
+                images = remember(source) { Jiaocai1PageImages(source) },
+                onBack = back,
+                onOpenBook = { ssno, title ->
+                    onNavigate(WebTarget.App(AppRoute.Jiaocai1Reader(ssno, title)))
+                },
+            )
+        }
+
+        // 阅读器：同一个取数宿主、同一份书架（屏内部自己起它的 VM，与 Android / 桌面同一份）。
+        is AppRoute.Jiaocai1Reader -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "教材全文阅读",
+                endpoints = "GET /api/jiaocai1/{book,page,cover} + POST /api/jiaocai1/shelf{,/progress}",
+                why = "阅读器与书架都在 serve 那一侧（会话借自教材中心站点）。",
+                section = "§5.14",
+            )
+        } else {
+            val api = remember(client, mode) { ServeJiaocai1Api(client, API_BASE, mode) }
+            Jiaocai1ReaderScreen(
+                source = remember(api) { WebJiaocai1Source(api) },
+                shelfStore = remember(api) { WebJiaocai1ShelfStore(api) },
+                ssno = route.ssno,
+                fallbackTitle = route.title,
+                onBack = back,
+            )
         }
 
         AppRoute.JwappScore -> if (mode != ApiMode.SERVE) {
