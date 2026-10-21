@@ -1114,3 +1114,17 @@ dev 新合进来的那些 PR）· `:web:wasmJsBrowserTest` **70 / 0** · 三个�
 **给下一个人的两句话**：① 这条分支上**可能还有另一个会话在写**（这次的重写就是证据）：每次推之前先
 `git fetch` + `ls-remote` 比对，别拿本地旧 tip 直接推；② 如果要动这条分支的历史，用
 `--force-with-lease`，别用 `--force`。
+
+#### 8.12.1 谁是谁（仓库治理的事实，别把角色搞反）
+
+- **仓库主人是 `yeliqin666`**（`xjtu-toolbox-android` 的 owner），本工作区的协作者是 **`Triangle-GitHub`**
+  （本机 `git config user.name` 就是它，SSH 推上去也是它：`ssh -T git@github.com` → `Hi Triangle-GitHub!`）。
+- ⚠️ **`chore/parity-a-batch` 是 owner 仓库里的分支**（`gh pr view 150` 的 `headLabel` =
+  `yeliqin666:chore/parity-a-batch`），不是 fork 里的 —— 也就是说：它的历史归 **owner** 说了算；
+  协作者只有写权限，没有「这条分支归我」的默认位分。`#150` 的 **author 是 Triangle-GitHub**（本人），
+  base 原本是 `#142` 的分支，2026-10-22 已按交接文件 §3.4 改成 `dev`。
+- 两边 agent 的**提交身份都是 Triangle-GitHub**（重写那条线的 author 也是它）⇒ 光看 `%an` 分不出是谁推的，
+  只能靠 `ls-remote` 的 SHA 与 committer 时间。
+- 推论（写给下一个会话）：**不要与这条分支的另一个会话争** —— 新增工作默认放自己的分支；
+  要动 `chore/parity-a-batch` 就先 `ls-remote` 比对、用 `--force-with-lease`，并把
+「为什么动」写进提交信息。`#150` 何时合、`dev → main` 何时发版，属于 owner 的决定。
