@@ -2,6 +2,8 @@ package com.xjtu.toolbox.web
 
 import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
+import com.xjtu.toolbox.core.net.CampusAttendanceApi
+import com.xjtu.toolbox.core.net.CampusLmsApi
 import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.inbox.OwnInbox
 import com.xjtu.toolbox.platform.keyValueStore
@@ -18,6 +20,7 @@ import com.xjtu.toolbox.schedule.ScheduleLogin
 import com.xjtu.toolbox.schedule.ScheduleSession
 import com.xjtu.toolbox.schedule.ServedSchedule
 import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
@@ -43,6 +46,13 @@ internal class WebScheduleHost(
         // 调课/停课的气泡：一条自己的提醒写进 `:core` 的收纳（见类 KDoc 与 [postScheduleChange]）
         add(ScheduleCapability.SCHEDULE_CHANGE_BUBBLE)
         add(ScheduleCapability.SEAT_COUNT)
+        // serve 形态下多三档（2026-10-22 批5，契约 §5.12）：考勤那一档（角标 + 本次考勤）、思源下钻、作业截止。
+        // 三条端点都只在 serve 契约里 ⇒ campus-api 形态照旧不画（不是「做不到」，是那一形态没有取数）。
+        if (mode == ApiMode.SERVE) {
+            add(ScheduleCapability.ATTENDANCE)
+            add(ScheduleCapability.LMS_LINK)
+            add(ScheduleCapability.DUE_HOMEWORK)
+        }
     }
 
     /**
@@ -83,7 +93,41 @@ internal class WebScheduleHost(
     override val holidays: HolidaySource = WebHolidaySource
 
     /** 课程详情的两项下钻本端没有 ⇒ 不画。 */
-    override val courseLinks: CourseLinkAccess? = null
+    /**
+     * 课程详情里的两项下钻（思源学堂 / 本次考勤）与课格子上的考勤角标：serve 形态下有取数
+     *（`/api/lms/course-match` + `/api/attendance/records`），campus-api 形态没有（`null` = 屏上不画）。
+     */
+    override val courseLinks: CourseLinkAccess? = if (mode == ApiMode.SERVE) {
+        WebCourseLinkAccess(
+            attendance = CampusAttendanceApi(client, API_BASE, mode),
+            lms = CampusLmsApi(client, API_BASE, mode),
+        )
+    } else {
+        null
+    }
+
+    /**
+     * 今日栏「接下来」的作业截止：`GET /api/lms/due`（服务端读它自己落盘的那一份，本端不为此请求学堂）。
+     *
+     * `accountId` 派不上：serve 那一侧按它自己的当前账号读（与其余二十多族同一条）。读不到就是空表
+     * （服务端也是这套语义）⇒ 那一档自然不画。
+     */
+    override suspend fun dueHomeworks(accountId: String): List<LmsDue> =
+        if (mode == ApiMode.SERVE) runCatching { lmsApi.dueHomeworks() }.getOrDefault(emptyList()) else emptyList()
+
+    /**
+     * 「课表显示考勤角标」那一格：与 App / 桌面**同一个键、同一个默认值（默认开）**。
+     *
+     * 设置页那一行是共享屏画的（`SettingsScreen` 里那个开关也在本端真能改）⇒ 能读也能改。
+     * 没开的人不该为点开一门课付一次考勤取数的代价（共享屏自己按这一格决定要不要拉，见 `CourseLinkSections`）。
+     */
+    override val attendanceBadgeEnabled: Boolean get() = settings.scheduleAttendanceBadge
+
+    /** 思源学堂那一族的取数（作业截止 / 课程配对都走它）。 */
+    private val lmsApi = CampusLmsApi(client, API_BASE, mode)
+
+    /** 设置（考勤角标那一格）：与设置屏同一份键值存储。 */
+    private val settings = SettingsStore()
 
     /**
      * 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`；CAMPUS_API 形态从

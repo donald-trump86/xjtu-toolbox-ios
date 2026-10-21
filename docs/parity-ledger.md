@@ -989,3 +989,41 @@ web 上「点了没反应」不可接受 ⇒ 加了 `notices` + `DownloadNoticeD
 
 **仍未做完**（本批之后的入口，顺序不变）：C-2 的 web 半 + B-4/B-5（**下一批**，端点齐了而客户端一个引用都没有）、
 13 条 serve-only 屏的**真接线**（`WebScheduleHost` 那几格全是空的）、B-10/B-9 代价表、C-10（端打码手机号）。
+
+### 8.10 批 5（2026-10-22）：C-2 的 web 半 + B-4/B-5（W-E2 主体）
+
+**背景**：契约 §5.12（2026-10-20 落地的 C-2 端点批）那几条端点以前**一个客户端引用都没有**（grep 过：
+`attendance/{stats,streams}`、`POST jwxt/evaluations/submit`、`lms/{due,course-match}`），
+而 `WebScheduleHost` 那几格全是空的（`courseLinks = null`、没有 `dueHomeworks` / `attendanceMarks` /
+`lmsCourseFor` 覆写）⇒ 思源下钻 / 考勤角标 / 本次考勤 / 作业截止四格在 web 上一个都不画。
+
+**落地**（细节读 `docs/api-contract.md` §5.12 末尾那段「消费方」）：
+
+1. **考勤统计与打卡流水**（`CampusAttendanceApi`）：两条端点接上 ⇒ `AttendanceCapabilities` 三项全 `true`，
+   考勤屏的「统计」与「打卡流水」两栏**真画**。⚠️ 一处接口改动：`AttendanceSource.computeCourseStatsFromRecords`
+   **改成 `suspend`** —— 算路在 `:data`（只有 JVM/Android 变体，浏览器里拿不到），serve 那一份必须打端点；
+   本机那两份实现只是加一个关键字（调用方 `AttendanceViewModel` 本来就在协程里），语义一字未改。
+   两条端点只认学期号（不认一对日期）⇒ 用 `/records` 回显并缓存的那个 `term`。
+2. **评教提交**（`CampusJudgeApi`）：serve 形态下 `canSubmit = true` + `judge()` 走
+   `POST /api/jwxt/evaluations/submit` ⇒ 评教屏那个「一键评教」块真能用（标题从「学生评教（只读）」改回
+   「本科评教」）；`submitted:false`（已被评过）也是成功（契约写明那一档幂等）；`409` 被屏按「这一门失败」计数。
+3. **日程页四格**（`WebScheduleHost` + 新文件 `WebCourseLinkAccess`）：`courseLinks`（思源下钻走
+   `/api/lms/course-match`；考勤角标与「本次考勤」走 `/api/attendance/records` + `:model` 的 `attendanceMarksOf`）、
+   `dueHomeworks`（`/api/lms/due`）、`attendanceBadgeEnabled`（与 App/桌面同一个设置键，默认开）。
+   `honored` 里的考勤 / 思源下钻 / 作业截止三档**只在 serve 形态下给**（campus-api 没有这三族端点）。
+   学期代码→学期号要换一次（`/api/attendance/terms`）；下钻取数失败 = 那一格不画（屏上那两处在
+   `LaunchedEffect` 里裸调，不能抛）。
+
+**⚠️ 两处顺带的如实记账**：
+
+- 日程页顶那条缺口说明（`WebScheduleGapNote`）与考勤屏那条（`ToolboxWebApp` 里的 `WebGapNote`）都改掉了：
+  它们原来写着「这几栏本端拿不到」，现在按形态分了两段（serve = 已接上；campus-api = 那一形态没有端点）。
+- `:data` 的算路与 serve 的算路是同一份（服务端调的就是它）⇒ 统计那一栏不存在「第二份口径」。
+
+**仍未做完**（本批之后的入口）：成绩单两段式（`dzpz/transcript/{submit,preview,download}` —— **下一批**）·
+13 条 serve-only 屏里剩下的零碎接线 · B-10/B-9 代价表 · C-10（端打码手机号）· C-1c（等 #147）。
+
+**门禁（2026-10-22，独占 + `--max-workers=1`）**：照 `.github/workflows/core-gate.yml` 那张表 + `:app:testDebugUnitTest`
+与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 15m 3s`**，631 个任务（136 executed / 495 up-to-date）；
+复算：**25 个测试任务 / 1789 条用例 / 0 失败**（1783 → 1789，+6 全在 `:shared:network`）·
+`:web:wasmJsBrowserTest` **69 / 0** · 三个编译面（`:core` wasmJs / `:desktop` / `:app`）全过。

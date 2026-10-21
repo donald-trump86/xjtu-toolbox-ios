@@ -716,7 +716,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 | 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
 |---|---|---|---|
 | 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`） | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
-| 考勤 | `GET /api/attendance/terms` + `/records` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉（**画的是人名**）/ 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名（**流水那一栏**，不投影 —— 红线）；**请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影**（下拉框不再退化成一行 id）；姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假附件（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件）。剩下那几栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 现在只剩 `stats` / `streams` 两档 `false`）；统计也不拿流水在本机重算 |
+| 考勤 | `GET /api/attendance/{terms,records,stats,streams}` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）+ **按课统计那一栏（八格）** + **打卡原始流水那一栏（四格）**；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉（**画的是人名**）/ 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名（**流水那一栏**，不投影 —— 红线）；**请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影**（下拉框不再退化成一行 id）；姓名那一格（`getStudentInfo` 不端）、请假附件（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件）。⚠️ **2026-10-22（批5）起三栏全在**（`AttendanceCapabilities` 三项都 `true`）：统计那一栏的数字是**服务端按同一算路算的**（算路在 `:data`，只有 JVM/Android 变体，浏览器里拿不到它 ⇒ 端口那一格改成 `suspend`，见 `AttendanceSource`） |
 | 加餐券 | `GET /api/coupon/list` + `/detail` + `POST /activate` | 四档 + 翻页 + 金额（分）+ 有效期；**「领取」按钮真画、真能领**（领完重拉当前那一档，与两端同一条编排） | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；金额不换算成元（除 100 是屏的事）；领券**分不出「上游说不能领」与「上游坏了」**（都落 502，见上） |
 | 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
 
@@ -1597,6 +1597,39 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 **B-12 的如实结论**：**卡挂失上报做不了** —— 全仓只有只读的 `CampusCardApi`（读 `barflag`），`:app` 与 legacy 都没有挂失写的 URL / 参数；**猜上游违反规矩** ⇒ 需要一次**真实抓包**才能端。评教提交已端（见上）。
 
 ⚠️ **§5.5 里两句已过时**（以本节为准）：「考勤只投学期选择 + 流水表」（三栏已于 2026-10-20 补齐）、「请假族一律不端姓名」（2026-10-15 起真投影，见 §5.2 例外 ④）。
+
+#### 消费方（`:web`）：**已落地**（2026-10-22，批5）
+
+这一批的七个端点以前**一个客户端引用都没有**（端点先落地、屏没接），本批把它们全接上：
+
+| 端点 | 谁在用（`:web` 侧） | 屏上变成什么 |
+|---|---|---|
+| `/api/attendance/stats` · `/streams` | `CampusAttendanceApi`（`:shared:network`）的 `computeCourseStatsFromRecords` / `getKqtjCurrentWeek` / `getKqtjByTime` / `getStreams` | 考勤屏的「统计」与「打卡流水」两栏**真画**（`AttendanceCapabilities` 三项都 `true`） |
+| `POST /api/jwxt/evaluations/submit` | `CampusJudgeApi.judge`（serve 形态下 `canSubmit = true`） | 评教屏那个「一键评教」块**真能提交**（屏标题从「学生评教（只读）」改回「本科评教」）；上游拒 ⇒ `409` 被屏按「这一门失败」计数，不中断剩下几门 |
+| `/api/lms/due` | `CampusLmsApi.dueHomeworks` → `WebScheduleHost.dueHomeworks` | 日程页今日栏「接下来」的作业截止 |
+| `/api/lms/course-match` | `CampusLmsApi.courseMatch` → `WebCourseLinkAccess.lmsCourseFor` | 课程详情里的「思源学堂」入口 |
+| `/api/attendance/records`（已有） | `WebCourseLinkAccess.attendanceMarks` + `:model` 的 `attendanceMarksOf` | 课表格子上的**考勤角标**与详情里的「本次考勤」（后者还看设置里「课表显示考勤角标」那一格，与 App/桌面同一个键） |
+
+三处**如实差异**（都不是「还没做」）：
+
+1. **统计那一格是 `suspend` 了**：算路在 `:data`（只有 JVM/Android 变体），浏览器里拿不到它 ⇒ 把
+   `AttendanceSource.computeCourseStatsFromRecords` 改成 `suspend`，serve 那一份打 `/api/attendance/stats`
+   （服务端跑同一条算路，数字与拿那份流水自己算出来的逐格相同）。本机那两份实现只是加一个关键字，语义一字未改。
+2. **两条端点只认学期号**（不认一对日期）：`stats` / `streams` 的 `?term=` 由 serve 侧算好的学期号填
+   （`/records` 那一发回显的 `term`，已缓存）；屏上那两个日期参数是它用来算学期窗口的。
+3. **下钻取数失败 = 那一格不画**：屏上这两处在 `LaunchedEffect` 里裸调（`:data` 那一份自带站点级
+   失败冷却、不会抛），所以 `WebCourseLinkAccess` 自己吞掉错误回 `null` —— 「没配到课」与「这一发没取到」
+   在屏上是同一种表现：不给入口（给错课比不给更糟）。
+
+四格在 serve 形态下才算「有」（`ScheduleHost.honored` 按形态给：考勤 / 思源下钻 / 作业截止三档只在 serve 里）
+—— campus-api 那一形态没有这三族端点，屏照旧不画，日程页顶那条缺口说明也**按形态分了两段**。
+
+**用例**：`:shared:network:jvmTest` 新增 `ServeC2EndpointsApiTest` **5** 例（`MockEngine`）——
+`due` 八格逐字段（`fetchedAt` 的 ISO 真转成毫秒、`null` 回 0）· `course-match` 配上 / 没配上两档 +
+三个参数进 query · 评教提交的请求体四格、已被评过也是成功、`409` 是异常且文案原样带上 ·
+两个 campus-api 形态的闸门。另：`ServeReadonlyFourDomainsApiTest` 里考勤那一例改成**逐字段核**统计八格
+与流水四格（原来那句「统计不端 ⇒ 空表」已不成立）。
+
 
 ### 5.13 下载那一族（2026-10-20 落地实现 · 2026-10-21 补契约测试与本节）：`/api/downloads`
 

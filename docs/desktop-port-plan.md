@@ -867,15 +867,16 @@ current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 
 
 （本机另加 `:app:testDebugUnitTest` 与 `:server:test` —— 它们不在 core-gate 里，但受红线与契约保护。）
 
-**当前基线（2026-10-22 复算，独占 + `--max-workers=1`，`BUILD SUCCESSFUL in 10m 17s`）：25 个测试任务 / 1783 条用例 / 0 失败**
+**当前基线（2026-10-22 批5 复算，独占 + `--max-workers=1`，`BUILD SUCCESSFUL in 15m 3s`）：25 个测试任务 / 1789 条用例 / 0 失败**
 
 `:app` 450 · `:core` 18 · `:data` 17 · `:desktop` 141 · `:server` 170 · `:web` 69 ·
-`:shared:data` 271 · `:shared:model` 202 · `:shared:network` 109 · `:shared:designsystem` 25 · `:shared:navigation` 8 ·
+`:shared:data` 271 · `:shared:model` 202 · `:shared:network` 115 · `:shared:designsystem` 25 · `:shared:navigation` 8 ·
 19 个 `:feature:*` 合计 303（`:feature:account` 是 `NO-SOURCE` —— 它没有测试）。
 
 ⚠️ 历次测量（都对不齐，**以最新那一行为准**）：1721（§14.8 初版）→ 1754（session4 交接文件里）→
 1764（2026-10-21 白天，+10 全在 `:server`）→ 1769（同日晚上，+:server 1、`:feature:lms` 4）→
-**1783**（2026-10-22，+14 全在 `:feature:jiaocai`，即新写的 `ServeJiaocai1ApiTest`）。
+**1783**（2026-10-22 批4，+14 全在 `:feature:jiaocai`，即新写的 `ServeJiaocai1ApiTest`）→
+**1789**（同日批5，+6 全在 `:shared:network`，即新写的 `ServeC2EndpointsApiTest`）。
 ⚠️ **本行的数字由脚本逐模块解析 `**/build/test-results/*/TEST-*.xml` 复算**（口径：用例数 = `tests` 属性之和）。
 
 ⚠️ 另记：`:app` 的历史基线 **453 是过时数**（那是对着 kmp-tail 工作区测的）——
