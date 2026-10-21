@@ -456,22 +456,28 @@ private fun AppPage(
         AppRoute.Transcript -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "电子成绩单",
-                endpoints = "GET /api/dzpz/transcript",
+                endpoints = "GET /api/dzpz/transcript + POST /api/dzpz/transcript/{submit,preview} + GET /download?ticket=",
                 why = "成绩单走 `dzpz` 站点的会话。",
+                section = "§5.12",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "这一屏只画得了「选类型」这一步：serve 契约 §5.5 只端了建单表单（GET /api/dzpz/transcript）。" +
-                        "学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF 六步刻意不投影" +
-                        "（第二步的返回值里有学号，其余是写路径）⇒ 出 PDF 那半条链在浏览器里没有端点，" +
-                        "那一块不画按钮、只写缺口。要出 PDF 请在 App 或桌面端申请。",
+                    "这一屏与 App / 桌面**同一个屏、同一条链**：serve 那边是**两段式**（契约 §5.12）——" +
+                        "① POST /api/dzpz/transcript/submit 建申请单（幂等：10 分钟内重复点复用同一张）；" +
+                        "② POST preview 生成 + 签章 + 取一次性票据；③ GET download?ticket= 换 PDF 字节。" +
+                        "⚠️ 第①步**真的会在教务留一条待审批记录**（屏上那个按钮就是这件事）。" +
+                        "两处与 Android / 桌面不同（都是这一端本来的样子）：进度条那五步在这里有几步是" +
+                        "「同一发 HTTP」—— 学籍联动是空壳（服务端在建单那一发里自己做，返回值里有学号），" +
+                        "签章与第二次提交就在 preview 那一发里；保存 PDF 交给浏览器自己下（存到浏览器的下载目录）。",
                 )
                 Box(Modifier.weight(1f)) {
-                    // 没有 saveSink：浏览器这一端没有「保存到下载目录 / 下载管理」那一档（也不会有 PDF 可存）
+                    // saveSink：浏览器的实现（Blob + 下载锚点，存到浏览器自己的下载目录）——
+                    // 与 Android 的 MediaStore / 桌面的文件选择框同一个槽位，见 `WebTranscriptSaveSink`。
                     TranscriptScreen(
                         source = remember(client, mode) { CampusTranscriptApi(client, API_BASE, mode) },
                         onBack = back,
+                        saveSink = WebTranscriptSaveSink,
                     )
                 }
             }

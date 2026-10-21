@@ -63,12 +63,12 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("", form.signatureAttributesStr)
         assertEquals("", form.signatureSecretKey)
 
-        // 出 PDF 那半条链没有端点：屏按 canRunWorkflow 不画那个按钮，方法本身也照旧抛错
-        assertFalse(api.canRunWorkflow, "serve 只端了第一步 ⇒ 不许许诺「能走完七步」")
-        val linkage = assertFailsWith<UnsupportedOperationException> { api.getLinkageData(form, 0) }
-        assertTrue(linkage.message?.contains("学号") == true, "第 2 步不端的理由是学号（红线）：${linkage.message}")
-        assertFailsWith<UnsupportedOperationException> { api.generatePreviewPdf(29, 0, 1) }
-        assertFailsWith<UnsupportedOperationException> { api.downloadPdf("https://dzpz.xjtu.edu.cn/x.pdf") }
+        // 出 PDF 那条链在 2026-10-22（批6）起**真接上了**（两段式，契约 §5.12）：
+        // 逐发的校在 `ServeTranscriptWorkflowApiTest` 里；这一例只看「屏会不会画那个按钮」。
+        assertTrue(api.canRunWorkflow, "serve 的两段式能走完七步 ⇒ 屏上那个按钮真画")
+        assertTrue(api.getLinkageData(form, 0).studentId.isEmpty(), "第 2 步是空壳（服务端在建单那一发里自己做，返回值里有学号）")
+        // 每一步的逐发校（两段式、幂等、票据过期、409）在 `ServeTranscriptWorkflowApiTest` 里 ——
+        // 这一例只关心「表单那一半 + 屏会不会画按钮」，不在这里重做一遍。
     }
 
     /** 契约 §4/§5.5 的错误信封：`code` 是 HTTP 状态码，失败文案只有 `message` 一处。 */

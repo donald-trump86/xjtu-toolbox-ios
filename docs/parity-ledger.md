@@ -1027,3 +1027,46 @@ web 上「点了没反应」不可接受 ⇒ 加了 `notices` + `DownloadNoticeD
 与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 15m 3s`**，631 个任务（136 executed / 495 up-to-date）；
 复算：**25 个测试任务 / 1789 条用例 / 0 失败**（1783 → 1789，+6 全在 `:shared:network`）·
 `:web:wasmJsBrowserTest` **69 / 0** · 三个编译面（`:core` wasmJs / `:desktop` / `:app`）全过。
+
+### 8.11 批 6（2026-10-22）：成绩单两段式（`dzpz/transcript/{submit,preview,download}`）
+
+**背景**：serve 契约 §5.12 的最后三条端点也是「端了没接」—— `CampusTranscriptApi` 只填得了第一步
+（`canRunWorkflow = false`），屏上那块于是画一张缺口卡，写「六步刻意不投影」。本批把它接完。
+
+**落地**（细节读 `docs/api-contract.md` §5.12 末尾那段「消费方」）：把三发 HTTP 映射到屏上那七步，
+**屏与 `TranscriptViewModel` 一行未改**：
+
+| 屏上的步骤 | serve 里对应什么 |
+|---|---|
+| Step 1 加载表单 | `GET /api/dzpz/transcript`（未变） |
+| Step 2 学籍联动 | **空壳**（服务端在建单那一发里自己跑，返回值里有学号 ⇒ 不投影；后续几步也不读它） |
+| Step 3 保存申请 | `POST …/submit`（第一段；`created:false` 也成功） |
+| Step 4 生成文件 | `POST …/preview`（第二段：生成 + 签章 + 取下载信息一口气做完，回一次性票据） |
+| Step 5 签章 / 第二次提交 | **没有单独的端点** ⇒ 原样交回上一步的结果，**不发请求** |
+| Step 6 取下载链接 | 交回 preview 存下的三格（上游 host / link 永不出现在响应里） |
+| Step 7 下载 PDF 字节 | `GET …/download?ticket=`（`application/pdf` 那条例外） |
+
+两处刻意：① Step 7 **先看状态码与内容类型** —— 失败那一半回的是信封（JSON），不把一段 JSON 当 PDF
+交上去（否则屏上会「成功」地存出一个假的 .pdf）；② 保存 PDF 交给**浏览器自己下**
+（新文件 `WebTranscriptSaveSink`：`Blob` + 下载锚点），目标位置是浏览器的下载目录 ⇒ 屏上那行
+「将保存到 X」不画（与 `WebArchiveActions` 同一条）。
+
+⚠️ 契约要求「消费方按钮文案必须写清这一步真的会在教务留一条待审批记录」—— `:web` 那一支的缺口说明
+与 `TranscriptScreen` 的 KDoc 都改了（原来那句「serve 只端了第一步」已不成立）。
+
+**⚠️ 一处「以前只编过、没跑过」的缝，本批真跑了**：Step 7 走的是 Ktor 的 `bodyAsBytes()` ——
+全仓此前没用过它，`:web` 那条线只编得过。本批给 `:web` 的 wasmJsTest 加上 `ktor-client-mock`
+（wasmJs 上可用），新写 `WebServeBytesTest` 在**真 Chrome** 里读回四格字节 ⇒ 这条缝现在有运行时证据
+（而不只是「编译过了」）。
+
+**用例**：`:shared:network` 新增 `ServeTranscriptWorkflowApiTest` **5** 例（两段式逐发、幂等、票据过期、
+409、campus-api 闸门）；`ServeReadonlyFourDomainsApiTest` 里那一条改成钉相反的事实；
+`:web` 新增 `WebServeBytesTest`（浏览器里真读字节）。
+
+**仍未做完**（本批之后的入口）：13 条 serve-only 屏里剩下的零碎接线 · B-10/B-9 代价表 ·
+C-10（端打码手机号）· C-1c（等 #147）。
+
+**门禁（2026-10-22，独占 + `--max-workers=1`）**：照 `.github/workflows/core-gate.yml` 那张表 + `:app:testDebugUnitTest`
+与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 12m 37s`**，635 个任务（128 executed / 507 up-to-date）；
+复算：**25 个测试任务 / 1795 条用例 / 0 失败**（1789 → 1795：`:shared:network` +5、`:web` +1）·
+`:web:wasmJsBrowserTest` **70 / 0**（新增那条就是 `WebServeBytesTest`）· 三个编译面全过。

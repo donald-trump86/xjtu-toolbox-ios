@@ -108,7 +108,7 @@
 | `/api/card/balance` `/api/card/transactions` | `CampusCardSource` | 校园卡 | P0 | 沿用（`amount ← signed`、`description ← channel`、`cardType ← cardName`；⚠️ 挂失口径 `lostflag` vs `barflag` 要在本文档里明确选一个） |
 | `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
 | `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
-| `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
+| `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链 2026-10-22 起走 §5.12 的两段式 |
 | `/api/attendance/terms` `/api/attendance/records` `/api/attendance/leave/{window,preview,records}` `POST /api/attendance/leave{,/withdraw,/cancel}` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi` / `LeaveApi`） | 考勤（**流水 + 请假 / 销假**） | **P0 读 · 2026-10-13 已落地**；**请假那一族（三读 + 三写）于 2026-10-15 批③-b / D7 ② 落地** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次）；**一处姓名不投影**（考勤流水里的 `teacher`）—— 请假单里的 `courses[].teacherNames` 与审批人的 `name` 于 2026-10-15 按 §5.2 例外 ④ **真投影**（见下与 §7 的 12g）；附件上传没有端点，见 §5.5.1 |
 | `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收落 `502`（`:data` 那一层分不出业务拒绝，见 §5.5），会话失效落 `401` |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
@@ -715,7 +715,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 
 | 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
 |---|---|---|---|
-| 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`） | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
+| 电子成绩单 | `GET /api/dzpz/transcript` + `POST /transcript/{submit,preview}` + `GET /transcript/download?ticket=` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`）；**serve 形态下「一键申请」与那五步步骤预览都真能走**（两段式，见 §5.12）—— 真的会在教务留一条待审批记录、出完 PDF 还能存到本机 | `params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影）；⚠️ **campus-api 形态**仍只有第一步（那条老路没有写端点，`canRunWorkflow = false`）；学籍联动那一格在 serve 下是**空壳**（服务端在建单那一发里自己做，返回值里有学号 = 红线） |
 | 考勤 | `GET /api/attendance/{terms,records,stats,streams}` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）+ **按课统计那一栏（八格）** + **打卡原始流水那一栏（四格）**；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉（**画的是人名**）/ 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名（**流水那一栏**，不投影 —— 红线）；**请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影**（下拉框不再退化成一行 id）；姓名那一格（`getStudentInfo` 不端）、请假附件（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件）。⚠️ **2026-10-22（批5）起三栏全在**（`AttendanceCapabilities` 三项都 `true`）：统计那一栏的数字是**服务端按同一算路算的**（算路在 `:data`，只有 JVM/Android 变体，浏览器里拿不到它 ⇒ 端口那一格改成 `suspend`，见 `AttendanceSource`） |
 | 加餐券 | `GET /api/coupon/list` + `/detail` + `POST /activate` | 四档 + 翻页 + 金额（分）+ 有效期；**「领取」按钮真画、真能领**（领完重拉当前那一档，与两端同一条编排） | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；金额不换算成元（除 100 是屏的事）；领券**分不出「上游说不能领」与「上游坏了」**（都落 502，见上） |
 | 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
@@ -1629,6 +1629,41 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 三个参数进 query · 评教提交的请求体四格、已被评过也是成功、`409` 是异常且文案原样带上 ·
 两个 campus-api 形态的闸门。另：`ServeReadonlyFourDomainsApiTest` 里考勤那一例改成**逐字段核**统计八格
 与流水四格（原来那句「统计不端 ⇒ 空表」已不成立）。
+
+#### 消费方（`:web`）：**成绩单两段式**（2026-10-22，批6）
+
+`CampusTranscriptApi`（`:shared:network`）以前只填得了第一步（`canRunWorkflow = false`）；现在把三发 HTTP
+映射到屏上那七步（屏与 ViewModel 一行未改）：
+
+| 屏上的步骤 | serve 里对应什么 |
+|---|---|
+| Step 1 加载表单 | `GET /api/dzpz/transcript`（§5.5，未变） |
+| Step 2 学籍联动 | **空壳**：服务端在建单那一发里自己跑（`DzpzRoutes` 的 `submit` 那一支），而它返回值里有**学号** —— 红线、例外清单里没有它 ⇒ 本端后续几步都不读它（屏上也一格不画） |
+| Step 3 保存申请 | `POST /api/dzpz/transcript/submit`（第一段；幂等：`created:false` 也成功） |
+| Step 4 生成文件 | `POST /api/dzpz/transcript/preview`（第二段：生成 + 签章 + 取下载信息一口气做完，回一张一次性票据） |
+| Step 5 签章 / 第二次提交 | **没有单独的端点**（就在上一发里）⇒ 原样交回上一步的结果，不发请求 |
+| Step 6 取下载链接 | 交回 `preview` 存下的三格（`filename` / `filesize` / `downloadPath`）—— 上游 host 与 link 永不出现在响应里 |
+| Step 7 下载 PDF 字节 | `GET /api/dzpz/transcript/download?ticket=`（`application/pdf` 那条例外） |
+
+两处**如实差异**：
+
+1. **Step 7 先看状态码与内容类型**：失败那一半回的是**信封（JSON）**（票据过期/重放是 `404` + 一句中文）——
+   不把一段 JSON 当 PDF 交上去（不然屏上会「成功」地存出一个假的 .pdf）；
+2. **保存交回给浏览器自己下**（`:web` 的 `WebTranscriptSaveSink`：`Blob` + 下载锚点）：目标位置是浏览器的
+   下载目录、本端不知道它在哪 ⇒ 屏上那行「将保存到 X」不画（与 `WebArchiveActions` 同一条路子）。
+
+⚠️ **第①步真的会在教务留一条待审批记录**（契约 §5.12 的要求：消费方按钮文案必须写清）—— 屏上那句
+缺口说明与这个按钮的语义都在 `:web` 的 `AppRoute.Transcript` 分支里写着。
+
+`:web` 的 `AppRoute.Transcript` 现在画的是与 App / 桌面**同一份屏、同一条链**；campus-api 形态仍只有第一步
+（`canRunWorkflow = false`，屏上画缺口卡）—— 两种形态在 `AppRoute` 那一支里分开。
+
+**用例**：`:shared:network:jvmTest` 新增 `ServeTranscriptWorkflowApiTest` **5** 例（`MockEngine`）——
+七步的两段式映射逐发核（包括「Step 5 不发请求」「请求体就一格 type」「票据与 ticket 参数」）·
+幂等命中（`created:false`）也成功 · 票据过期（`404` 回信封）要报错而不是交回 JSON · 上游拒 `409` 的文案 ·
+campus-api 形态的闸门。另修 `ServeReadonlyFourDomainsApiTest` 里那一例（它原来钉着「serve 只端了第一步」，
+现在钉的是相反的事实）。**真浏览器里核了字节读**：`:web:wasmJsBrowserTest` 新增 `WebServeBytesTest`
+（`bodyAsBytes` 在 Chrome 里真读回四格字节 —— 这条缝以前只编过没跑过）。
 
 
 ### 5.13 下载那一族（2026-10-20 落地实现 · 2026-10-21 补契约测试与本节）：`/api/downloads`
