@@ -1070,3 +1070,47 @@ C-10（端打码手机号）· C-1c（等 #147）。
 与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 12m 37s`**，635 个任务（128 executed / 507 up-to-date）；
 复算：**25 个测试任务 / 1795 条用例 / 0 失败**（1789 → 1795：`:shared:network` +5、`:web` +1）·
 `:web:wasmJsBrowserTest` **70 / 0**（新增那条就是 `WebServeBytesTest`）· 三个编译面全过。
+
+### 8.12 #150 rebase 到 dev（2026-10-22，#142 合了之后的例行动作，但这次不是例行）
+
+**为什么做**：交接文件 §3.4 的发布链是「`#142` 合 → `#150` rebase 到 `dev` 并改 base → `dev→main` 出 5.2.0
+（顺序不能反）」。`#142` 已在 2026-10-21T09:42Z 合并（`7042ed41`），`#147` 也早就合了（09:23Z）⇒ 该做这一步了。
+
+**⚠️ 发现：分支被另一条线重写过（如实记）**。准备推送时 `ls-remote` 核对发现远端 `chore/parity-a-batch`
+的 tip 是 `f85c272a`，而它**与本地没有任何共同提交**（merge-base 就是 `dev` 的 `acd79744`）——
+即在我最后一次成功推送（`5c77dd97`）之后，有另一条会话/机器把这条分支重写成了 6 个新提交
+（`139fe96f` … `f85c272a`，committer 时间全是 2026-10-21 17:32），**我的推送被抹掉了**。
+
+核过两边的内容：那 6 个提交里，**与 A 批相关的文件与我那一版逐字节相同**（我四个提交涉及的文件逐个比过），
+另多出 21 个文件是**别的线的工作**（首页杂志版式、App 更新器、Windows 打包 workflow、lms 时间格式、
+`artwork/previews/home`）—— 也就是说：重写把 A 批的改动带过去了，另外拼了别的分支的活。
+
+**做法（没有 force-push 掉别人的东西）**：先把本地四个提交原样 rebase 到那一条的 tip 上（快进），
+再整体 rebase 到新的 `dev`。结果：`#150` 现在 = `dev` + 6 个 A 批提交 + 我的批 6（共 7 个）。
+
+**rebase 到 dev 时解了 3 处冲突**（dev 那 43 个提交里有两个跟 A 批改了同一块地方）：
+
+| 文件 | 两侧要的是什么 | 怎么解的 |
+|---|---|---|
+| `feature/schedule/.../ScheduleScreen.kt` | dev 把 `campusNow` 带进了 `buildUpcoming` / `ExamCountdown.next`；A 批新加了「作业截止没接就带一句缺口说明」 | 取 dev 的新签名 + 保留 A 批那三行（注释写清了） |
+| `shared/model/.../SettingsStore.kt` | dev 新加了自定义主题色三格（`customColorHex` / `customColorEnabled` / `themeSeedHex`）；A 批新加了 `defaultTab` 规范化的 KDoc 与实现 | 两边都留（主题色在前、`defaultTab` 那段 KDoc 在后） |
+| `web/.../WebSettingsHost.kt` | dev 多列了 `DYNAMIC_COLOR`；A 批多列了 `DEFAULT_TAB` / `NAV_STYLE` | 五条合并 |
+
+⚠️ **用了一个非默认的 merge 策略**：`git rebase -Xignore-all-space`。原因：A 批那个提交把 desktop 的
+`when(target)` 整块包进了 `Column { }`（整体多缩进一级），默认策略下 `ToolboxDesktopApp.kt` 报了一个
+「一侧看起来删了 95 行」的巨型冲突，而两边其实只是**缩进不同**。带 `-Xignore-all-space` 之后那处自动合上了，
+只留下上面那 3 处真冲突。风险已知：Kotlin 里空白不参与语义（原始字符串除外，而那几处逐字比过）。
+
+**门禁（基底已是 dev，独占 + `--max-workers=1`）**：`BUILD SUCCESSFUL in 35m 49s`，635 个任务
+（248 executed / 387 up-to-date）；复算：**25 个测试任务 / 1813 条用例 / 0 失败**（1795 → 1813，+18 全来自
+dev 新合进来的那些 PR）· `:web:wasmJsBrowserTest` **70 / 0** · 三个编译面全过。
+
+⚠️ **跑完上面那一遍之后 `dev` 又前进了一条**（`3e576195 feat(home): 常用功能可自定义（#161）`，改的是
+`:feature:home` 与 `SettingsStore`/`SettingsScreen`）⇒ 又 rebase 了一次（这次零冲突：两边改的
+是不同区域），并**再跑一遍全量门禁**：`BUILD SUCCESSFUL in 30m 32s`，631 个任务（218 executed /
+413 up-to-date）—— 基线一字不变（**1813 条**，dev 那一条新提交没带测试）。`#150` 的 tip 与 base
+（`dev`）至此都是最新。
+
+**给下一个人的两句话**：① 这条分支上**可能还有另一个会话在写**（这次的重写就是证据）：每次推之前先
+`git fetch` + `ls-remote` 比对，别拿本地旧 tip 直接推；② 如果要动这条分支的历史，用
+`--force-with-lease`，别用 `--force`。

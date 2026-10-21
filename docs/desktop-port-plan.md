@@ -867,17 +867,21 @@ current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 
 
 （本机另加 `:app:testDebugUnitTest` 与 `:server:test` —— 它们不在 core-gate 里，但受红线与契约保护。）
 
-**当前基线（2026-10-22 批6 复算，独占 + `--max-workers=1`，`BUILD SUCCESSFUL in 12m 37s`）：25 个测试任务 / 1795 条用例 / 0 失败**
+**当前基线（2026-10-22：批6 + **#150 已 rebase 到 dev**（#142 合了之后；`dev@3e576195`，独占 + `--max-workers=1`，`BUILD SUCCESSFUL in 30m 32s`）：25 个测试任务 / 1813 条用例 / 0 失败**
 
 `:app` 450 · `:core` 18 · `:data` 17 · `:desktop` 141 · `:server` 170 · `:web` 70 ·
-`:shared:data` 271 · `:shared:model` 202 · `:shared:network` 120 · `:shared:designsystem` 25 · `:shared:navigation` 8 ·
-19 个 `:feature:*` 合计 303（`:feature:account` 是 `NO-SOURCE` —— 它没有测试）。
+`:shared:data` 274 · `:shared:model` 208 · `:shared:network` 120 · `:shared:designsystem` 25 · `:shared:navigation` 9 ·
+19 个 `:feature:*` 合计 311（`:feature:account` 是 `NO-SOURCE` —— 它没有测试）。
 
 ⚠️ 历次测量（都对不齐，**以最新那一行为准**）：1721（§14.8 初版）→ 1754（session4 交接文件里）→
 1764（2026-10-21 白天，+10 全在 `:server`）→ 1769（同日晚上，+:server 1、`:feature:lms` 4）→
 **1783**（2026-10-22 批4，+14 全在 `:feature:jiaocai`，即新写的 `ServeJiaocai1ApiTest`）→
 **1789**（同日批5，+6 全在 `:shared:network`，即新写的 `ServeC2EndpointsApiTest`）→
-**1795**（同日批6，+:shared:network 5 = `ServeTranscriptWorkflowApiTest`、`:web` 1 = `WebServeBytesTest`）。
+**1795**（同日批6，+:shared:network 5 = `ServeTranscriptWorkflowApiTest`、`:web` 1 = `WebServeBytesTest`）→
+**1813**（同日，#150 rebase 到 `dev` 之后：+18 全部来自 dev 那些新合进来的 PR —— `:feature:lms` 26→32、
+`:shared:model` 202→208、`:shared:data` 271→274、`:shared:navigation` 8→9、`:feature:schedule` 49→50、
+`:feature:settings` 44→45）。⚠️ 这一行以后要连「在哪个基底上量的」一起读：#142 已合并 ⇒ #150 的基底从
+`fix/dev-packaging-and-gates` 换成了 `dev`（PR base 也改成 `dev`）。
 ⚠️ **本行的数字由脚本逐模块解析 `**/build/test-results/*/TEST-*.xml` 复算**（口径：用例数 = `tests` 属性之和）。
 
 ⚠️ 另记：`:app` 的历史基线 **453 是过时数**（那是对着 kmp-tail 工作区测的）——
