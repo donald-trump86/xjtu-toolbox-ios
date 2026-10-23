@@ -1,6 +1,36 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.platform.keyValueStore
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
+
+/** 各页面上的屁岱卡。设置里逐张开关，默认全开；关掉的那张不画、也不调模型。 */
+enum class PidaiCard(val label: String) {
+    NOTICE("通知 · 屁岱精选"),
+    LMS("思源学堂 · 待办"),
+    MEAL("校园卡 · 今天吃啥"),
+    LIBRARY("图书馆 · 屁岱荐座"),
+    DAY_PLAN("日程 · 屁岱排日程"),
+    ZYXF("学辅资料 · 为你找资料"),
+}
+
+/** 屁岱卡开关，设备级持久化。 */
+object PidaiCards {
+    private const val KEY = "off"
+    private val store by lazy { keyValueStore("pidai_cards") }
+    private val state by lazy {
+        MutableStateFlow(store.getStringSet(KEY).orEmpty().mapNotNull { n -> PidaiCard.entries.firstOrNull { it.name == n } }.toSet())
+    }
+
+    /** 关掉的那几张。 */
+    val off: StateFlow<Set<PidaiCard>> get() = state
+
+    fun set(card: PidaiCard, on: Boolean) {
+        state.value = if (on) state.value - card else state.value + card
+        store.putStringSet(KEY, state.value.mapTo(HashSet()) { it.name })
+    }
+}
 
 /**
  * 页面里的一块「屁岱卡」要做的事：屁岱读 [AgentInsights.run] 给的页面数据，必要时调 [tools] 里的工具，
@@ -23,11 +53,16 @@ class InsightSpec(
     val thinking: Boolean = false,
     /** 加载时第一句状态（「在看平面图…」）。 */
     val busyHint: String = "在看…",
+    /** 对应设置里的哪个开关；null = 不在页面上（后台简报等），不受开关管。 */
+    val card: PidaiCard? = null,
 )
 
 sealed interface InsightOutcome {
-    /** [at] 是生成时刻（epoch 毫秒）；[cached] 表示这次没调模型。 */
-    data class Ok(val json: JsonObject, val at: Long, val cached: Boolean) : InsightOutcome
+    /**
+     * [at] 是生成时刻（epoch 毫秒）；[cached] 表示这次没调模型。
+     * [toolLog] 是生成时调过的工具和查到的结果，「接着问屁岱」时一并带进对话，免得再查一遍。
+     */
+    data class Ok(val json: JsonObject, val at: Long, val cached: Boolean, val toolLog: String = "") : InsightOutcome
 
     /** 没配 Key，或这一端没有屁岱。 */
     data object Unavailable : InsightOutcome

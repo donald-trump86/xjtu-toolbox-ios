@@ -58,6 +58,8 @@ internal class VenueViewModel(
 
     var showCaptcha by mutableStateOf(false); private set
     var bookingInProgress by mutableStateOf(false); private set
+    /** 这张验证码已经交出去了：弹窗退场动画期间保持「正在预订」，不回闪成滑块。 */
+    var bookingSubmitted by mutableStateOf(false); private set
     var bookingResult by mutableStateOf<BookingResult?>(null); private set
     var captchaData by mutableStateOf<CaptchaData?>(null); private set
     var captchaLoading by mutableStateOf(false); private set
@@ -227,6 +229,7 @@ internal class VenueViewModel(
     }
 
     private fun beginCaptcha(): Int {
+        bookingSubmitted = false
         captchaLoading = true
         captchaAutoSolving = false
         captchaError = null
@@ -281,6 +284,7 @@ internal class VenueViewModel(
         captchaLoading = false
         captchaAutoSolving = false
         bookingInProgress = true
+        bookingSubmitted = true
         viewModelScope.launch {
             bookingResult = try {
                 source.submitBooking(

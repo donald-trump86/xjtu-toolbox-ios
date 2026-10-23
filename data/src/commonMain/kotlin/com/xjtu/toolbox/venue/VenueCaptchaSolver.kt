@@ -42,6 +42,7 @@ data class CaptchaSolveResult(
 object VenueCaptchaSolver {
     /** 默认最低峰值间隔；不满足时交给用户手动滑动。 */
     const val DEFAULT_MIN_CONFIDENCE = 0.04
+    private const val MIN_NCC = 0.2
 
     /**
      * 尝试自动识别并生成服务端轨迹。
@@ -159,9 +160,9 @@ object VenueCaptchaSolver {
         // 位移必须减去 alpha bbox 的 left；同时限制在 UI 可拖动的最大距离内。
         val imageEnd = bw - templateWidth
         val maxDisplacement = (bw - sw).coerceAtLeast(0)
-        // 滑块只能向右移动，缺口左边缘不可能落在初始 alpha bbox 的左侧；
-        // 排除这段候选也能避免背景中的强纹理把结果吸到负位移。
-        val searchStart = left.coerceAtLeast(0)
+        // 缺口不会和拼图块的初始位置重叠：起点至少右移半个块宽，
+        // 否则块自身附近的纹理会被当成缺口（实测 gap=44、pieceLeft=7 这种）。
+        val searchStart = (left + templateWidth / 2).coerceAtLeast(0)
         val searchEnd = min(imageEnd, left + maxDisplacement)
         if (searchEnd < searchStart) return null
         val scores = DoubleArray(searchEnd + 1) { Double.NEGATIVE_INFINITY }
@@ -216,8 +217,8 @@ object VenueCaptchaSolver {
                 "ncc=${"%.3f".format(bestScore)}, second=${"%.3f".format(secondScore)}, " +
                 "confidence=${"%.3f".format(confidence)}"
         )
-        // 绝对分数下限防止「所有候选都很差但仍有一个略高」的情况。
-        if (bestScore < 0.08 || confidence < minConfidence) return null
+        // 绝对分数下限防止「所有候选都很差但仍有一个略高」的情况；对上的一般在 0.3 以上。
+        if (bestScore < MIN_NCC || confidence < minConfidence) return null
 
         val sourceBgWidth = bw
         val sourceSliderHeight = data.sliderHeight.takeIf { it > 0 } ?: sh

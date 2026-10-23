@@ -16,11 +16,11 @@ class VenueFakeUpstream {
         const val PORT = 8080
         const val ORIGIN = "http://$HOST:$PORT"
 
-        /** 80 端口那台支付站（`VenueLogin.PAY_BASE_URL`）—— 分派只看 host，所以它也在本夹具上。 */
-        const val PAY_ORIGIN = "http://$HOST"
+        /** 8080 端口的场馆站（`VenueLogin.PAY_BASE_URL`）—— 分派只看 host，所以它也在本夹具上。 */
+        const val PAY_ORIGIN = ORIGIN
 
-        /** 80 端口那台支付站的支付页路径（`:data` 的 `VenueApi.paymentUrl` 拼的就是它）。 */
-        const val PAYMENT_PAGE_PATH = "/pay/show.html"
+        /** 8080 端口的场馆站的支付页路径（`:data` 的 `VenueApi.paymentUrl` 拼的就是它）。 */
+        const val PAYMENT_PAGE_PATH = "/web/pay/show.html"
 
         /** 「某个订单号的真支付页地址」= serve 那条 302 的 `Location`。 */
         fun paymentPageUrl(orderId: String): String =

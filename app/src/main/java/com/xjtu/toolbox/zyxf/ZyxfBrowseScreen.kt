@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.zyxf
 
+import androidx.compose.animation.animateContentSize
+
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.platform.BackHandler
@@ -28,6 +30,9 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -122,6 +127,7 @@ fun ZyxfBrowseScreen(
         file = if (!isWide && !splitPreviewStale) vm.previewing else null,
         onDismiss = { vm.previewing = null },
         onDownload = vm::download,
+        downloadState = { vm.downloadState[it] },
     )
 
     // 宽屏：左栏列表、右栏预览。窄屏下 TwoPane 只渲染列表，预览走上面那个底部弹窗。
@@ -230,7 +236,7 @@ fun ZyxfBrowseScreen(
                             Alignment.Center,
                         ) {
                             if (stateText == null) {
-                                com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
+                                com.xjtu.toolbox.ui.components.LoadingState(message = null)
                             } else {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
@@ -266,7 +272,7 @@ fun ZyxfBrowseScreen(
                         } else vm.download(entry)
                     }
                     if (folders.isNotEmpty()) {
-                        item(key = "folderHead", contentType = "section") { SectionLabel("文件夹", folders.size) }
+                        item(key = "folderHead", contentType = "section") { SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size) }
                         items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
                             Row(
                                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -280,7 +286,10 @@ fun ZyxfBrowseScreen(
                         }
                     }
                     if (files.isNotEmpty()) {
-                        item(key = "fileHead", contentType = "section") { SectionLabel("文件", files.size) }
+                        item(key = "fileHead", contentType = "section") {
+                            if (searching && folders.isNotEmpty()) Spacer(Modifier.height(20.dp))
+                            SectionLabel(if (searching) "独立匹配的文件 · 来源见下方路径" else "文件", files.size)
+                        }
                         itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
                             FileRow(
                                 entry = entry,
@@ -312,6 +321,7 @@ fun ZyxfBrowseScreen(
                     sizeBytes = file.sizeBytes,
                     onBack = { vm.previewing = null },
                     onDownload = { vm.download(file) },
+                    downloadState = vm.downloadState[file.id],
                     embedded = true,
                 )
             } else {
@@ -395,25 +405,41 @@ private fun SortBar(
         desc -> " ↓"
         else -> " ↑"
     }
-    Column(Modifier.fillMaxWidth()) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .animateContentSize(),
+    ) {
         Row(
             Modifier
+                .fillMaxWidth()
                 .clickable { open = !open }
-                .padding(horizontal = 22.dp, vertical = 6.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Icon(Icons.Default.Sort, contentDescription = null, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             Text(
-                "排序 · ${sort.label}${arrowOf(sort)}  ${if (open) "▴" else "▾"}",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                "排序",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
             )
+            Text(
+                if (sort == ZyxfApi.Sort.MANUAL) "默认顺序" else "${sort.label} · ${if (desc) "降序" else "升序"}",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.primary,
+            )
+            Icon(if (open) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = if (open) "收起排序选项" else "展开排序选项",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(18.dp))
         }
         androidx.compose.animation.AnimatedVisibility(visible = open) {
             Row(
                 Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

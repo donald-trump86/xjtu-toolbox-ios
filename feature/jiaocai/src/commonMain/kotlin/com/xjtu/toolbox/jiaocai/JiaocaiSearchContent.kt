@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -117,12 +118,7 @@ internal fun JiaocaiSearchContent(
                 modifier = Modifier.weight(1f),
             ) { (isLoading, errorMsg, books) ->
                 when {
-                    isLoading -> Box(
-                        Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
-                    }
+                    isLoading -> com.xjtu.toolbox.ui.components.LoadingState(message = null)
                     errorMsg != null -> Text(
                         errorMsg!!,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -136,7 +132,10 @@ internal fun JiaocaiSearchContent(
                                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                                 Spacer(Modifier.height(8.dp))
-                                Text("未找到相关教材", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Text("教材目录里没搜到，试试「全文库」。",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp))
                             }
                         }
                     }
@@ -181,7 +180,7 @@ internal fun JiaocaiSearchContent(
 @Composable
 private fun BookCard(book: JiaocaiBook, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick),
         cornerRadius = 20.dp,
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
@@ -363,7 +362,15 @@ private fun MyTextbooksSection(
         textbooks = termTextbooks.currentTerm()
     }
     val list = textbooks ?: return
-    if (list.isEmpty()) return
+    if (list.isEmpty()) {
+        Card(Modifier.readableWidth().padding(16.dp).fillMaxWidth()) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("本学期教材", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                Text("暂无配书信息，可以按书名或课程搜索。", style = MiuixTheme.textStyles.body2)
+            }
+        }
+        return
+    }
 
     Column(Modifier.readableWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
         Text("本学期我的教材", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
@@ -430,8 +437,10 @@ private fun MyTextbookRow(
                             resolving = false
                             when (outcome) {
                                 is FullTextOutcome.Found -> onOpenFullText(outcome.ssno, item.textbookName)
-                                FullTextOutcome.NotFound -> snackbarHostState.showSnackbar("全文库里没有这本")
-                                FullTextOutcome.Failed -> snackbarHostState.showSnackbar("全文库暂时打不开，可能在校外")
+                                FullTextOutcome.NotFound -> {
+                                    snackbarHostState.showSnackbar("没对上这本书，试试在「全文库」按书名搜。")
+                                }
+                                FullTextOutcome.Failed -> snackbarHostState.showSnackbar("全文库暂时打不开，请稍后重试。")
                             }
                         }
                     }
@@ -442,36 +451,31 @@ private fun MyTextbookRow(
 }
 
 
-/**
- * isbn 非空就按 ISBN 精确检索；isbn 为空退回书名检索，但只认书名完全一致的结果，
- * 防止张冠李戴（全文库里同名异书不少见）。
- *
- * 注意：[com.xjtu.toolbox.jiaocai1.Jiaocai1Source.search] 内部把网络异常也吞成了空结果（见该文件），
- * 所以实际的"校外打不开"目前基本都会走到 [FullTextOutcome.NotFound]，
- * 不会走到 [FullTextOutcome.Failed]——这是全文库检索接口本身的既有行为，
- * 这次没有改它（改动面会波及全文库检索/分类浏览，超出本 PR 范围）。
- * [FullTextOutcome.Failed] 分支留着兜运行时异常（比如空指针），不是摆设。
- */
+/** 先按 ISBN 查询；没有结果时按书名查，唯一匹配才直接打开。 */
 private suspend fun resolveFullText(jiaocai1: Jiaocai1Source, item: JiaocaiTermTextbook): FullTextOutcome = try {
     val isbn = item.isbn.trim()
-    val result = if (isbn.isNotBlank()) {
+    val byIsbn = if (isbn.isNotBlank()) {
         jiaocai1.search(
             keyword = normalizeIsbn(isbn),
             field = Jiaocai1SearchField.ISBN,
             cls = "",
             page = 1,
         )
-    } else {
+    } else null
+    val result = if (byIsbn != null && byIsbn.books.isNotEmpty()) byIsbn else {
         val byName = jiaocai1.search(
             keyword = item.textbookName.trim(),
             field = Jiaocai1SearchField.BOOK_NAME,
             cls = "",
             page = 1,
         )
-        byName.copy(books = byName.books.filter { it.title.trim() == item.textbookName.trim() })
+        fun normalized(title: String) = title.filterNot { it.isWhitespace() || it in "·・，,：:（）()" }.lowercase()
+        byName.copy(books = byName.books.filter { normalized(it.title) == normalized(item.textbookName) })
     }
-    val ssno = result.books.firstOrNull()?.ssno
+    val ssno = result.books.singleOrNull()?.ssno
     if (ssno != null) FullTextOutcome.Found(ssno) else FullTextOutcome.NotFound
+} catch (e: kotlinx.coroutines.CancellationException) {
+    throw e
 } catch (e: Exception) {
     FullTextOutcome.Failed
 }

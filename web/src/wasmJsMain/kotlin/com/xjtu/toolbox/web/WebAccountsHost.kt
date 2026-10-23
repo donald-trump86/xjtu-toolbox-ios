@@ -89,20 +89,9 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     override suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean = notWritable()
 
     /** 页顶那一行说明（随服务端的能力开关走）。 */
-    fun gapNote(): String = if (readOnly) {
-        "账号表由 serve 进程读（与桌面端共用同一份 xjtu_accounts，见 docs/agent-web-spec.md 那一条）。" +
-            "这一端只读：切换 / 新增 / 删除 / 改密要在 App 或桌面端做 —— 服务端那条端点把能力开关 " +
-            "readOnly 如实报成 true（docs/api-contract.md §5.10）。"
-    } else {
-        "服务端如实报了 readOnly:false，但这一端还没接线写动作（本批只做了只读那一半，" +
-            "docs/api-contract.md §5.10）：切换 / 新增 / 删除 / 改密仍要去 App 或桌面端做。"
-    }
+    fun gapNote(): String = "网页版仅支持查看账号；修改账号信息请使用 App 或桌面版。"
 
-    private fun hint(): String = if (readOnly) {
-        "这一端只读：切换 / 新增 / 删除 / 改密要在 App 或桌面端做（serve 只端了只读的 /api/accounts）"
-    } else {
-        "服务端已经能改，但这一端还没接线写动作（本批只做了只读那一半，见 docs/api-contract.md §5.10）"
-    }
+    private fun hint(): String = "请使用 App 或桌面版修改账号信息。"
 
     private fun notWritable(): Nothing = throw WebAccountsNotWritable(hint())
 }

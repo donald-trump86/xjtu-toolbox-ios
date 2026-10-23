@@ -69,7 +69,6 @@ class KeyValueStoreJvmTest {
             "score_report",
             "home_usage",
             "inbox",
-            "dorm_power",
             "schedule_diff",
             "course_colors",
             "schedule_source",

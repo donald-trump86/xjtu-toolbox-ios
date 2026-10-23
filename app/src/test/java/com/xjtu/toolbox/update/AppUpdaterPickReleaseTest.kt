@@ -22,12 +22,14 @@ class AppUpdaterPickReleaseTest {
         prerelease: Boolean = false,
         draft: Boolean = false,
         hasApk: Boolean = true,
+        publishedAt: String? = null,
     ): JsonObject = buildJsonObject {
         put("tag_name", tagName)
         if (name != null) put("name", name)
         put("body", body)
         put("prerelease", prerelease)
         put("draft", draft)
+        if (publishedAt != null) put("published_at", publishedAt)
         put("html_url", "https://github.com/releases/$tagName")
         putJsonArray("assets") {
             if (hasApk) addJsonObject {
@@ -119,6 +121,21 @@ class AppUpdaterPickReleaseTest {
         assertNotNull(result)
         assertEquals("4.9.8-dev.1", result!!.version)
         assertTrue(result.isPreview)
+    }
+
+    @Test
+    fun sameBasePreviewUsesReleaseTimeRegardlessOfGithubListOrder() {
+        val stable = buildReleaseJson("v5.2.0", publishedAt = "2026-10-20T08:00:00Z")
+        val preview = buildReleaseJson("dev-100", "5.2.0-dev.100", prerelease = true, publishedAt = "2026-10-22T08:00:00Z")
+        for (ordered in listOf(listOf(stable, preview), listOf(preview, stable))) {
+            val picked = AppUpdater.pickRelease(kotlinx.serialization.json.JsonArray(ordered), "5.2.0", includePreview = true)!!
+            assertEquals("5.2.0-dev.100", picked.version)
+            assertTrue(AppUpdater.isNewerUpdate("5.2.0", picked))
+            assertFalse(AppUpdater.isNewerUpdate("5.2.0-dev.100", picked))
+            assertFalse(AppUpdater.isNewerUpdate("5.3.0", picked))
+        }
+        val pickedStable = AppUpdater.pickRelease(kotlinx.serialization.json.JsonArray(listOf(preview, stable)), "5.2.0", includePreview = false)!!
+        assertFalse(pickedStable.isPreview)
     }
 
     @Test

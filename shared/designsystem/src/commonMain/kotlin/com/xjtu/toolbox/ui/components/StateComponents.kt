@@ -10,9 +10,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,28 +39,36 @@ fun FullPageState(
 }
 
 /**
- * 统一加载状态组件
+ * 整页加载：形变加载器 + 一行说明（[message] 为 null 时不要文字）。
+ * 先等 150ms 再淡入：很快就回来的请求不会闪一下转圈。列表页首次加载用 [SkeletonList]。
  */
 @Composable
 fun LoadingState(
-    message: String = "正在加载...",
+    message: String? = "正在加载…",
     modifier: Modifier = Modifier
 ) {
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(150)
+        shown.animateTo(1f, tween(200))
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp),
+            .padding(vertical = 48.dp)
+            .graphicsLayer { alpha = shown.value },
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // PR X（计划 §15）：整页加载换成形状形变，行内小转圈等场景不动。
             MorphingLoader()
-            Spacer(Modifier.height(16.dp))
-            Text(
-                message,
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+            if (message != null) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    message,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
         }
     }
 }

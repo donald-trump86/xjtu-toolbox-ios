@@ -147,11 +147,14 @@ class CredentialStore(context: Context) {
         get() = settings.dynamicColor
         set(value) { settings.dynamicColor = value }
 
-    // 默认启动 tab 改为日程（COURSES）：课表是用户最常用的核心功能，
-    // 直接进日程减少一次点击。设置页可改回首页或其他。
+    /** 默认启动 tab，缺省日程；不在底栏上时回首页。 */
     var defaultTab: String
-        get() = settings.defaultTab
+        get() = com.xjtu.toolbox.home.BottomBarTabs.defaultTab(settings.defaultTab, bottomTabs)
         set(value) { settings.defaultTab = value }
+
+    /** 底栏从左到右的格子 id，见 [com.xjtu.toolbox.home.BottomBarTabs]。 */
+    val bottomTabs: List<String>
+        get() = com.xjtu.toolbox.home.BottomBarTabs.barIds(settings.bottomBar, accountType)
 
     var networkMode: String
         get() = settings.networkMode
@@ -184,10 +187,6 @@ class CredentialStore(context: Context) {
     var hasReadEmptyRoomCdnTip: Boolean
         get() = appPrefs.getBoolean(KEY_EMPTY_ROOM_CDN_TIP, false)
         set(value) { appPrefs.edit().putBoolean(KEY_EMPTY_ROOM_CDN_TIP, value).apply() }
-
-    var homeTheme: String
-        get() = settings.homeTheme
-        set(value) { settings.homeTheme = value }
 
     /** 最近 + 常用的前 [n] 个站点（见 [SiteUsage]），会话预热按它挑。 */
     fun topSites(n: Int): List<String> = SiteUsage.top(siteUsage(), n, System.currentTimeMillis())
@@ -255,8 +254,6 @@ class CredentialStore(context: Context) {
         const val DARK_MODE_SYSTEM = SettingsStore.DARK_MODE_SYSTEM
         const val DARK_MODE_LIGHT = SettingsStore.DARK_MODE_LIGHT
         const val DARK_MODE_DARK = SettingsStore.DARK_MODE_DARK
-        const val THEME_CARD = SettingsStore.THEME_CARD
-        const val THEME_ICON = SettingsStore.THEME_ICON
         const val TAB_HOME = SettingsStore.TAB_HOME
         const val TAB_COURSES = SettingsStore.TAB_COURSES
         const val TAB_PIDAI = SettingsStore.TAB_PIDAI

@@ -49,7 +49,6 @@ internal object WebSupport {
         AppRoute.Transcript,
         AppRoute.Attendance,
         AppRoute.Coupon,
-        AppRoute.DormPower,
         // 第二批只读域（2026-10-14 接线，契约 §5.6）：思源学堂 / 教材查询 / 成绩 / 快速考勤流水。
         // 与上面那四条同一条规矩：**「本端有没有这一屏」与「此刻后端是哪一形态」是两件事** ——
         // 取数只在 serve 形态下存在（campus-api 里没有这四族的端点），但那四屏就在 `:core`，

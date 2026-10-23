@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.platform.decodeImageFull
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.Button
@@ -128,8 +128,10 @@ fun CouponScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
                 when {
-                    page != filterIndex -> LoadingState("正在加载加餐券...", Modifier.fillMaxSize().padding(top = glassTop))
-                    vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { LoadingState("正在加载加餐券...", Modifier.fillMaxSize()) }
+                    page != filterIndex -> SkeletonList(Modifier.fillMaxSize().padding(top = glassTop), rowHeight = 96.dp)
+                    vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
+                        SkeletonList(Modifier.fillMaxSize(), rowHeight = 96.dp)
+                    }
                     vm.errorMessage != null -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
                         ErrorState(
                             message = vm.errorMessage ?: "加载失败",

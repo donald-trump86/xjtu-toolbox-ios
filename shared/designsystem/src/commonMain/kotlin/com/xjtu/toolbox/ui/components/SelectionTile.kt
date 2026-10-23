@@ -34,12 +34,13 @@ fun SelectionTile(
     // 原来手绘了一圈蓝色 border + 自绘圆点勾选，不是 miuix 原生语言。
     // 改用 miuix 原生 Checkbox 表达多选状态，去掉描边，选中态只靠底色区分。
     val shape = RoundedCornerShape(14.dp)
+    // 选中底色跟主题色（primaryContainer）；tertiary 在自定义主题色下是另一个色相
     val containerColor = if (selected) {
-        MiuixTheme.colorScheme.tertiaryContainer
+        MiuixTheme.colorScheme.primaryContainer
     } else {
         MiuixTheme.colorScheme.surfaceVariant
     }
-    val contentColor = if (selected) MiuixTheme.colorScheme.onTertiaryContainer else MiuixTheme.colorScheme.onSurface
+    val contentColor = if (selected) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurface
     Surface(
         modifier = modifier
             .heightIn(min = 48.dp)

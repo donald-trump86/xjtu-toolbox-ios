@@ -35,6 +35,7 @@ data class AppUpdateInfo(
     val channelLabel: String = AppUpdater.channelLabel(channel),
     val isPreview: Boolean = false,
     val sha256: String? = null,  // 小写十六进制，不带前缀
+    val publishedAtMillis: Long = 0,
 )
 
 object AppUpdater {
@@ -136,8 +137,16 @@ object AppUpdater {
     ): AppUpdateInfo? {
         val latest = fetchLatest(channel, includePreview, rolloutId)
         return latest.takeIf {
-            BulletinRules.compareVersions(BuildConfig.VERSION_NAME, it.version) < 0
+            isNewerUpdate(BuildConfig.VERSION_NAME, it)
         }
+    }
+
+    internal fun isNewerUpdate(current: String, candidate: AppUpdateInfo): Boolean {
+        val comparison = BulletinRules.compareVersions(current, candidate.version)
+        if (comparison < 0) return true
+        // dev 构建沿用当前正式版基号。用户主动开启预览后，同基号的 dev 也应可升级。
+        return comparison > 0 && candidate.isPreview && '-' !in current &&
+            current.removePrefix("v") == candidate.version.removePrefix("v").substringBefore('-')
     }
 
     private val ROLLOUT_REGEX = Regex("""(?im)^\s*rollout\s*:\s*(\d{1,3})\s*%?\s*$""")
@@ -228,10 +237,18 @@ object AppUpdater {
                 channelLabel = channelLabel(CHANNEL_GITHUB),
                 isPreview = isPrerelease,
                 sha256 = sha256,
+                publishedAtMillis = obj.get("published_at")?.stringValue?.let {
+                    runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
+                } ?: 0,
             )
         }
 
-        return candidates.maxWithOrNull { a, b -> BulletinRules.compareVersions(a.version, b.version) }
+        // GitHub 的稳定版排序与语义版本号都可能把同基号预览压在后面；按发布时刻选，缺时间才按版本号。
+        return candidates.maxWithOrNull { a, b ->
+            if (includePreview && a.publishedAtMillis > 0 && b.publishedAtMillis > 0 && a.publishedAtMillis != b.publishedAtMillis)
+                a.publishedAtMillis.compareTo(b.publishedAtMillis)
+            else BulletinRules.compareVersions(a.version, b.version)
+        }
     }
 
     private suspend fun fetchRelease(channel: String): ParsedRelease {

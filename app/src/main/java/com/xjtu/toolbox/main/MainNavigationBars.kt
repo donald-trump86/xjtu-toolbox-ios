@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -23,6 +25,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +49,7 @@ import com.xjtu.toolbox.shell.ShellTabs
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /*
  * Android 这一端**只剩下来**的那几件：屁岱那一格（会动的机器人 + 它认的那几样宿主面）、
@@ -240,7 +245,8 @@ internal class AndroidShellTabArt(
             selected = selected,
             diameter = variant.diameter,
             paper = variant.paper,
-            modifier = variant.modifier,
+            // 底栏气泡按它的实际位置对准（屁岱不一定在正中）
+            modifier = variant.modifier.onGloballyPositioned { onPidaiBoundsChange(it.boundsInRoot()) },
             liftUp = variant.liftUp,
             vertical = variant.vertical,
         )
@@ -256,6 +262,45 @@ internal class AndroidShellTabArt(
             expanded = expanded,
             onPidaiBoundsChange = onPidaiBoundsChange,
         )
+    }
+}
+
+/**
+ * 底栏上方气泡的落点：零高度 layout 往上溢出绘制，出现时不撑高底栏、页面不跳。
+ * [anchorX] 是屁岱那一格中心的根坐标：气泡尽量居中于它（夹在栏宽内），尖角对准它；
+ * null（屁岱不在底栏上）时气泡居中、尖角朝自身中心。
+ */
+@Composable
+internal fun BarBubbleSlot(anchorX: Float?, content: @Composable (arrowFromStart: Dp?) -> Unit) {
+    val density = LocalDensity.current
+    var hostLeft by remember { mutableFloatStateOf(0f) }
+    var hostWidth by remember { mutableIntStateOf(0) }
+    var bubbleWidth by remember { mutableIntStateOf(0) }
+    fun leftOf(width: Int): Int? = anchorX?.let {
+        (it - hostLeft - width / 2f).roundToInt().coerceIn(0, (hostWidth - width).coerceAtLeast(0))
+    }
+    val arrowFromStart = anchorX?.let { with(density) { (it - hostLeft - (leftOf(bubbleWidth) ?: 0)).toDp() } }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned {
+                hostLeft = it.positionInRoot().x
+                hostWidth = it.size.width
+            }
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, 0) { placeable.place(0, -placeable.height) }
+            },
+    ) {
+        Box(
+            Modifier
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints.copy(minWidth = 0))
+                    val x = leftOf(placeable.width) ?: ((constraints.maxWidth - placeable.width) / 2)
+                    layout(constraints.maxWidth, placeable.height) { placeable.place(x, 0) }
+                }
+                .onSizeChanged { bubbleWidth = it.width },
+        ) { content(arrowFromStart) }
     }
 }
 

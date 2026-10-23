@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
 import com.xjtu.toolbox.ui.components.AppInsetColor
@@ -51,7 +52,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 思源课程页顶上的「待办」：本学期没交的作业、没做的测试和最近一周的课程公告，屁岱排先后。 */
 private val LMS_TODOS = InsightSpec(
-    id = "lms_todos",
+    id = "lms_todos_v2",
     ttlMs = 2 * 60 * 60 * 1000L,
     busyHint = "在排先后…",
     instruction = """
@@ -63,21 +64,29 @@ private val LMS_TODOS = InsightSpec(
 {"summary":"不超过 30 字","items":[{"course":"课程名","title":"原标题","kind":"作业|测试|公告","due":"yyyy-MM-dd HH:mm 或 null","priority":3,"advice":"不超过 25 字","course_id":0}]}
 priority：3 先做，2 这几天做，1 知道就行。最多 8 项；什么都没有就 items 为空。
     """.trimIndent(),
+    card = PidaiCard.LMS,
 )
 
-/** 本学期（课程列表里最新的学期）没交的作业、没做的测试、近 7 天的公告，交给屁岱的一段文字。 */
+/** 只整理当前学期课程；历史课程和查询失败单独标明，避免误判没有待办。 */
 private suspend fun gatherTodos(source: LmsSource, courses: List<LmsCourseSummary>): String? {
-    val latest = courses.map { it.semesterLabel }.maxOrNull() ?: return null
-    val current = courses.filter { it.semesterLabel == latest }
     val now = Clock.System.now()
+    val today = now.toLocalDateTime(CampusTimeZone).date
+    val latest = currentLmsSemester(today)
+    val current = courses.filter { it.semesterLabel == latest }
+    if (current.isEmpty()) {
+        val available = courses.map { it.semesterLabel }.distinct().joinToString("、").ifBlank { "暂无课程" }
+        return "当前日期：$today；当前学期：$latest。\n思源返回的课程中没有当前学期课程；可用学期：$available。\n这里只能说明思源尚未提供当前学期课程，不能据此推断用户没有课程或作业；历史学期不当作本学期。"
+    }
     val weekAgo = now.minus(kotlin.time.Duration.parse("7d"))
     val gate = Semaphore(3)
     fun clock(i: Instant) = i.toLocalDateTime(CampusTimeZone).let { "${it.date} ${it.hour.toString().padStart(2, '0')}:${it.minute.toString().padStart(2, '0')}" }
-    val rows = coroutineScope {
+    val results = coroutineScope {
         current.map { c ->
             async {
                 gate.withPermit {
-                    val tasks = runCatching { source.courseActivities(c.id) }.getOrDefault(emptyList())
+                    val activityResult = runCatching { source.courseActivities(c.id) }
+                    if (activityResult.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw activityResult.exceptionOrNull()!!
+                    val tasks = activityResult.getOrDefault(emptyList())
                         .filter { (it.type == LmsActivityType.HOMEWORK || it.type == LmsActivityType.EXAM) && !it.isClosed && it.userSubmitCount == 0 }
                         .mapNotNull { a ->
                             val raw = (if (a.type == LmsActivityType.HOMEWORK) a.deadline ?: a.endTime else a.endTime) ?: return@mapNotNull null
@@ -85,19 +94,30 @@ private suspend fun gatherTodos(source: LmsSource, courses: List<LmsCourseSummar
                             val kind = if (a.type == LmsActivityType.EXAM) "测试" else "作业"
                             due to "- ${c.name}｜$kind｜${a.title}｜截止 ${clock(due)}｜course_id ${c.id}"
                         }
-                    val notices = runCatching { source.courseBulletins(c.id) }.getOrDefault(emptyList())
+                    val bulletinResult = runCatching { source.courseBulletins(c.id) }
+                    if (bulletinResult.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw bulletinResult.exceptionOrNull()!!
+                    val notices = bulletinResult.getOrDefault(emptyList())
                         .mapNotNull { b ->
                             val at = runCatching { Instant.parse(b.createdAt) }.getOrNull()?.takeIf { it > weekAgo } ?: return@mapNotNull null
                             val body = b.content.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().take(150)
                             at to "- ${c.name}｜公告｜${b.title}｜发布 ${clock(at)}｜$body｜course_id ${c.id}"
                         }
-                    tasks + notices
+                    (tasks + notices) to c.name.takeIf { activityResult.isFailure || bulletinResult.isFailure }
                 }
             }
-        }.awaitAll().flatten()
+        }.awaitAll()
     }
-    if (rows.isEmpty()) return "本学期（$latest）思源学堂里没有没交的作业、没做的测试，最近一周也没有新公告。"
-    return "学期：$latest\n" + rows.sortedBy { it.first }.joinToString("\n") { it.second }
+    val rows = results.flatMap { it.first }
+    val missing = results.mapNotNull { it.second }
+    val note = if (missing.isEmpty()) "" else "\n未查全的课程：${missing.joinToString("、")}。查询失败不能当作没有待办。"
+    if (rows.isEmpty()) return "当前学期（$latest）已查到的思源课程暂无未交作业、测试或近一周公告。$note"
+    return "学期：$latest\n" + rows.sortedBy { it.first }.joinToString("\n") { it.second } + note
+}
+
+internal fun currentLmsSemester(date: kotlinx.datetime.LocalDate): String = when (date.month.ordinal + 1) {
+    1 -> "${date.year - 1}-${date.year} 秋"
+    in 2..7 -> "${date.year - 1}-${date.year} 春"
+    else -> "${date.year}-${date.year + 1} 秋"
 }
 
 @Composable

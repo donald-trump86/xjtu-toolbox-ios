@@ -121,8 +121,27 @@ class TranscriptViewModelTest {
 
         vm.start()
 
-        assertEquals(WorkflowState.RUNNING, vm.workflowState, "交给导航层重登，不写成失败")
+        assertEquals(WorkflowState.IDLE, vm.workflowState, "交给导航层重登，停止进度并允许重试")
         assertTrue(runBlocking { withTimeout0(vm) }, "authExpired 应当发出一枪")
+    }
+
+    @Test
+    fun `选择英文类型后七步都使用所选类型，切换类型清理旧下载`() {
+        val source = FakeTranscriptSource().apply {
+            options = listOf(TranscriptTypeOption("中文成绩单", 0), TranscriptTypeOption("英文成绩单", 2))
+        }
+        val vm = TranscriptViewModel(source, DzpzDocuments.TRANSCRIPT)
+        vm.selectType(2)
+        vm.start()
+        assertEquals(WorkflowState.SUCCESS, vm.workflowState)
+        assertTrue(source.calls.contains("getLinkageData(2)"))
+        assertTrue(source.calls.contains("submitCreate(2)"))
+        assertTrue(source.calls.contains("reloadAndForward(2, first=555)"))
+        vm.selectType(0)
+        assertEquals(WorkflowState.IDLE, vm.workflowState)
+        assertNull(vm.pdfBytes)
+        vm.selectType(999)
+        assertEquals(0, vm.selectedType)
     }
 
     /** 「站点登录态已失效」的假异常。 */
@@ -141,6 +160,7 @@ private class FakeTranscriptSource : TranscriptSource {
     var failLoadWith: Throwable? = null
     var failSubmitWith: Throwable? = null
     var failReloadWith: Throwable? = null
+    var options = listOf(TranscriptTypeOption("本科生中文成绩单（假）", 0))
 
     private val empty = JsonObject(emptyMap())
     private val form = FormContext(
@@ -159,7 +179,7 @@ private class FakeTranscriptSource : TranscriptSource {
     override suspend fun loadCreateForm(workflowId: Int): FormContext {
         formCalls += workflowId
         failLoadWith?.let { throw it }
-        return form
+        return form.copy(typeOptions = options)
     }
 
     override suspend fun getLinkageData(ctx: FormContext, typeValue: Int): LinkageResult {

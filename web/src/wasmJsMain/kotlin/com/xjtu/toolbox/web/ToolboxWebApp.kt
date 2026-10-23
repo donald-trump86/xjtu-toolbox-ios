@@ -604,22 +604,15 @@ private fun AppPage(
                         "的 `/api/jiaocai1/*` ⇒ 书架与全文库两栏真画，「读全文 / 阅读全文」的入口也都接上了。" +
                         "⚠️ 页图与封面是**一发一发同源 fetch**（不做本机预取窗口），见 `WebJiaocai1Source`。",
                 )
-                // 全文库那一半的取数（契约 §5.14）：屏自己不去打 HTTP —— 它只认 `Jiaocai1Source` / `Jiaocai1ShelfStore` 两个端口
                 val api = remember(client, mode) { ServeJiaocai1Api(client, API_BASE, mode) }
                 Box(Modifier.weight(1f)) {
                     TextbookScreen(
                         source = remember(client, mode) { CampusJiaocaiApi(client, API_BASE, mode) },
-                        // 「本学期我的教材」那一段的宿主端口：serve 形态下走 `GET /api/jwxt/textbooks`
-                        // （学号由服务端取，本端不传）—— 见 [WebJiaocaiTermTextbooks] 的 KDoc。
                         termTextbooks = remember(client, mode) {
                             WebJiaocaiTermTextbooks(CampusJwxtScheduleApi(client, API_BASE, mode))
                         },
-                        // 全文库那一半（`jiaocai1Source` / `jiaocai1Shelf`）：serve 形态下走契约 §5.14，
-                        // 数据取自在**运行 serve 的那台机器**上（会话借的是教材中心那个站点）。
-                        // 这一支只在 serve 形态下走到（上面那个 `if (mode != ApiMode.SERVE)`），所以无条件给。
                         jiaocai1Source = remember(api) { WebJiaocai1Source(api) },
                         jiaocai1Shelf = remember(api) { WebJiaocai1ShelfStore(api) },
-                        // 分类树的落盘缓存不传：浏览器这边没有 `DataCache` 的等价物（不假装有 30 天缓存）
                         jiaocai1Cache = null,
                         onBack = back,
                         onOpenBook = { ssno, title ->
@@ -630,11 +623,6 @@ private fun AppPage(
             }
         }
 
-        // 教材全文库（2026-10-22）：屏是 `:feature:jiaocai` 那两份（与 Android / 桌面同一份），
-        // 宿主走契约 §5.14 的 `/api/jiaocai1/*` —— 检索 / 页表 / 页图 / 书架都真的发生在
-        // **运行 serve 那台机器**上（会议 #9 = 丙「做法①」）。
-        // 三处如实差异见 `WebJiaocai1Source` / `WebJiaocai1ShelfStore`：页图是一发一发同源 fetch
-        //（不做本机预取窗口）· 书架是 serve 侧的（跟着账号，换浏览器还在）· 取不到就画 ErrorState。
         AppRoute.Jiaocai1 -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "教材全文",

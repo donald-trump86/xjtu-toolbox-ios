@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.card
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -63,7 +67,7 @@ class MealReportExport(val label: String, val export: suspend (ImageBitmap) -> U
 private fun LocalDate.dotted(): String =
     "$year." + month.number.toString().padStart(2, '0') + "." + day.toString().padStart(2, '0')
 
-/** 消费分析页里的入口：一行宋体标题加人设，点开看整张海报。 */
+/** 消费分析页里的入口：一行标题加人设，点开看整张海报。 */
 @Composable
 internal fun MealReportEntry(report: MealReport, onOpen: () -> Unit) {
     Row(
@@ -128,10 +132,10 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
 
 /**
  * 海报本体：刊头 → 人设大字 → 顿数大数字 → 发丝线分隔的几栏数据 → 落款印章。
- * 版式按竖排杂志页来：左对齐、大留白，宋体只用在标题和数字上。
+ * 版式按竖排杂志页来：左对齐、大留白。
  */
 @Composable
-private fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
+fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
     fun money(v: Double) = "¥" + if (v >= 100) money0(v) else money1(v)
     fun clock(tx: Transaction) = tx.time.substringAfter(' ', "").take(5)
     val body = TextStyle(fontSize = 13.sp, lineHeight = 19.sp, color = INK_MUTED)
@@ -156,41 +160,106 @@ private fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) 
         Text(report.persona, style = Editorial.masthead.copy(fontSize = 38.sp, lineHeight = 46.sp), color = INK)
         Spacer(Modifier.height(22.dp))
 
-        Text("这段时间，你在学校吃了", style = body)
+        Text("这段时间的餐饮消费", style = body)
         Row(verticalAlignment = Alignment.Bottom) {
             Text("${report.meals}", style = Editorial.figure.copy(fontSize = 64.sp, lineHeight = 70.sp), color = VERMILION)
             Spacer(Modifier.width(6.dp))
-            Text("顿", style = Editorial.headline, color = INK, modifier = Modifier.padding(bottom = 10.dp))
+            Text("笔", style = Editorial.headline, color = INK, modifier = Modifier.padding(bottom = 10.dp))
         }
         Text(
-            "花了 ${money(report.mealSpend)}，平均一顿 ${money(report.avgMeal)}，" +
+            "共 ${money(report.mealSpend)}，平均每笔 ${money(report.avgMeal)}，" +
                 "占全部支出的 ${percent0(report.mealShare * 100)}",
             style = body,
         )
 
+        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReportMetric("用餐天数", "${report.days}", "天", Modifier.weight(1f))
+            ReportMetric("早餐记录", "${report.breakfastDays}", "天", Modifier.weight(1f))
+            ReportMetric("夜宵记录", "${report.lateNights}", "笔", Modifier.weight(1f))
+        }
+        if (report.hourlyCounts.any { it > 0 }) {
+            Spacer(Modifier.height(26.dp))
+            Text("你的干饭生物钟", style = Editorial.headline.copy(fontSize = 19.sp), color = INK)
+            Spacer(Modifier.height(4.dp))
+            Text("各时段餐饮消费笔数", style = body.copy(fontSize = 11.sp))
+            Spacer(Modifier.height(12.dp))
+            MealRhythm(report.hourlyCounts)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf("00:00", "06:00", "12:00", "18:00", "24:00").forEach {
+                    Text(it, style = body.copy(fontSize = 9.sp))
+                }
+            }
+        }
+        if (report.favoriteMerchants.isNotEmpty()) {
+            Spacer(Modifier.height(26.dp))
+            Text("常去的三家", style = Editorial.headline.copy(fontSize = 19.sp), color = INK)
+            Spacer(Modifier.height(10.dp))
+            report.favoriteMerchants.forEachIndexed { index, (name, count) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("0${index + 1}", style = Editorial.figure.copy(fontSize = 22.sp), color = VERMILION, modifier = Modifier.width(38.dp))
+                    Text(name, modifier = Modifier.weight(1f), style = body.copy(color = INK), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("$count 次", style = body.copy(color = VERMILION), modifier = Modifier.padding(start = 8.dp))
+                }
+                val ratio = count.toFloat() / report.favoriteMerchants.first().second.coerceAtLeast(1)
+                Box(Modifier.fillMaxWidth().height(3.dp).background(RULE)) {
+                    Box(Modifier.fillMaxWidth(ratio).height(3.dp).background(VERMILION))
+                }
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
         report.canteen?.let { (name, n) -> PosterItem("最常去", name, "去了 $n 次") }
         report.stall?.let { (name, n) -> PosterItem("最爱的档口", name, "点了 $n 回") }
-        report.earliest?.let { PosterItem("最早的一顿", clock(it), "${it.time.take(10)} · ${it.displayMerchant}") }
-        report.latest?.let { PosterItem("最晚的一顿", clock(it), "${it.time.take(10)} · ${it.displayMerchant}") }
-        PosterItem("吃早饭", "${report.breakfastDays} 天", "有饭吃的 ${report.days} 天里")
+        report.earliest?.let { PosterItem("最早消费", clock(it), "${it.time.take(10)} · ${it.displayMerchant}") }
+        report.latest?.let { PosterItem("最晚消费", clock(it), "${it.time.take(10)} · ${it.displayMerchant}") }
         if (report.lateNights > 0 || report.drinks > 0) {
-            PosterItem("夜宵与续命", "${report.lateNights} 次 · ${report.drinks} 杯", "21 点后的夜宵 · 咖啡奶茶")
+            PosterItem("夜宵与饮品", "${report.lateNights} 笔 · ${report.drinks} 笔", "21 点后消费 · 咖啡奶茶消费")
         }
-        report.priciest?.let { PosterItem("最豪的一顿", money(-it.amount), it.displayMerchant) }
+        report.priciest?.let { PosterItem("最高单笔", money(-it.amount), it.displayMerchant) }
 
         Spacer(Modifier.height(30.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("岱宗盒子", style = Editorial.headline.copy(fontSize = 16.sp), color = INK)
-                Text("数据只在手机上算，不上传", style = body.copy(fontSize = 11.sp))
+                Text("本地统计，不上传", style = body.copy(fontSize = 11.sp))
             }
             Seal()
         }
     }
 }
 
-/** 一栏：小标签、宋体的值、一行说明，上面一道发丝线。 */
+@Composable
+private fun ReportMetric(label: String, value: String, unit: String, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(10.dp)).background(Color(0xFFEDE4D5)).padding(10.dp)) {
+        Text(label, style = TextStyle(fontSize = 10.sp, color = INK_MUTED))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, style = Editorial.figure.copy(fontSize = 24.sp), color = INK)
+            Text(unit, style = TextStyle(fontSize = 10.sp, color = INK_MUTED), modifier = Modifier.padding(start = 3.dp, bottom = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun MealRhythm(counts: List<Int>) {
+    Canvas(Modifier.fillMaxWidth().height(82.dp)) {
+        val peak = counts.maxOrNull()?.coerceAtLeast(1) ?: 1
+        val step = size.width / 24
+        for (hour in 0..23) {
+            val value = counts.getOrElse(hour) { 0 }
+            val height = (size.height * value / peak).coerceAtLeast(2.dp.toPx())
+            drawRoundRect(
+                brush = Brush.verticalGradient(listOf(VERMILION.copy(alpha = 0.55f), VERMILION)),
+                topLeft = Offset(hour * step + step * 0.12f, size.height - height),
+                size = Size(step * 0.76f, height),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
+                alpha = if (value == 0) 0.12f else 1f,
+            )
+        }
+    }
+}
+
+/** 一栏：小标签、大号的值、一行说明，上面一道发丝线。 */
 @Composable
 private fun PosterItem(label: String, value: String, note: String) {
     Box(Modifier.fillMaxWidth().height(0.8.dp).background(RULE))
@@ -203,7 +272,7 @@ private fun PosterItem(label: String, value: String, note: String) {
     }
 }
 
-/** 落款的方印：朱红底、白色宋体「岱」。 */
+/** 落款的方印：朱红底、白色「岱」。 */
 @Composable
 private fun Seal() {
     Box(

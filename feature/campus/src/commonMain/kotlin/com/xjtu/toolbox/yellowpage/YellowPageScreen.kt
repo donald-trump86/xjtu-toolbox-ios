@@ -324,6 +324,7 @@ private fun DepartmentCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 5.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable(enabled = number.isNotBlank()) { onDial(number) }
                 ) {
                     Row(

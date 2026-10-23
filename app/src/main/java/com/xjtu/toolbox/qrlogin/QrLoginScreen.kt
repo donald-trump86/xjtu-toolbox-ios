@@ -298,7 +298,7 @@ private fun QrLoginContent(
                             onBack()
                         }
                         // 对勾沿路径画出、外圈弹一下；文字随后依次上浮
-                        com.xjtu.toolbox.ui.components.DrawCheckmark(Color(0xFF34C759), size = 72.dp)
+                        com.xjtu.toolbox.ui.components.DrawCheckmark(size = 72.dp)
                         Spacer(Modifier.height(16.dp))
                         Text(
                             "登录成功",

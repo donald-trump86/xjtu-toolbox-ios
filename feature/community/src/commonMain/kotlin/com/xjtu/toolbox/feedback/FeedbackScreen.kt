@@ -224,14 +224,13 @@ fun FeedbackScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "这一端只能看，不能提",
+                            "暂不支持提交反馈",
                             style = MiuixTheme.textStyles.subtitle,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "下面的「大家在问」与「我提过的」都能读（serve 契约 §5.7 端了那两个只读端点）；但提交" +
-                                "没有端点（写路径不端）⇒ 这里不画表单。要提就去 GitHub 提 Issue，效果一样。",
+                            "已有反馈可以查看；新问题请到 GitHub 提交 Issue。",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -488,7 +487,7 @@ fun FeedbackScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "构建时没带上反馈后端，没法在这里直接发送。去 GitHub 提 Issue 就行，效果一样。",
+                            "此版本不能直接发送，请去 GitHub 提 Issue。",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )

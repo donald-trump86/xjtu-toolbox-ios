@@ -6,77 +6,91 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.home.BottomBarTabs
+import com.xjtu.toolbox.home.HomeIcons
 import com.xjtu.toolbox.nav.AppRoute
-import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.shell.ShellTabs
 import com.xjtu.toolbox.shell.ShellTarget
 
 /**
- * 底部导航项。[name] 已存进设置和启动意图，不能改。
+ * 主界面原生的五格（页面专为挂在底栏上写，顶栏由主界面画）。[name] 已存进设置和启动意图，不能改。
  *
  * [iconSize] 是按墨迹面积拉平的光学尺寸（同为 24dp 的 Material 图标视觉大小差很多），
  * 只在玻璃底栏生效，miuix 自带的几种导航栏把图标尺寸写死了。
- *
- * ## 与共享壳的关系
- *
- * 这个枚举是 **Android 这一端的 tab 集合**（哪五格、叫什么、什么图标），底栏怎么画、当前页怎么摆
- * 都在 `:core` 的 [com.xjtu.toolbox.shell.AppShell] 里 —— 见 [shellTab] / [shellTabs]。
- * `name` 就是共享壳里的 [ShellTab.id]（存盘与启动意图都按它认，改一个字老用户的默认 tab 就失效）。
+ * [route] 是这一格不在底栏上时压栈打开的那一页；首页和我的恒在底栏上，没有。
  */
 enum class BottomTab(
     val label: String,
     val icon: ImageVector,
     val iconSize: Dp,
+    val route: AppRoute?,
 ) {
-    HOME("首页", Icons.Filled.Home, 24.dp),
-    COURSES("日程", Icons.Filled.CalendarMonth, 23.dp),
+    HOME("首页", Icons.Filled.Home, 24.dp, null),
+    COURSES("日程", Icons.Filled.CalendarMonth, 23.dp, AppRoute.Schedule),
 
-    /** 屁岱，固定在正中，画成机器人（PidaiNavButton），[icon] 用不上。 */
-    PIDAI("屁岱", Icons.Filled.SmartToy, 27.dp),
-    TOOLS("学辅", Icons.AutoMirrored.Filled.MenuBook, 22.dp),
-    PROFILE("我的", Icons.Filled.Person, 27.dp),
+    /** 屁岱，画成机器人（PidaiNavButton），[icon] 用不上。 */
+    PIDAI("屁岱", Icons.Filled.SmartToy, 27.dp, AppRoute.Agent),
+    TOOLS("学辅", Icons.AutoMirrored.Filled.MenuBook, 22.dp, AppRoute.Zyxf),
+    PROFILE("我的", Icons.Filled.Person, 27.dp, null);
+
+    companion object {
+        fun of(name: String?): BottomTab? = entries.firstOrNull { it.name == name }
+    }
 }
 
-/** 把这一格交给共享壳。 */
-fun BottomTab.shellTab(): ShellTab = ShellTab(
-    id = name,
-    label = label,
-    icon = icon,
-    iconSize = iconSize,
-    // 判据里要给枚举常量带类名：这个 `when` 在枚举类体**外**（枚举项不会自动进作用域）
-    target = when (this) {
-        BottomTab.HOME -> ShellTarget.App(AppRoute.Main)
-        BottomTab.COURSES -> ShellTarget.App(AppRoute.Schedule)
-        BottomTab.PIDAI -> ShellTarget.App(AppRoute.Agent)
-        BottomTab.TOOLS -> ShellTarget.Custom("zyxf")
-        BottomTab.PROFILE -> ShellTarget.Custom("profile")
-    },
-    showsAccountBadge = this == BottomTab.PROFILE,
-)
-
-/** Android 那一份 tab 集合（顺序 = 底栏从左到右 = [BottomTab.entries]）。 */
-fun androidShellTabs(): ShellTabs = ANDROID_SHELL_TABS
 /**
- * 规范化落点 → 这一端的 tab（三张映射表之一：另两张是 `:desktop` 的 `desktopStartTarget()`
- * 与 `:web` 的 `webStartTarget()`）。
- *
- * 认不出（老文件、手工改过的值）退 [BottomTab.COURSES]：与 `SettingsStore.TAB_KEY_DEFAULT` 同一档。
- * 注：老版本存的是 [BottomTab.name]，`SettingsStore.normalizeDefaultTab` 已经把那五个名字翻成规范值，
- * 所以这张表只认规范值。
+ * 底栏上的一格：原生五格之一（[core]），或用户放上来的一个功能页（[route]，原本是压栈的子页，
+ * 自带顶栏，由 MainScreen 的 RouteTabPage 挂上去）。[id] 见 [BottomBarTabs.tabId]。
  */
-fun bottomTabOf(defaultTab: String): BottomTab = when (SettingsStore.normalizeDefaultTab(defaultTab)) {
-    SettingsStore.TAB_KEY_HOME -> BottomTab.HOME
-    SettingsStore.TAB_KEY_AGENT -> BottomTab.PIDAI
-    SettingsStore.TAB_KEY_SERVICES -> BottomTab.TOOLS
-    SettingsStore.TAB_KEY_PROFILE -> BottomTab.PROFILE
-    else -> BottomTab.COURSES
+@Immutable
+data class BarTab(
+    val id: String,
+    val label: String,
+    val icon: ImageVector,
+    val iconSize: Dp,
+    val core: BottomTab?,
+    val route: AppRoute?,
+) {
+    val isRouteTab: Boolean get() = core == null
+
+    fun shellTab(): ShellTab = ShellTab(
+        id = id,
+        label = label,
+        icon = icon,
+        iconSize = iconSize,
+        target = when (core) {
+            BottomTab.HOME -> ShellTarget.App(AppRoute.Main)
+            BottomTab.TOOLS -> ShellTarget.Custom("zyxf")
+            BottomTab.PROFILE -> ShellTarget.Custom("profile")
+            else -> ShellTarget.App(route!!)
+        },
+        showsAccountBadge = core == BottomTab.PROFILE,
+        drawsOwnTopBar = isRouteTab,
+    )
+
+    companion object {
+        fun of(tab: BottomTab) = BarTab(tab.name, tab.label, tab.icon, tab.iconSize, tab, tab.route)
+
+        /** 格子 id → 这一格；认不得返回 null。 */
+        fun of(id: String): BarTab? {
+            BottomTab.of(id)?.let { return of(it) }
+            val route = appRouteOf(id) ?: return null
+            return BarTab(id, BottomBarTabs.label(route), HomeIcons.of(route), 24.dp, null, route)
+        }
+
+        /** 设置里的格子 id → 底栏，认不得的跳过。 */
+        fun barOf(ids: List<String>): List<BarTab> = ids.mapNotNull(::of).distinctBy { it.id }
+    }
 }
-/** 见 [androidShellTabs]。 */
-val ANDROID_SHELL_TABS: ShellTabs = ShellTabs(BottomTab.entries.map { it.shellTab() })
+
+/** Android 那一份 tab 集合（顺序 = 底栏从左到右）。 */
+fun androidShellTabs(bar: List<BarTab>): ShellTabs = ShellTabs(bar.map { it.shellTab() })
 
 /** 屁岱那一格（共享壳只按 id 认；自绘由 `AndroidShellTabArt` 接）。 */
-val PIDAI_TAB: ShellTab = ANDROID_SHELL_TABS.byId(BottomTab.PIDAI.name)!!
+val PIDAI_TAB: ShellTab = BarTab.of(BottomTab.PIDAI).shellTab()

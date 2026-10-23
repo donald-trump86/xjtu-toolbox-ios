@@ -88,11 +88,11 @@ class AgentToolCatalogTest {
     }
 
     @Test
-    fun `无参工具的参数表是空对象`() {
+    fun `考试安排支持可选的 show 和展示参数`() {
         val raw = AppJson.parseToJsonElement(agentToolDefinitions(setOf(AgentCapability.ALARM))) as JsonArray
         val exam = raw.first { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content == "get_exam_schedule" }
         val params = exam.jsonObject["function"]!!.jsonObject["parameters"]!!.jsonObject
-        assertEquals(0, (params["properties"] as JsonObject).size)
+        assertEquals(setOf(ToolShow.PARAM, "display"), (params["properties"] as JsonObject).keys)
         assertEquals(0, (params["required"] as JsonArray).size)
     }
 

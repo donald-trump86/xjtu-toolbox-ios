@@ -14,7 +14,6 @@ fun LoginType.siteKey(): String = when (this) {
     LoginType.FITNESS -> "fitness"
     LoginType.ATTENDANCE -> "new_attendance"
     LoginType.ICLASSFACE -> "iclassface"
-    LoginType.DORM_POWER -> "ssn"
 }
 
 /**

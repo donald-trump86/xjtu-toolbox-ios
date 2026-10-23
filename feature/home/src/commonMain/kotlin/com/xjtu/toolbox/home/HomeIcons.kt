@@ -47,6 +47,7 @@ object HomeIcons {
         AppRoute.Jiaocai -> Icons.AutoMirrored.Filled.MenuBook
         AppRoute.Jiaocai1 -> Icons.AutoMirrored.Filled.LibraryBooks
         AppRoute.Library -> Icons.Default.Chair
+        AppRoute.Zyxf -> Icons.AutoMirrored.Filled.LibraryBooks
         AppRoute.Transcript -> Icons.Default.Description
         AppRoute.Notification -> Icons.Default.Notifications
         AppRoute.Faculty -> Icons.Default.PersonSearch
@@ -55,7 +56,6 @@ object HomeIcons {
         AppRoute.Coupon -> Icons.Default.Restaurant
         AppRoute.SchoolCalendar -> Icons.AutoMirrored.Filled.EventNote
         AppRoute.Venue -> Icons.Default.Stadium
-        AppRoute.DormPower -> Icons.Default.Bolt
         AppRoute.Fitness -> Icons.AutoMirrored.Filled.DirectionsRun
         AppRoute.YellowPage -> Icons.Default.ContactPhone
         AppRoute.WebVpnConverter -> Icons.Default.VpnKey

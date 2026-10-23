@@ -315,7 +315,7 @@ internal fun AgentWelcome(
 
 /** 没有屁岱形象的端（桌面 / Web）的问候头：同一个标题 + 同一句闲话，只是没有那颗可以戳的形象。 */
 @Composable
-internal fun agentWelcomePlainHero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
+fun agentWelcomePlainHero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
     val primary = MiuixTheme.colorScheme.primary
     val line = remember(facts) { plainHeroLine(facts, now) }
     Column(

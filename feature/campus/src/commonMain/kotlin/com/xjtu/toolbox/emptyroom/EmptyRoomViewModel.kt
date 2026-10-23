@@ -35,6 +35,11 @@ internal class EmptyRoomViewModel(
     /** 当天课表（CDN），按教室名对上实时状态，画节次条用；拿不到就不画。 */
     var liveSchedule by mutableStateOf<Map<String, RoomInfo>>(emptyMap()); private set
 
+    val availableSources = source.availableSources.filter {
+        it != RoomSource.DIRECT || accountType != AccountType.POSTGRADUATE
+    }
+    var periodSourceKind by mutableStateOf(initialPeriodSource()); private set
+
     /** 当前选中哪一档。叫 sourceKind 而不是 source：`source` 这个名字留给取数端口。 */
     var sourceKind by mutableStateOf(initialSource()); private set
     val isLive get() = sourceKind == RoomSource.LIVE
@@ -72,7 +77,14 @@ internal class EmptyRoomViewModel(
             saved == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE -> RoomSource.CDN
             else -> saved
         }
-        return wanted.takeIf { it in source.availableSources } ?: source.availableSources.first()
+        return wanted.takeIf { it in availableSources } ?: availableSources.first()
+    }
+
+    private fun initialPeriodSource(): RoomSource {
+        val saved = prefs.getString("empty_room_period_source") ?: prefs.getString(SOURCE_PREF_KEY)
+        return availableSources.firstOrNull { it != RoomSource.LIVE && it.key == saved }
+            ?: availableSources.firstOrNull { it != RoomSource.LIVE }
+            ?: availableSources.first()
     }
 
     private fun savedBuildings(campus: String): Set<String> {
@@ -89,7 +101,11 @@ internal class EmptyRoomViewModel(
 
     fun selectSource(value: RoomSource) {
         val next = if (value == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE) RoomSource.CDN else value
-        if (next == sourceKind) return
+        if (next !in availableSources || next == sourceKind) return
+        if (next != RoomSource.LIVE) {
+            periodSourceKind = next
+            prefs.putString("empty_room_period_source", next.key)
+        }
         sourceKind = next
         prefs.putString(SOURCE_PREF_KEY, next.key)
         errorMessage = null

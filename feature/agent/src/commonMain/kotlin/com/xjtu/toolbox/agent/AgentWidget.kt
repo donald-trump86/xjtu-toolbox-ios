@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MeetingRoom
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.ui.draw.drawBehind
 import com.xjtu.toolbox.util.formatFixed
@@ -74,6 +75,7 @@ fun AgentWidgetView(
     onNavigate: (AppRoute) -> Unit = {},
 ) {
     when (widget) {
+        is NoticeWidget     -> NoticeWidgetView(widget, modifier, onNavigate)
         is LibraryWidget    -> LibraryWidgetView(widget, host, modifier, onNavigate)
         is ScheduleWidget   -> ScheduleWidgetView(widget, modifier)
         is ExamWidget       -> ExamWidgetView(widget, modifier)
@@ -84,6 +86,29 @@ fun AgentWidgetView(
         is CardWidget       -> CardWidgetView(widget, modifier)
         is ZyxfWidget       -> ZyxfWidgetView(widget, host, modifier, onAsk)
         is CampusMapWidget  -> CampusMapWidgetView(widget, modifier)
+    }
+}
+
+@Composable
+private fun NoticeWidgetView(w: NoticeWidget, modifier: Modifier, onNavigate: (AppRoute) -> Unit) {
+    WidgetCard(title = "通知精选", icon = Icons.Default.NotificationsNone, accent = MiuixTheme.colorScheme.primary,
+        subtitle = w.query.ifBlank { "${w.items.size} 条通知" }, modifier = modifier) {
+        if (w.caption.isNotBlank()) Text(w.caption, style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(bottom = 10.dp))
+        if (w.items.isEmpty()) WidgetMore("没有匹配的通知")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            w.items.take(w.display.limit).forEach { n ->
+                com.xjtu.toolbox.ui.components.NoticePickItem(
+                    title = n.title,
+                    metadata = listOf(n.source.takeIf { w.display.shows("source") }, n.date.takeIf { w.display.shows("date") })
+                        .filterNotNull().filter { it.isNotBlank() }.joinToString(" · "),
+                    why = n.why.ifBlank { n.excerpt }.takeIf { w.display.shows("why") }.orEmpty(), level = n.level,
+                    enabled = n.link.startsWith("https://") || n.link.startsWith("http://"),
+                    onOpen = { onNavigate(AppRoute.Browser(n.link)) },
+                )
+            }
+        }
+        if (w.items.size > w.display.limit) WidgetMore("显示 ${w.display.limit} / ${w.items.size} 条")
     }
 }
 
@@ -266,14 +291,14 @@ private fun courseClock(c: CourseItem): Pair<String, String> {
 @Composable
 private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
     val summer = XjtuTime.isSummerTime()
-    val sorted = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.clockMinutes(summer).first }))
+    val sorted = (if (w.display.matchedCount > 0) w.courses else w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.clockMinutes(summer).first }))).take(w.display.limit)
     val byDay = sorted.groupBy { it.dayOfWeek }
     val courseColors = com.xjtu.toolbox.schedule.rememberCourseColors(remember(w.courses) { w.courses.map { it.courseName }.distinct() })
     WidgetCard(
         title = w.title,
         icon = Icons.Default.CalendarMonth,
         accent = MiuixTheme.colorScheme.primary,
-        subtitle = if (w.courses.isEmpty()) "没有安排" else "${w.courses.size} 项安排",
+        subtitle = if (w.courses.isEmpty()) "没有匹配的安排" else "${w.courses.size} 项安排",
         modifier = modifier,
     ) {
         if (w.courses.isEmpty()) return@WidgetCard
@@ -286,7 +311,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
                     Modifier.fillMaxWidth().padding(vertical = 5.dp).height(IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.width(44.dp), horizontalAlignment = Alignment.End) {
+                    if (w.display.shows("time")) Column(Modifier.width(44.dp), horizontalAlignment = Alignment.End) {
                         Text(start, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
                         Text(end, style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -303,7 +328,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
                     Column(Modifier.weight(1f)) {
                         Text(c.courseName, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val sub = listOf(c.location, c.teacher).filter { it.isNotBlank() }.joinToString(" · ")
+                        val sub = listOfNotNull(c.location.takeIf { w.display.shows("location") }, c.teacher.takeIf { w.display.shows("teacher") }).filter { it.isNotBlank() }.joinToString(" · ")
                         if (sub.isNotBlank()) {
                             Text(sub, style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -313,6 +338,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
                 }
             }
         }
+        if (w.courses.size > sorted.size) WidgetMore("显示 ${sorted.size} / ${w.courses.size} 项")
     }
 }
 
@@ -347,12 +373,13 @@ private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
         subtitle = "${w.exams.size} 场",
         modifier = modifier,
     ) {
-        w.exams.take(12).forEach { e ->
+        if (w.exams.isEmpty()) WidgetMore("没有匹配的考试")
+        w.exams.take(w.display.limit).forEach { e ->
             val date = runCatching { LocalDate.parse(e.examDate.take(10)) }.getOrNull()
             val days = date?.let { today.daysUntil(it) }
             WidgetRow(
                 primary = e.courseName,
-                secondary = listOf(e.examTime, e.location, e.seatNumber.takeIf { it.isNotBlank() }?.let { "座位 $it" })
+                secondary = listOf(e.examTime.takeIf { w.display.shows("time") }, e.location.takeIf { w.display.shows("location") }, e.seatNumber.takeIf { w.display.shows("seat") && it.isNotBlank() }?.let { "座位 $it" })
                     .filter { !it.isNullOrBlank() }.joinToString(" · "),
                 leading = { DateBlock(date, accent) },
                 trailing = when {
@@ -364,14 +391,14 @@ private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
                 },
             )
         }
-        if (w.exams.size > 12) WidgetMore("…还有 ${w.exams.size - 12} 场")
+        if (w.exams.size > w.display.limit) WidgetMore("显示 ${w.display.limit} / ${w.exams.size} 场")
     }
 }
 
 @Composable
 private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
     val accent = MiuixTheme.colorScheme.primary
-    val shown = w.rooms.take(12)
+    val shown = w.rooms.take(w.display.limit)
     WidgetCard(
         title = "空闲教室",
         icon = Icons.Default.MeetingRoom,
@@ -379,20 +406,22 @@ private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
         subtitle = w.condition,
         modifier = modifier,
     ) {
+        if (shown.isEmpty()) WidgetMore("没有匹配的教室")
+        WidgetMore(if (w.liveRooms.isEmpty()) "按课表 · 亮色空闲 / 灰色有课" else "空闲条按课表，实时状态另标")
         shown.forEach { r ->
             val nowFree = w.currentPeriod in r.status.indices && r.status[w.currentPeriod] == 0
             Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(r.name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    if (nowFree) {
-                        WidgetBadge("本节空闲", accent)
+                    if (nowFree && w.display.view != "slots") {
+                        WidgetBadge("本节无课", accent)
                         Spacer(Modifier.width(6.dp))
                     }
-                    Text("${r.size} 座", style = MiuixTheme.textStyles.footnote1,
+                    if (w.display.shows("seats")) Text("${r.size} 座", style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
-                if (r.status.isNotEmpty()) {
+                if (w.display.view in setOf("auto", "slots", "both") && w.display.shows("slots") && r.status.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     // 和空闲教室页同一条节次条（一次画完、进场依次亮起）
                     com.xjtu.toolbox.ui.components.SlotStripe(
@@ -401,6 +430,21 @@ private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
                         currentIndex = w.currentPeriod,
                         busyColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.16f),
                     )
+                    Row(Modifier.fillMaxWidth()) {
+                        r.status.indices.forEach { index ->
+                            Text("${index + 1}", modifier = Modifier.weight(1f),
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = if (index + 1 in w.display.sections) accent else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                fontWeight = if (index + 1 in w.display.sections) FontWeight.Bold else FontWeight.Normal,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
+                }
+                if (w.display.view in setOf("both", "status") && w.display.shows("status")) {
+                    val live = w.liveRooms.firstOrNull { it.name == r.name }
+                    Spacer(Modifier.height(4.dp))
+                    if (live != null) LiveRoomStatusBadge(live)
+                    else Text("未匹配到实时状态", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
         }
@@ -413,7 +457,7 @@ private fun LiveRoomWidgetView(w: LiveRoomWidget, modifier: Modifier) {
     val accent = MiuixTheme.colorScheme.primary
     // 和空闲教室页的"其它使用"同一个琥珀色
     val inUseColor = Color(0xFFD9822B)
-    val shown = w.rooms.take(12)
+    val shown = w.rooms.take(w.display.limit)
     WidgetCard(
         title = "空闲教室",
         icon = Icons.Default.MeetingRoom,
@@ -425,15 +469,24 @@ private fun LiveRoomWidgetView(w: LiveRoomWidget, modifier: Modifier) {
         shown.forEach { r ->
             WidgetRow(
                 primary = r.name,
-                secondary = if (r.isInUse) "其它使用 · ${r.seats} 座" else "${r.seats} 座",
+                secondary = listOfNotNull(
+                    "${r.seats} 座".takeIf { w.display.shows("seats") },
+                ).joinToString(" · "),
                 trailing = {
-                    if (r.isInUse) WidgetBadge("${r.people} 人", inUseColor)
-                    else WidgetBadge("空闲", accent)
+                    if (w.display.shows("status")) LiveRoomStatusBadge(r)
                 },
             )
         }
         if (w.rooms.size > shown.size) WidgetMore("…还有 ${w.rooms.size - shown.size} 间")
     }
+}
+
+@Composable
+private fun LiveRoomStatusBadge(room: com.xjtu.toolbox.emptyroom.LiveRoom) {
+    WidgetBadge(
+        when { room.isFree -> "此刻空闲"; room.isInUse -> "有人 · ${room.people} 人"; room.isInClass -> "上课中"; else -> "状态未知" },
+        when { room.isFree -> STATUS_OK; room.isInUse -> Color(0xFFD9822B); room.isInClass -> MiuixTheme.colorScheme.error; else -> MiuixTheme.colorScheme.onSurfaceVariantSummary },
+    )
 }
 
 @Composable
@@ -446,7 +499,8 @@ private fun AttendanceWidgetView(w: AttendanceWidget, modifier: Modifier) {
         subtitle = if (w.records.isEmpty()) null else "正常 $normal / ${w.records.size}",
         modifier = modifier,
     ) {
-        w.records.forEach { r ->
+        if (w.records.isEmpty()) WidgetMore("没有匹配的考勤记录")
+        w.records.take(w.display.limit).forEach { r ->
             val color = when (r.status) {
                 WaterType.NORMAL -> STATUS_OK
                 WaterType.LEAVE -> MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -454,11 +508,14 @@ private fun AttendanceWidgetView(w: AttendanceWidget, modifier: Modifier) {
             }
             WidgetRow(
                 primary = r.courseName,
-                secondary = "${r.date} 第${r.startTime}-${r.endTime}节" +
-                    if (r.location.isNotBlank()) " · ${r.location}" else "",
-                trailing = { WidgetBadge(r.status.displayName, color) },
+                secondary = listOfNotNull(
+                    "${r.date} 第${r.startTime}-${r.endTime}节".takeIf { w.display.shows("date") },
+                    r.location.takeIf { w.display.shows("location") && it.isNotBlank() },
+                ).joinToString(" · "),
+                trailing = { if (w.display.shows("status")) WidgetBadge(r.status.displayName, color) },
             )
         }
+        if (w.records.size > w.display.limit) WidgetMore("显示 ${w.display.limit} / ${w.records.size} 条")
     }
 }
 
@@ -469,20 +526,21 @@ private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
         title = "成绩",
         icon = Icons.Default.Assessment,
         accent = accent,
-        subtitle = "${w.grades.size} 门 · 计入学分 ${formatFixed(w.totalPoints, 1)}",
-        trailing = w.gpa?.let { gpa ->
+        subtitle = "所选 ${w.grades.size} 门" + if (w.display.summary != "none" && w.display.shows("credit")) " · ${if (w.display.summary == "selected") "所选" else "查询全部"}计入学分 ${formatFixed(w.totalPoints, 1)}" else "",
+        trailing = w.gpa?.takeIf { w.display.summary != "none" && w.display.shows("gpa") }?.let { gpa ->
             {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(formatFixed(gpa, 2), style = MiuixTheme.textStyles.title4,
                         fontWeight = FontWeight.Bold, color = accent)
-                    Text("加权 GPA", style = MiuixTheme.textStyles.footnote2,
+                    Text(if (w.display.summary == "selected") "所选课程 GPA" else "查询全部 GPA", style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
         },
         modifier = modifier,
     ) {
-        w.grades.take(15).forEach { g ->
+        if (w.grades.isEmpty()) WidgetMore("没有匹配的成绩")
+        w.grades.take(w.display.limit).forEach { g ->
             val n = g.score.toDoubleOrNull()
             val color = when {
                 n != null && n < 60 || g.score.contains("不及格") -> MiuixTheme.colorScheme.error
@@ -491,11 +549,12 @@ private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
             }
             WidgetRow(
                 primary = g.courseName,
-                secondary = "${g.coursePoint} 学分" + (g.gpa?.let { " · 绩点 " + formatFixed(it, 2) } ?: ""),
+                secondary = listOfNotNull("${g.coursePoint} 学分".takeIf { w.display.shows("credit") },
+                    g.gpa?.takeIf { w.display.shows("gpa") }?.let { "绩点 " + formatFixed(it, 2) }).joinToString(" · "),
                 trailing = { WidgetBadge(g.score, color) },
             )
         }
-        if (w.grades.size > 15) WidgetMore("…还有 ${w.grades.size - 15} 门")
+        if (w.grades.size > w.display.limit) WidgetMore("显示 ${w.display.limit} / ${w.grades.size} 门")
     }
 }
 
@@ -538,6 +597,7 @@ private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
                 Text(it, style = MiuixTheme.textStyles.footnote1, color = onCard.copy(alpha = 0.8f))
             }
         }
+        if (w.display.view in setOf("auto", "all", "balance") && w.display.shows("balance")) {
         Spacer(Modifier.height(22.dp))
         Text("余额", style = MiuixTheme.textStyles.footnote1, color = onCard.copy(alpha = 0.75f))
         Text(
@@ -556,6 +616,27 @@ private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
             Text(notes.joinToString(" · "), style = MiuixTheme.textStyles.footnote1,
                 fontWeight = if (info.lostFlag || info.frozenFlag) FontWeight.Bold else FontWeight.Normal,
                 color = onCard.copy(alpha = 0.9f))
+        }
+        }
+        if (w.transactionsLoaded && w.display.view in setOf("auto", "all", "summary") && w.display.shows("summary")) {
+            Spacer(Modifier.height(14.dp))
+            Text("${w.rangeLabel} · 所选 ${w.transactions.size} 笔", style = MiuixTheme.textStyles.footnote1, color = onCard.copy(alpha = 0.8f))
+            Text("支出 ¥${formatFixed(w.spend ?: w.transactions.filter { it.amount < 0 }.sumOf { -it.amount }, 2)} · 收入 ¥${formatFixed(w.income ?: w.transactions.filter { it.amount > 0 }.sumOf { it.amount }, 2)}",
+                style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = onCard)
+        }
+        if (w.transactionsLoaded && w.display.view in setOf("all", "transactions") && w.display.shows("transactions")) {
+            Spacer(Modifier.height(10.dp))
+            if (w.transactions.isEmpty()) Text("没有匹配的流水", style = MiuixTheme.textStyles.footnote1, color = onCard)
+            w.transactions.take(w.display.limit).forEach { t ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(t.displayMerchant, style = MiuixTheme.textStyles.body2, color = onCard, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(t.time, style = MiuixTheme.textStyles.footnote2, color = onCard.copy(alpha = 0.75f))
+                    }
+                    Text((if (t.amount > 0) "+" else "") + formatFixed(t.amount, 2), style = MiuixTheme.textStyles.body2, color = onCard, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (w.transactions.size > w.display.limit) Text("显示 ${w.display.limit} / ${w.transactions.size} 笔", style = MiuixTheme.textStyles.footnote2, color = onCard.copy(alpha = 0.8f))
         }
     }
 }
@@ -584,7 +665,7 @@ private fun ZyxfWidgetView(w: ZyxfWidget, host: AgentHost, modifier: Modifier, o
     val states = androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateMapOf<Int, String>()
     }
-    val shown = w.items.take(12)
+    val shown = w.items.take(w.display.limit)
     val accent = MiuixTheme.colorScheme.primary
     val dark = LocalIsDarkTheme.current
 
@@ -595,6 +676,7 @@ private fun ZyxfWidgetView(w: ZyxfWidget, host: AgentHost, modifier: Modifier, o
         subtitle = w.query.takeIf { it.isNotBlank() }?.let { "「$it」" },
         modifier = modifier,
     ) {
+        if (shown.isEmpty()) WidgetMore("没有匹配的资料")
         shown.forEach { item ->
             val state = states[item.id]
             val busy = state == ZYXF_DOWNLOADING
@@ -602,8 +684,8 @@ private fun ZyxfWidgetView(w: ZyxfWidget, host: AgentHost, modifier: Modifier, o
             WidgetRow(
                 primary = item.name,
                 secondary = listOfNotNull(
-                    item.path.takeIf { it.isNotBlank() },
-                    item.sizeText.takeIf { it.isNotBlank() },
+                    item.path.takeIf { w.display.shows("path") && it.isNotBlank() },
+                    item.sizeText.takeIf { w.display.shows("size") && it.isNotBlank() },
                     state,
                 ).joinToString(" · "),
                 modifier = Modifier
@@ -675,9 +757,11 @@ private fun LibraryWidgetView(w: LibraryWidget, host: AgentHost, modifier: Modif
         icon = Icons.Default.EventSeat,
         accent = accent,
         subtitle = "${w.campusName} · 点开在图书馆页选座",
-        trailing = {
+        trailing = if (w.areas.isNotEmpty() || w.display.view == "booking") null else {
+          {
             Text("空闲 $free / ${w.seats.size}", style = MiuixTheme.textStyles.footnote1,
                 fontWeight = FontWeight.Bold, color = accent)
+          }
         },
         modifier = modifier.clickable {
             com.xjtu.toolbox.library.LibraryFocus.request(
@@ -687,7 +771,24 @@ private fun LibraryWidgetView(w: LibraryWidget, host: AgentHost, modifier: Modif
         },
     ) {
         val d = decoded
-        if (d != null && w.seats.isNotEmpty()) {
+        if (w.display.shows("booking") || w.display.view == "booking") w.booking?.let {
+            Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(6.dp))
+        }
+        if (w.display.view == "booking") return@WidgetCard
+        if (w.areas.isNotEmpty()) {
+            w.areas.take(w.display.limit).forEach { area ->
+                WidgetRow(area.name, null, trailing = {
+                    WidgetBadge(when { area.total == null -> "未取得统计"; area.total == 0 -> "未开放"; else -> "${area.free} / ${area.total} 空座" }, accent)
+                })
+            }
+            if (w.areas.size > w.display.limit) WidgetMore("显示 ${w.display.limit} / ${w.areas.size} 个区域")
+            return@WidgetCard
+        }
+        if (w.highlightedSeats.isNotEmpty()) Text("已突出座位 ${w.highlightedSeats.joinToString("、")}", style = MiuixTheme.textStyles.footnote1, color = accent)
+        if (w.display.view == "summary") {
+            Text("可选空座 $free 个", style = MiuixTheme.textStyles.body2, color = accent)
+        } else if (w.display.shows("plan") && d != null && w.seats.isNotEmpty()) {
             val img = d.image
             val origW = d.originalWidth.toFloat()
             val dimFilter = if (dark) androidx.compose.ui.graphics.ColorFilter.colorMatrix(
@@ -712,6 +813,12 @@ private fun LibraryWidgetView(w: LibraryWidget, host: AgentHost, modifier: Modif
                         Color.Black.copy(alpha = 0.55f),
                         androidx.compose.ui.geometry.Offset(s.left * k, s.top * k),
                         androidx.compose.ui.geometry.Size(s.width * k, s.height * k),
+                    )
+                    if (s.seatId in w.highlightedSeats) drawRect(
+                        accent,
+                        androidx.compose.ui.geometry.Offset(s.left * k, s.top * k),
+                        androidx.compose.ui.geometry.Size(s.width * k, s.height * k),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
                     )
                 }
             }

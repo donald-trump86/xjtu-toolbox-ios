@@ -167,7 +167,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.STANDARD) },
             )
             Text(
-                "简报和你在对话里交代的定时任务在后台跑，用你的 API Key，每天最多 ${PidaiJobWorker.DAILY_BUDGET} 次；后台不登录学校系统，只读本机缓存。",
+                "后台任务使用你的 API Key，每天最多 ${PidaiJobWorker.DAILY_BUDGET} 次，仅使用已同步的数据。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

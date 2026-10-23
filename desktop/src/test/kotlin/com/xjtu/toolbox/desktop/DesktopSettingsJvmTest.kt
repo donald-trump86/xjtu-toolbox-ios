@@ -77,7 +77,6 @@ class DesktopSettingsJvmTest {
                 SettingsRow.DEFAULT_TAB,
                 SettingsRow.VENUE_CAPTCHA,
                 SettingsRow.SCHEDULE_ATTENDANCE,
-                // C-1b：外壳真读这个键（`glassNavStyle` → `AppShell(glassStyle=…)`）
                 SettingsRow.NAV_STYLE,
             ),
             host.honoredRows,

@@ -29,8 +29,9 @@ class SecureGithubSession private constructor(private val store: KeyValueStore) 
     }
 
     override fun signOut() {
+        // 图片上传已移除；dev 版存过的图床令牌在退出时顺手清掉
         _login.value?.takeIf { it.matches(Regex("[A-Za-z0-9-]{1,39}")) }?.let { name ->
-            GithubImageStorage(login = { name }).saveConfig(CommunityImageConfig())
+            secureKeyValueStore("community_images_${name.lowercase()}").clear()
         }
         store.remove(KEY_TOKEN)
         store.remove(KEY_LOGIN)

@@ -6,6 +6,7 @@ package com.xjtu.toolbox.community
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,11 +55,12 @@ fun DiscussionsScreen(
     onFilter: (String?) -> Unit,
     onAccount: () -> Unit,
     onLegacyFeedback: () -> Unit,
+    /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
+    listState: LazyListState = rememberLazyListState(),
 ) {
     // 顶部的刷新圈只跟用户下拉触发的那一次走，滑到底翻页时不转
     var pulling by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading) { if (!state.loading) pulling = false }
-    val listState = rememberLazyListState()
     val nearEnd by remember {
         derivedStateOf {
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
@@ -230,7 +232,6 @@ fun DiscussionComposer(
     onRetryCategories: () -> Unit,
 ) {
     var preview by remember { mutableStateOf(false) }
-    var imageBusy by remember { mutableStateOf(false) }
     // 分区加载好了还没选：默认选第一个，少点一下
     LaunchedEffect(state.categories) {
         if (state.categoryId == null && state.categories.isNotEmpty()) onEdit(state.title, state.body, state.categories.first().id)
@@ -239,7 +240,7 @@ fun DiscussionComposer(
     val candidates = remember(state.items) {
         state.items.mapNotNull { d -> d.author?.let { CommunityUser(it, d.authorAvatar) } }.distinctBy { it.login }
     }
-    val canSubmit = !state.submitting && !imageBusy && state.categories.any { it.id == state.categoryId } &&
+    val canSubmit = !state.submitting && state.categories.any { it.id == state.categoryId } &&
         state.title.isNotBlank() && state.body.isNotBlank()
     CommunityPage(
         title = "发帖",
@@ -305,7 +306,6 @@ fun DiscussionComposer(
                 enabled = !state.submitting,
                 minLines = 10,
                 mentionCandidates = candidates,
-                onImageBusy = { imageBusy = it },
             )
             if (state.submitError) {
                 Text(
@@ -337,7 +337,6 @@ fun MarkdownEditor(
     enabled: Boolean,
     minLines: Int,
     mentionCandidates: List<CommunityUser> = emptyList(),
-    onImageBusy: (Boolean) -> Unit = {},
 ) {
     // 要知道光标位置才能判断「正在输 @」，所以内部用 TextFieldValue；外部仍只关心字符串
     var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
@@ -345,10 +344,11 @@ fun MarkdownEditor(
     val query = remember(field) { if (field.selection.collapsed) mentionQuery(field.text, field.selection.start) else null }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             AppFilterChip(selected = !preview, onClick = { onPreviewChange(false) }, label = "编辑")
             AppFilterChip(selected = preview, onClick = { onPreviewChange(true) }, label = "预览")
-            CommunityImageActions(enabled = enabled, onBusy = onImageBusy, onInsert = { markdown ->
+            Spacer(Modifier.weight(1f))
+            CommunityImageActions(enabled = enabled) { markdown ->
                 val start = field.selection.min
                 val end = field.selection.max
                 val text = field.text.replaceRange(start, end, markdown)
@@ -356,7 +356,7 @@ fun MarkdownEditor(
                 field = TextFieldValue(text, TextRange(start + markdown.length))
                 onValueChange(text)
                 onPreviewChange(false)
-            })
+            }
         }
         AnimatedContent(
             targetState = preview,

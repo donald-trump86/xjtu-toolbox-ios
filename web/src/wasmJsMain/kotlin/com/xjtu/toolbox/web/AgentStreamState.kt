@@ -158,7 +158,7 @@ internal class AgentStreamState {
         toolBubbleIndices.clear()
         if (streamIdx in messages.indices) {
             val bubble = messages[streamIdx]
-            messages[streamIdx] = bubble.copy(content = bubble.content.ifBlank { "（已停止）" })
+            messages[streamIdx] = bubble.copy(content = bubble.content.trimEnd().let { if (it.isEmpty()) "[用户打断]" else "$it\n\n[用户打断]" })
         }
         streamIdx = -1
         setLoading(false)

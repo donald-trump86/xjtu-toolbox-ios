@@ -334,17 +334,6 @@ fun main(args: Array<String>) {
         }
 
 
-        var payShown = false
-        shot(
-            "dormpower.png",
-            frames = 20,
-            onFrame = { frame, scene ->
-                if (!payShown && frame >= 4) payShown = hasText(scene, "缴费页已交给系统浏览器打开")
-            },
-        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.DormPower)) }
-        check(payShown) {
-            "dormpower.png：屏上没有「缴费页已交给系统浏览器打开」—— 多半没取到缴费页入口"
-        }
 
         var attendanceShown = false
         shot(

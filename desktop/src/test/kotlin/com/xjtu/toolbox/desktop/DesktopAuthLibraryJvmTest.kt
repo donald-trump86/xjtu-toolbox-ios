@@ -43,10 +43,6 @@ import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponFilter
 import com.xjtu.toolbox.coupon.CouponFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
-import com.xjtu.toolbox.dormpower.DormPowerApi
-import com.xjtu.toolbox.dormpower.DormPowerFakeUpstream
-import com.xjtu.toolbox.dormpower.DormPowerStore
-import com.xjtu.toolbox.dormpower.DormRoom
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
 import com.xjtu.toolbox.attendance.WaterType
@@ -1287,62 +1283,6 @@ class DesktopAuthLibraryJvmTest {
             "加餐券该在「真能用」那一栏里",
         )
     }
-
-    // ══════ 宿舍电费（ssn.xjtu.edu.cn）：自己走开放平台那条链 ══════
-
-    @Test
-    fun `真登录之后：ssn 自己走完开放平台链，缴费页入口与电量读出夹具样本`() = withFakeCampus {
-        val (auth, _) = newAuth()
-        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
-
-        // 登录页那一步只是「尽力预热」，这里显式确保一次（这正是 `DesktopSiteGate` 干的事）
-        runBlocking { auth.ensureSession(DesktopAuth.SSN_SITE_KEY) }
-        val site = auth.sessionManager.getSite(DesktopAuth.SSN_SITE_KEY)
-        assertTrue(site.hasLogin, "ssn 应当在假上游上登得上")
-        assertEquals(
-            DormPowerFakeUpstream.CID,
-            site.localToken["cid"],
-            "cid 来自缴费页 HTML（SsnSession.onLoginSuccess 那两行）",
-        )
-
-        // 桌面端取数走的就是 `:data` 的 `DormPowerApi`（实现 `:core` 的 `DormPowerSource` 端口）
-        val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
-        keyValueStore("dorm_power$suffix").clear()
-        val api = DormPowerApi(site)
-        assertEquals(
-            "https://${DormPowerFakeUpstream.HOST}${DormPowerFakeUpstream.PAY_PATH}?code=${DormPowerFakeUpstream.OAUTH_CODE}",
-            runBlocking { api.freshPayUrl() },
-            "缴费页入口 = OAuth 回调带 code 的那一跳（http→https）",
-        )
-        assertTrue(DormPowerStore.isUsed(), "拿到地址之后要记「进过宿舍电费页」")
-        assertTrue(fake.dormPower.oauthLandings.get() > 0, "开放平台那一跳应当真被打到")
-
-        // 路由那一行：这条也进了「真能用」
-        assertTrue(
-            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.DormPower },
-            "宿舍电费该在「真能用」那一栏里",
-        )
-    }
-
-    @Test
-    fun `真登录之后：宿舍列表与电量按夹具字段读出，查完写回本机`() = withFakeCampus {
-        val (auth, _) = newAuth()
-        assertTrue(login(auth))
-        runBlocking { auth.ensureSession(DesktopAuth.SSN_SITE_KEY) }
-        val site = auth.sessionManager.getSite(DesktopAuth.SSN_SITE_KEY)
-        val api = DormPowerApi(site)
-
-        val rooms = runBlocking { api.rooms() }
-        assertEquals(listOf(DormRoom(DormPowerFakeUpstream.ROOM_ID, DormPowerFakeUpstream.ROOM_NAME)), rooms)
-        assertEquals(DormPowerFakeUpstream.CID, fake.dormPower.lastListCid, "列表请求要带会话里的 cid")
-        assertEquals(DormPowerFakeUpstream.KWH, runBlocking { api.kwh(rooms.single().id) } ?: 0.0, 1e-9)
-        assertEquals(DormPowerFakeUpstream.ROOM_ID, fake.dormPower.lastKwhRoomId)
-
-        val readings = runBlocking { DormPowerStore.refresh(api) }
-        assertEquals(1, readings.size, "夹具里只有一间宿舍")
-        assertEquals(readings, DormPowerStore.readings(), "写回本机后原样读得出来")
-    }
-
 
     // ══════ 考勤（bk-kq.xjtu.edu.cn）：自己走直连业务站那条链 ══════
 

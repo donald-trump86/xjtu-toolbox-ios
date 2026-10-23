@@ -74,7 +74,7 @@ class Jiaocai1ReaderViewModel(
             try {
                 val h = source.openBook(id)
                 if (h == null || h.pages.isEmpty()) {
-                    error = "这本书暂时打不开，可能没有开放全文，或阅读令牌已过期。"
+                    error = "暂时无法阅读，请稍后重试。"
                 } else {
                     if (restoreShelf) restoreShelfRow(h) else keepPage(h)
                     handle = h

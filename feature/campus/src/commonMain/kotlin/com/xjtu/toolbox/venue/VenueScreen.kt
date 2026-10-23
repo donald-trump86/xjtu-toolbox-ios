@@ -42,7 +42,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.ui.components.MorphingLoader
+import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
@@ -118,7 +118,7 @@ fun VenueScreen(
 
     // 本地再记一份「读过了」：传进来的 showFirstUseHint 是组合那一刻的快照（宿主那份存储不是 State，
     // 用户点掉后它不会自己变），所以「切走了再切回来要不要再弹」以本地这份为准。
-    var showHint by remember { mutableStateOf(!showFirstUseHint) }
+    var showHint by remember { mutableStateOf(showFirstUseHint) }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showBookingConfirm by remember { mutableStateOf(false) }
@@ -138,6 +138,14 @@ fun VenueScreen(
         selectedTab = index
         if (index == 1) vm.loadOrdersOnce()
     }
+    val navigateBack: () -> Unit = {
+        when {
+            selectedTab == 1 -> selectedTab = 0
+            vm.page == VenuePage.SlotSelection -> vm.closeVenue()
+            else -> onBack()
+        }
+    }
+    BackHandler(enabled = selectedTab == 1 || vm.page == VenuePage.SlotSelection, onBack = navigateBack)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -152,20 +160,7 @@ fun VenueScreen(
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (selectedTab == 1) {
-                            selectedTab = 0
-                        } else {
-                            when (vm.page) {
-                                VenuePage.VenueList -> onBack()
-                                VenuePage.SlotSelection -> vm.closeVenue()
-                            }
-                        }
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+                navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(navigateBack) },
                 // 分段标签、选日期这些不滚动的头部挂在顶栏里，和顶栏一起做一整块玻璃，
                 // 列表从它们下面滚过去（压在玻璃后面的是列表，不是这几行按钮）
                 bottomContent = {
@@ -408,23 +403,10 @@ fun VenueScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     when {
-                        vm.bookingInProgress -> {
-                            Spacer(Modifier.height(32.dp))
-                            MorphingLoader()  // 整页加载统一用形变加载器
-                            Spacer(Modifier.height(8.dp))
-                            Text("正在预订...", style = MiuixTheme.textStyles.body2)
-                            Spacer(Modifier.height(32.dp))
-                        }
-                        vm.captchaLoading -> {
-                            Spacer(Modifier.height(32.dp))
-                            MorphingLoader()  // 整页加载统一用形变加载器
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                if (vm.captchaAutoSolving) "正在自动识别验证码..." else "加载验证码...",
-                                style = MiuixTheme.textStyles.body2
-                            )
-                            Spacer(Modifier.height(32.dp))
-                        }
+                        vm.bookingInProgress || vm.bookingSubmitted -> LoadingState("正在预订…")
+                        vm.captchaLoading -> LoadingState(
+                            if (vm.captchaAutoSolving) "正在自动识别验证码…" else "加载验证码…",
+                        )
                         vm.captchaError != null -> {
                             Text(vm.captchaError!!, color = MiuixTheme.colorScheme.error)
                             Spacer(Modifier.height(12.dp))
@@ -465,12 +447,7 @@ fun VenueScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (result.success) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MiuixTheme.colorScheme.primary
-                        )
+                        com.xjtu.toolbox.ui.components.DrawCheckmark(size = 56.dp)
                         Text(result.message, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                         if (result.orderId != null) {
                             Text("订单号: ${result.orderId}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -714,7 +691,7 @@ private fun VenueListContent(
         modifier = modifier.fillMaxSize(),
     ) {
     when {
-        isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) }
+        isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { SkeletonList(Modifier.fillMaxSize(), rowHeight = 112.dp) }
         error != null && venues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
         sortedVenues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) }
         // 宽屏场馆卡分两三列（见 AdaptiveCardGrid）

@@ -22,6 +22,11 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.TileMode
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.vibrancy
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -64,6 +69,8 @@ internal fun AgentComposer(
     visionEnabled: Boolean = false,
     onPickImage: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
+    /** 玻璃模式下的采样源：聊天内容层。null 时退回原来的实底输入框。 */
+    backdrop: Backdrop? = null,
 ) {
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !contextExhausted
@@ -99,18 +106,22 @@ internal fun AgentComposer(
     // 没做 consumeWindowInsets，所以这里在屁岱自己的子树里补一次声明（见 body 的调用处），
     // 消费链建立后下面这一行就成立了。作用域只在屁岱内，不影响其它 tab。
     //
-    // union 取各边最大值、add 取和，于是：
-    // - 键盘弹起：ime 远大于 nav+reserve，取 ime（reserve 此时被键盘盖住，本就不该再让）
-    // - 键盘收起：取 nav + 悬浮胶囊底栏的预留高度
-    // 全程由同一个表达式给出，没有分支，也就没有收键盘时"先掉到底再跳回来"的跳变。
-    val bottomInsets = WindowInsets.ime.union(
-        WindowInsets.navigationBars.add(WindowInsets(bottom = bottomReserve))
-    )
+    // 悬浮底栏的 bottomBarReserve 已经把系统导航条算进去了，不能再叠 navigationBars，
+    // 否则输入框会多让一条导航条（实测多出 24dp）。只有 reserve = 0 的经典 / 侧栏形态
+    // 才由这里自己让导航条。
+    //
+    // union 取各边最大值：键盘弹起时 ime 远大于 reserve，取 ime；键盘收起时取 reserve，
+    // 全程同一个表达式，没有收键盘时"先掉到底再跳回来"的跳变。
+    val restingInsets = if (bottomReserve > 0.dp) {
+        WindowInsets(bottom = bottomReserve)
+    } else {
+        WindowInsets.navigationBars
+    }
+    val bottomInsets = WindowInsets.ime.union(restingInsets)
 
     Column(
         Modifier
             .fillMaxWidth()
-            .background(MiuixTheme.colorScheme.surface)
             .windowInsetsPadding(bottomInsets)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
@@ -147,11 +158,33 @@ internal fun AgentComposer(
                 }
             }
         }
+        val pillTint = MiuixTheme.colorScheme.surfaceVariant
+        val pillSurface = remember(backdrop, pillTint) {
+            if (backdrop != null) {
+                Modifier.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedCornerShape(24.dp) },
+                    effects = {
+                        padding = maxOf(padding, 24.dp.toPx())
+                        vibrancy()
+                        blur(18.dp.toPx(), TileMode.Decal)
+                    },
+                    highlight = null,
+                    shadow = null,
+                    // 采样层只有聊天内容、没有页面底色，先垫一层实底，模糊后的内容再透上来。
+                    onDrawBehind = { drawRect(pillTint.copy(alpha = 1f)) },
+                    onDrawSurface = { drawRect(pillTint.copy(alpha = 0.55f)) },
+                )
+            } else {
+                Modifier
+            }
+        }
         Row(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
-                .background(MiuixTheme.colorScheme.surfaceVariant)
+                .then(pillSurface)
+                .then(if (backdrop == null) Modifier.background(pillTint) else Modifier)
                 .border(1.dp, borderColor, RoundedCornerShape(24.dp))
                 .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
@@ -215,17 +248,20 @@ internal fun AgentComposer(
                     )
                 }
             }
+            if (isLoading && canSend) IconButton(onClick = onStop, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Stop, contentDescription = "停止生成", modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
             Box(
                 Modifier
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(sendBg)
-                    .clickable(enabled = actionEnabled) { if (isLoading) onStop() else onSend() },
+                    .clickable(enabled = actionEnabled) { if (canSend) onSend() else if (isLoading) onStop() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    if (isLoading) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
-                    contentDescription = if (isLoading) "停止" else "发送",
+                    if (isLoading && !canSend) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+                    contentDescription = if (isLoading && !canSend) "停止" else if (isLoading) "插话并发送" else "发送",
                     tint = if (actionEnabled) MiuixTheme.colorScheme.onPrimary
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(18.dp),

@@ -307,10 +307,15 @@ private fun rememberInline(
     errorColor: Color,
     onLink: (String) -> Unit,
 ): AnnotatedString = remember(s, linkColor, codeBg, errorColor, onLink) {
-    inline(s, linkColor, codeBg, errorColor, onLink)
+    inlineMarkdown(s, linkColor, codeBg, errorColor, onLink)
 }
 
-private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color, onLink: (String) -> Unit): AnnotatedString = buildAnnotatedString {
+internal fun inlineMarkdown(
+    s: String, linkColor: Color, codeBg: Color, errorColor: Color, onLink: (String) -> Unit,
+    depth: Int = 0,
+): AnnotatedString = buildAnnotatedString {
+    if (depth >= 16) { append(s); return@buildAnnotatedString }
+    fun nested(text: String) = inlineMarkdown(text, linkColor, codeBg, errorColor, onLink, depth + 1)
     var last = 0
     for (m in inlineRe.findAll(s)) {
         if (m.range.first > last) append(s.substring(last, m.range.first))
@@ -328,12 +333,12 @@ private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color
             }
             g[11].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(TexLite.toUnicode(g[11])) }
             g[12].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(TexLite.toUnicode(g[12])) }
-            g[3].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { append(g[3]) }
-            g[4].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[4]) }
-            g[5].isNotEmpty() -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(g[5]) }
+            g[3].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { append(nested(g[3])) }
+            g[4].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(nested(g[4])) }
+            g[5].isNotEmpty() -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(nested(g[5])) }
             g[6].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg)) { append(" ${g[6]} ") }
-            g[7].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[7]) }
-            g[8].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[8]) }
+            g[7].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(nested(g[7])) }
+            g[8].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(nested(g[8])) }
             g[9].isNotEmpty() -> {
                 val url = g[10]
                 if (!isSafeLinkScheme(url)) {

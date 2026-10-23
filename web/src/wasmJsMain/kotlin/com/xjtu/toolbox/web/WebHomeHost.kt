@@ -88,7 +88,6 @@ internal fun WebHomeScreen(
         host = WebHomeHost(
             state = state,
             inboxSummary = inbox,
-            theme = settings.homeTheme,
             // 「今天」每次重组现取：跨零点还开着的页面，日期那一行自己就跟上了
             today = { todayOnCampus() },
             onNavigate = onNavigate,
@@ -123,7 +122,6 @@ internal class WebHomeState {
 internal class WebHomeHost(
     private val state: WebHomeState,
     private val inboxSummary: HomeInboxSummary?,
-    theme: String,
     private val today: () -> LocalDate,
     private val onNavigate: (WebTarget) -> Unit,
 ) : HomeHost {
@@ -150,8 +148,6 @@ internal class WebHomeHost(
     /** 目录按本科生那一份筛。 */
     override val audience: AccountType = AccountType.UNDERGRADUATE
 
-    /** 首页两套布局（卡片 / 图标主题）：读本端落盘那份（见 [WebHomeScreen] 文件头第 2 条）。 */
-    override val homeTheme: String = theme
 
     /** 问候里不写名字：本端没有账号与昵称这回事（`:app` 那一位来自登录态）。 */
     override val greetingName: String = ""
@@ -175,7 +171,7 @@ internal class WebHomeHost(
             )
             else -> HomeNextUp(
                 icon = HomeHero.EMPTY_ICON,
-                title = "接下来两周都没课",
+                title = HomeHero.NOTHING_TITLE,
                 detail = "点这里看整学期",
                 route = AppRoute.Schedule,
             )

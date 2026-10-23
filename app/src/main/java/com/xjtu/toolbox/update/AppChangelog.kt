@@ -34,22 +34,35 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.2.1" to VersionChangelog(
+            items = listOf(
+                "🪶" to "少则得，多则惑。",
+                "🖼️" to "社区插图改为粘贴图片链接，不再需要配置自己的图片仓库；帖子里的图片加载时不再抖动",
+                "🎨" to "筛选胶囊、选中底色全部跟随主题色，胶囊换了新样子；搜索页去掉发脏的模糊底；首页改用默认字体",
+                "🧭" to "屁岱认得各页里的功能，比如干饭人账单；全局搜索也能直接搜到",
+                "📳" to "关掉触感反馈后不再震动",
+                "🗓️" to "屁岱排的安排能一键加进日程或待办，该进哪边它自己分",
+                "🔔" to "首页铃铛红点不再被边框压住；消息里点开过的待办，返回后红点立即熄灭",
+            )
+        ),
         "5.2.0" to VersionChangelog(
             items = listOf(
                 "🪶" to "致广大而尽精微。",
-                "🧠" to "屁岱进到各页：通知精选、图书馆荐座、今天吃啥、排日程、思源待办、学辅找资料",
+                "🧠" to "屁岱进到各页：通知精选、图书馆荐座、今天吃啥、排日程、思源待办、学辅找资料，每张都能单独关",
                 "🗺️" to "新增校园地图：屁岱会算楼间步行时间、按定位找附近，回答里直接出简图",
                 "📄" to "屁岱能读 PDF、课件和图片，学辅资料和思源附件还能直接下载",
+                "🔌" to "屁岱能接远程 MCP 工具，每次调用前都先问你",
                 "🌐" to "联网搜索改用 DeepSeek 官方搜索，跟进 V4.1-Flash 新模型",
                 "⏰" to "屁岱早报、明日预告和定时任务，结果进消息收纳",
-                "🏠" to "首页改杂志版式，新增「干饭人账单」",
+                "🏠" to "首页改杂志版式，新增「干饭人账单」，「下一项」也会提醒快截止的待办；常用功能和底栏都能自己排",
+                "🎨" to "可自定义主题色，首页头卡随主题色和时间流动",
                 "🔥" to "图书馆座位热力图：按片看拥挤，好坐的空座一眼找到",
                 "📚" to "思源学堂新增公告、讨论区，学期筛选更顺手；新增自建待办与到点提醒",
-                "🏆" to "小游戏全服排行榜上线",
-                "🩹" to "修复一堆问题：时间按北京时间、成绩小数、下载误报已删除等",
+                "🏆" to "小游戏全服排行榜上线，社区发帖能插图",
+                "🧹" to "宿舍电费下线；屁岱角色精简为 3 个，选过咕、噗的会换回经典屁岱",
+                "🩹" to "修复一堆问题：时间按北京时间、成绩小数、下载误报已删除、社区返回跳回顶部等；更新包下载后校验完整性",
             ),
             issues = listOf(
-                "校园地图标注不全（创新港巨构、部分教学楼和图书馆位置还没标），屁岱算路线、找附近可能不准",
                 "图书馆荐座刚上线，平面图识别还不稳，挑的座位仅供参考"
             )
         ),
@@ -628,42 +641,34 @@ object AppChangelog {
 
     /** 当前版本对应的 changelog（找不到时返回 null）。 */
     val current: VersionChangelog?
-        get() {
-            val base = BuildConfig.VERSION_NAME.substringBefore('-')
-            return ENTRIES.firstOrNull { it.first == BuildConfig.VERSION_NAME || it.first == base }?.second
-        }
+        get() = ENTRIES.firstOrNull { it.first == core(BuildConfig.VERSION_NAME) }?.second
+
+    /** 上次看过 [lastSeen] 之后、到当前版本为止的新条目（最新在前）。 */
+    fun since(lastSeen: String?): List<Pair<String, VersionChangelog>> =
+        since(lastSeen, BuildConfig.VERSION_NAME, ENTRIES)
 
     /**
-     * 返回 `(lastSeen, current]` 区间内的所有 changelog 条目（最新在前）。
-     * 若 lastSeen 为 null 或大于等于 current，则返回空列表。
+     * `(lastSeen, current]` 区间内的条目，按完整版本号比较。开发版不单独写条目，它的那一条往往要到发正式版才写全，
+     * 所以 `5.2.0-dev.N` 算在 `5.2.0` 之前：升到 dev 不弹，等升到正式版再弹完整的一条。
+     * [lastSeen] 为 null（全新安装）只给当前那一条。
      */
-    fun since(lastSeen: String?): List<Pair<String, VersionChangelog>> {
-        val current = BuildConfig.VERSION_NAME
-        if (lastSeen == current) return emptyList()
-        if (lastSeen == null) {
-            val base = current.substringBefore('-')
-            return ENTRIES.firstOrNull { it.first == current || it.first == base }?.let(::listOf).orEmpty()
+    internal fun since(
+        lastSeen: String?,
+        current: String,
+        entries: List<Pair<String, VersionChangelog>>,
+    ): List<Pair<String, VersionChangelog>> {
+        if (lastSeen == null) return entries.filter { it.first == core(current) }
+        return entries.filter { (ver, _) ->
+            BulletinRules.compareVersions(ver, current) <= 0 && BulletinRules.compareVersions(ver, lastSeen) > 0
         }
-        // ENTRIES 已按版本号倒序，截取从最前到 lastSeen（不含）的部分
-        val result = mutableListOf<Pair<String, VersionChangelog>>()
-        for ((ver, log) in ENTRIES) {
-            // 跳过比 current 还新的版本（一般不会出现，防御性）
-            if (compareVersions(ver, current) > 0) continue
-            // 遇到 lastSeen 停止（不包含 lastSeen 自己）
-            if (lastSeen != null && compareVersions(ver, lastSeen) <= 0) break
-            result += ver to log
-        }
-        return result
     }
 
-    /** 编译期/启动校验：当前 versionName 必须存在条目（预览版匹配基础版本号）。 */
+    private fun core(version: String) = version.substringBefore('-')
+
+    /** 启动校验：当前 versionName 必须有条目（预览版匹配核心版本号）。 */
     init {
-        val base = BuildConfig.VERSION_NAME.substringBefore('-')
-        require(ENTRIES.any { it.first == BuildConfig.VERSION_NAME || it.first == base }) {
+        require(current != null) {
             "⚠️ 版本 ${BuildConfig.VERSION_NAME} 没有对应的更新日志！请在 AppChangelog.ENTRIES 顶部追加条目。"
         }
     }
-
-    private fun compareVersions(a: String, b: String): Int =
-        BulletinRules.compareVersions(a, b)
 }

@@ -432,8 +432,8 @@ private fun StreamList(
         isEmpty = streams.isEmpty(),
         empty = {
             EmptyState(
-                title = if (supported) "暂无打卡流水" else "本端拿不到打卡原始流水",
-                subtitle = if (supported) "" else "服务端契约（docs/api-contract.md §5.5）没有 getStreams 的端点",
+                title = if (supported) "暂无打卡流水" else "暂不支持查看打卡流水",
+                subtitle = if (supported) "" else "请使用 App 或桌面版查看。",
                 modifier = it,
             )
         },
@@ -489,7 +489,7 @@ private fun StatList(
         empty = {
             EmptyState(
                 title = if (supported) "暂无课程考勤统计数据" else "本端拿不到课程考勤统计",
-                subtitle = if (supported) "" else "服务端契约（§5.5）没有统计端点（getKqtjCurrentWeek / computeCourseStatsFromRecords）",
+                subtitle = if (supported) "" else "请使用 App 或桌面版查看出勤统计。",
                 modifier = it,
             )
         },
@@ -543,7 +543,7 @@ private fun LeaveList(
                 subtitle = if (supported) {
                     "点右上角加号提交病假或私事假申请"
                 } else {
-                    "请假 / 销假是写路径，服务端契约（§5.5）一律不端 ⇒ 那一栏与右上角加号都不画"
+                    "当前版本暂不支持请假和销假，请使用 App 或桌面版。"
                 },
                 modifier = it,
             )

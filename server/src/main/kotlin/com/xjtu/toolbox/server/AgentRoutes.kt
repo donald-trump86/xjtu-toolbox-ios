@@ -248,9 +248,7 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
         post(AGENT_STOP) {
             val body = call.receiveOrNull<AgentStopBody>()
             val asked = body?.sessionId?.trim().orEmpty()
-            val stopped = agent.stop()
-            val running = agent.runningSession()
-            val target = if (asked.isEmpty() || asked == running) stopped else false
+            val target = agent.stopAndWait(asked)
             call.respond(
                 ApiEnvelope.ok(
                     AgentOkData(

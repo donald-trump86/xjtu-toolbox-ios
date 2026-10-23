@@ -23,6 +23,17 @@ internal class TranscriptViewModel(
     var isLoading by mutableStateOf(true); private set
     var errorMessage by mutableStateOf<String?>(null); private set
     var formContext by mutableStateOf<FormContext?>(null); private set
+    var selectedType by mutableStateOf<Int?>(null); private set
+
+    fun selectType(value: Int) {
+        if (workflowState == WorkflowState.RUNNING) return
+        if (formContext?.typeOptions?.none { it.value == value && !it.cancelled } != false) return
+        selectedType = value
+        workflowState = WorkflowState.IDLE
+        workflowProgress = ""
+        downloadInfo = null
+        pdfBytes = null
+    }
 
     var workflowState by mutableStateOf(WorkflowState.IDLE); private set
     var workflowProgress by mutableStateOf(""); private set
@@ -41,6 +52,8 @@ internal class TranscriptViewModel(
         viewModelScope.launch {
             try {
                 formContext = source.loadCreateForm(workflowId)
+                val options = formContext!!.typeOptions.filterNot { it.cancelled }
+                selectedType = options.firstOrNull { it.value == selectedType }?.value ?: options.firstOrNull()?.value
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -54,8 +67,7 @@ internal class TranscriptViewModel(
 
     fun start() {
         val ctx = formContext ?: return
-        // 只能下本科生成绩单，且换到别的类型学校会直接报错，网页也不让选：一律用表单第一项
-        val type = ctx.typeOptions.firstOrNull()?.value ?: return
+        val type = selectedType?.takeIf { value -> ctx.typeOptions.any { it.value == value && !it.cancelled } } ?: return
         if (workflowState == WorkflowState.RUNNING) return
         workflowState = WorkflowState.RUNNING
         viewModelScope.launch {
@@ -77,6 +89,7 @@ internal class TranscriptViewModel(
                 throw e
             } catch (e: Exception) {
                 if (e is SessionExpiredFailure) {
+                    workflowState = WorkflowState.IDLE
                     authExpiredChannel.send(Unit)
                 } else {
                     workflowState = WorkflowState.ERROR

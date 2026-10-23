@@ -46,7 +46,8 @@ class AgentInsightEngine(
         val obj = runCatching { AppJson.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         val at = obj["at"]?.jsonPrimitive?.longOrNull ?: return null
         val json = obj["out"] as? JsonObject ?: return null
-        return InsightOutcome.Ok(json, at, cached = true)
+        val log = runCatching { obj["tools"]?.jsonPrimitive?.content }.getOrNull().orEmpty()
+        return InsightOutcome.Ok(json, at, cached = true, toolLog = log)
     }
 
     override suspend fun run(spec: InsightSpec, input: String, force: Boolean, onProgress: (String) -> Unit): InsightOutcome {
@@ -56,13 +57,15 @@ class AgentInsightEngine(
             val now = Clock.System.now().toEpochMilliseconds()
             cached(spec, input)?.takeIf { !force && now - it.at < spec.ttlMs }?.let { return@withLock it }
             try {
-                val json = withContext(host.io) { generate(spec, input, config, onProgress) }
+                val log = StringBuilder()
+                val json = withContext(host.io) { generate(spec, input, config, log, onProgress) }
                     ?: return@withLock InsightOutcome.Failed("屁岱没给出能用的结果")
                 store.putString(cacheKey(spec, input), buildJsonObject {
                     put("at", now)
                     put("out", json)
+                    if (log.isNotEmpty()) put("tools", log.toString())
                 }.toString())
-                InsightOutcome.Ok(json, now, cached = false)
+                InsightOutcome.Ok(json, now, cached = false, toolLog = log.toString())
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -73,9 +76,15 @@ class AgentInsightEngine(
 
     override fun ask(prompt: String, snapshot: String?) = onAsk(prompt, snapshot)
 
-    private suspend fun generate(spec: InsightSpec, input: String, config: AgentConfig, onProgress: (String) -> Unit): JsonObject? {
+    private suspend fun generate(
+        spec: InsightSpec,
+        input: String,
+        config: AgentConfig,
+        log: StringBuilder,
+        onProgress: (String) -> Unit,
+    ): JsonObject? {
         val all = host.tools(config)
-        val tools = FilteredAgentTools(all, spec.tools)
+        val tools = FilteredAgentTools(all, spec.tools, log)
         val system = AgentPrompt.build(
             assistantName = config.effectiveName,
             userContext = all.userContext(allowNetwork = true),
@@ -111,7 +120,7 @@ class AgentInsightEngine(
 
         private val INSIGHT_RULES = """
 这次不是聊天：你在 App 的某个页面里给用户写一块卡片。只输出一个 JSON 对象，不要 Markdown 代码块，不要 JSON 以外的任何文字。
-卡片里的话要短，像朋友顺口一提；数据以给你的内容和工具结果为准，没有的不要编。
+文案简短、平实、客观。先说明结果，必要时给出下一步；避免套话、夸张语气、重复解释和实现细节。数据以给定内容和工具结果为准，缺失信息保持未知。
         """.trimIndent()
     }
 }
@@ -124,8 +133,15 @@ fun parseInsightJson(reply: String): JsonObject? {
     return runCatching { AppJson.parseToJsonElement(reply.substring(start, end + 1)).jsonObject }.getOrNull()
 }
 
-/** 只把 [allow] 里的工具交给模型；卡片画不了数据卡，工具顺手产出的控件一律丢掉。 */
-private class FilteredAgentTools(private val inner: AgentTools, private val allow: Set<String>) : AgentTools {
+/**
+ * 只把 [allow] 里的工具交给模型；卡片画不了数据卡，runner 收下的控件不用。
+ * 每次调用和结果记进 [log]（每条、总长都截断），给「接着问屁岱」用。
+ */
+private class FilteredAgentTools(
+    private val inner: AgentTools,
+    private val allow: Set<String>,
+    private val log: StringBuilder,
+) : AgentTools {
     override val toolDefinitions: String = runCatching {
         JsonArray(
             (AppJson.parseToJsonElement(inner.toolDefinitions) as JsonArray).filter { el ->
@@ -138,7 +154,20 @@ private class FilteredAgentTools(private val inner: AgentTools, private val allo
 
     override fun drainImages(): List<String> = inner.drainImages()
 
-    override suspend fun execute(name: String, argsJson: String): String =
-        if (name in allow) inner.execute(name, argsJson).also { inner.drainWidgets() }
-        else ToolReply.notFound("tool", name)
+    override fun drainWidgets(): List<AgentWidget> = inner.drainWidgets()
+
+    override suspend fun execute(name: String, argsJson: String): String {
+        if (name !in allow) return ToolReply.notFound("tool", name)
+        val result = inner.execute(name, argsJson)
+        if (log.length < LOG_MAX) {
+            log.append("- ").append(name).append(' ').append(argsJson.ifBlank { "{}" }).append('\n')
+            log.append(result.take(LOG_PER_CALL).trim()).append("\n\n")
+        }
+        return result
+    }
+
+    private companion object {
+        const val LOG_PER_CALL = 3000
+        const val LOG_MAX = 9000
+    }
 }

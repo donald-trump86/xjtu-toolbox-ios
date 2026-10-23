@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -22,48 +22,40 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 杂志风排版。中文标题用宋体：[FontFamily.Serif] 在安卓上中文落到系统自带的思源宋体（Noto Serif CJK），桌面 / Web 落到各自系统的衬线字体，
- * 不用另外打包字体；系统没有宋体时自动退回黑体，不会缺字。西文和数字同样走衬线，和宋体一个气质。
- *
- * 只给大标题、刊头、期号、大号数字用。正文和说明照旧用无衬线：手机上十几号的宋体横细竖粗，
- * 细横会发虚，读起来累。
- */
+/** 杂志风排版的字号与字距，字体用系统默认。只给大标题、刊头、期号、大号数字用。 */
 object Editorial {
-    val Serif: FontFamily = FontFamily.Serif
-
     /** 刊头大字，如问候语。 */
-    val masthead = TextStyle(fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = 0.5.sp)
+    val masthead = TextStyle(fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = 0.5.sp)
 
     /** 头条：首页的下一节课、海报的主数字说明。 */
-    val headline = TextStyle(fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 27.sp, letterSpacing = 0.3.sp)
+    val headline = TextStyle(fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 27.sp, letterSpacing = 0.3.sp)
 
     /** 栏目标题，如「01 上课」里的「上课」。 */
-    val section = TextStyle(fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 24.sp, letterSpacing = 1.5.sp)
+    val section = TextStyle(fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 24.sp, letterSpacing = 1.5.sp)
 
-    /** 大号数字：衬线数字比黑体数字更像刊物上的数据。 */
-    val figure = TextStyle(fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp, fontFeatureSettings = "lnum")
+    /** 大号数字，等高数字对齐。 */
+    val figure = TextStyle(fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp, fontFeatureSettings = "lnum")
 
     /** 期号、栏目序号这类西文小字：大写、拉开字距。 */
-    val kicker = TextStyle(fontFamily = Serif, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 2.sp)
+    val kicker = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 2.sp)
 
     /** 发丝线：分区靠线和留白，不靠框。 */
     val hairline: Dp = 0.6.dp
 }
 
-/** 一道发丝线，颜色取描边色的淡版，深浅色下都只是轻轻一划。 */
+/** 一道发丝线，颜色取描边色的淡版，深浅色下都只是轻轻一划；深色卡面上传 [color] 换成白线。 */
 @Composable
-fun EditorialRule(modifier: Modifier = Modifier) {
+fun EditorialRule(modifier: Modifier = Modifier, color: Color? = null) {
     Box(
         modifier
             .fillMaxWidth()
             .height(Editorial.hairline)
-            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
+            .background(color ?: MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
     )
 }
 
 /**
- * 栏目标题：左边两位序号（西文衬线、主题色），中间宋体栏目名，右边一句说明，底下一道发丝线。
+ * 栏目标题：左边两位序号（主题色），中间栏目名，右边一句说明，底下一道发丝线。
  * 序号补零写成「01」，和刊物目录一个样子。
  */
 @Composable

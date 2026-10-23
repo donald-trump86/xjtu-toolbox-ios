@@ -321,9 +321,7 @@ fun LmsScreen(
             // 带着 courseId 进来时先显示占位：课程列表要等接口回来才能匹配到那门课，
             // 这中间把列表画出来，用户看到的就是"闪一下列表又跳走"。
             is LmsPage.CourseList -> if (listPlaceholder) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
-                }
+                com.xjtu.toolbox.ui.components.LoadingState(message = null, modifier = Modifier.fillMaxSize())
             } else {
                 CourseListPage(
                     source = source,
@@ -469,15 +467,9 @@ private fun LmsVideoUnavailable(request: VideoPlayRequest, onBack: () -> Unit) {
     ) {
         Text(request.title, color = MiuixTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(
-            "这一端没有视频播放器，播不了直播与回放。",
+            "当前版本暂不支持播放，请在思源学堂观看。",
             color = MiuixTheme.colorScheme.error,
             fontSize = 13.sp,
-        )
-        Text(
-            "播放器是 Android 专属组件（ExoPlayer 全屏页），还没收成共享端口 —— TODO：桌面播放器" +
-                "属《桌面端移植方案》§5.4 的宿主能力族，这一轮只降级不假装。",
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            fontSize = 12.sp,
         )
         TextButton(text = "返回", onClick = onBack, minWidth = 120.dp)
     }

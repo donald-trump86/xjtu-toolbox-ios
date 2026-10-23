@@ -56,7 +56,6 @@ fun Application.serveModule(
             dzpzRoutes(session)
             attendanceRoutes(session)
             couponRoutes(session)
-            dormRoutes(session)
 
             // 第二批**只读域**（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到，契约 §5.6）：
             // 与上一批同一条做法 —— `:data` 里早有取数实现（桌面端直连在用），这里只是端出去。

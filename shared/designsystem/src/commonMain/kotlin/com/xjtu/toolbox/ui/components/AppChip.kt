@@ -1,31 +1,31 @@
 package com.xjtu.toolbox.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 /**
- * MIUI 风格 FilterChip —— 互斥单选用的胶囊。
+ * 互斥单选用的胶囊，和屁岱卡片里的胶囊同一套样子。
  *
- * 视觉上对齐 miuix `TabRow` 的语言，而不是自己另造一套：
- * - 选中态用 `tertiaryContainer` / `onTertiaryContainer` 这对语义色（浅色下是淡蓝底 + 主题蓝字，
- *   深色下是深蓝底 + 亮蓝字），由主题保证对比度，不再用 `primary.copy(alpha)` 手工调透明度
- *   ——后者在深色背景上会糊成一团。
- * - 未选中态给一圈 `outline` 描边而非填色块，和 `TabRow` 的 `TabItem` 一致；这样一排胶囊在
- *   任何背景色上都立得住，不依赖父容器恰好是 surfaceVariant。
- * - 圆角走 squircle，尺寸与 miuix 控件同一梯度；按压用 SinkFeedback。
+ * 选中是主题色实底：自定义主题色走 Monet，tertiary 是种子转过色相的「第三色」，不跟主题色，不能用。
+ * 未选中是一层浅的前景色，白卡片和灰页面上都看得出，不用描边。
  */
 @Composable
 fun AppFilterChip(
@@ -35,29 +35,23 @@ fun AppFilterChip(
     modifier: Modifier = Modifier,
     leadingIcon: @Composable (() -> Unit)? = null
 ) {
-    val bgColor = if (selected) MiuixTheme.colorScheme.tertiaryContainer else Color.Transparent
-    val textColor =
-        if (selected) MiuixTheme.colorScheme.onTertiaryContainer
-        else MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val outlineColor = MiuixTheme.colorScheme.outline
-    val cornerRadius = 11.dp
+    val cs = MiuixTheme.colorScheme
+    val bgColor by animateColorAsState(if (selected) cs.primary else cs.onSurface.copy(alpha = 0.06f), tween(180), label = "chipBg")
+    val textColor by animateColorAsState(if (selected) cs.onPrimary else cs.onSurfaceVariantActions, tween(180), label = "chipFg")
 
     Box(
         modifier = modifier
-            .squircleSurface(color = bgColor, cornerRadius = cornerRadius)
-            // 未选中时用描边勾轮廓，选中时靠底色，二者不叠加
-            .squircleBorder(
-                width = { if (selected) 0.dp else 1.dp },
-                color = { outlineColor },
-                cornerRadius = cornerRadius
-            )
+            .height(32.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(bgColor)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback()
             ) { onClick() },
+        contentAlignment = Alignment.Center,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
@@ -68,8 +62,11 @@ fun AppFilterChip(
             Text(
                 label,
                 style = MiuixTheme.textStyles.body2,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = textColor
+                // 字重不随选中变：变粗会改宽度，一排胶囊跟着跳
+                fontWeight = FontWeight.Medium,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

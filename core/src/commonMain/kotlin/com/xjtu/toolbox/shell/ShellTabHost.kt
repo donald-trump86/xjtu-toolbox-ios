@@ -34,12 +34,13 @@ fun ShellTabHost(
     nav: ShellNavState,
     pageHost: ShellPageHost = ShellPageHost.VISITED_TABS,
     modifier: Modifier = Modifier,
-    tabModifier: () -> Modifier = { Modifier },
+    tabModifier: (ShellTab?) -> Modifier = { Modifier },
     content: @Composable (ShellPage) -> Unit,
 ) {
     // 只有当前这一页：不常驻、不横移（横移缩放只对「同层的几格」成立）
     if (!nav.keepsVisitedTabPages(pageHost)) {
-        Box(modifier.fillMaxSize().then(tabModifier())) { content(nav.currentShellPage()) }
+        val page = nav.currentShellPage()
+        Box(modifier.fillMaxSize().then(tabModifier(page.tab))) { content(page) }
         return
     }
 
@@ -85,7 +86,7 @@ fun ShellTabHost(
                         .fillMaxSize()
                         // 隐藏的 tab 冻结测量约束，侧栏动画时不跟着逐帧重排
                         .freezeLayoutWhile { !isActive && tabAlpha == 0f }
-                        .then(tabModifier())
+                        .then(tabModifier(tab))
                         .zIndex(if (isActive) 1f else 0f)
                         .graphicsLayer {
                             alpha = tabAlpha

@@ -430,7 +430,7 @@ private fun OverviewTab(
                 Box(Modifier.enterOnce(1)) {
                     val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
                     com.xjtu.toolbox.ui.components.SecondaryEntry(
-                        Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.legacyColor(AppRoute.Coupon.id),
+                        Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.serviceColor(AppRoute.Coupon.id),
                         "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
                         status = stat?.value,
                         highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
@@ -1206,11 +1206,9 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
     val entries = breakdown.entries.toList()
 
     // 一次扫过整圈的入场动画。进度在 drawBehind 里读，动画期间只重画这一个环。
-    val sweep = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(breakdown) {
-        sweep.snapTo(0f)
-        sweep.animateTo(1f, tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-    }
+    val sweep = com.xjtu.toolbox.ui.components.rememberRevealProgress(
+        breakdown, spec = tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+    )
     val trackColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f)
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {

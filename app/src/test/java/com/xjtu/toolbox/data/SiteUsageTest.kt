@@ -19,7 +19,7 @@ class SiteUsageTest {
 
     @Test
     fun `编解码往返，坏数据跳过`() {
-        val e = SiteUsage.record(SiteUsage.record(emptyMap(), "ssn", 1000L), "coupon", 2000L)
+        val e = SiteUsage.record(SiteUsage.record(emptyMap(), "library", 1000L), "coupon", 2000L)
         assertEquals(e.keys, SiteUsage.decode(SiteUsage.encode(e)).keys)
         assertEquals(setOf("a"), SiteUsage.decode("a:1.5:10,broken,b:x:1,:2:3").keys)
     }

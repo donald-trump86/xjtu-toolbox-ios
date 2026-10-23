@@ -140,8 +140,6 @@ internal class DesktopHomeHost(
 
     override val audience: AccountType = AccountContext.activeAccountType
 
-    /** 首页两套布局：读的是本端落盘的那一份（与 `:app` 同一个键）。 */
-    override val homeTheme: String get() = desktopSettings.homeTheme
 
     override val greetingName: String = ""
 
@@ -165,7 +163,7 @@ internal class DesktopHomeHost(
             )
             else -> HomeNextUp(
                 icon = HomeHero.EMPTY_ICON,
-                title = "接下来两周都没课",
+                title = HomeHero.NOTHING_TITLE,
                 detail = "点这里看整学期",
                 route = AppRoute.Schedule,
             )

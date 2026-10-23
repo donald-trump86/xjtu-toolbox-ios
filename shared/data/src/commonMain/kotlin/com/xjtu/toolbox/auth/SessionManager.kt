@@ -313,7 +313,7 @@ class SessionManager {
                         // 后台（预热、首页刷新）不弹窗、不发短信，留给用户下次点开时处理
                         if (!foreground) throw MfaRequiredException("WebVPN")
                         if (ctx.flow == MFAFlow.MFA_DETECT) ctx.sendVerifyCode()
-                        if (!verifyMfaWithUser("webvpn", "WebVPN（校外接入）", ctx)) throw MfaCancelledException("WebVPN")
+                        if (!verifyMfaWithUser("webvpn", "WebVPN（非校园网接入）", ctx)) throw MfaCancelledException("WebVPN")
                         result = login.login()
                     }
                     LoginState.REQUIRE_CAPTCHA -> throw IOException("WebVPN 需要图形验证码")

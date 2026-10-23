@@ -32,27 +32,18 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     /** 主题实际采用的种子色：未启用自定义时为空串。 */
     val themeSeedHex: String get() = if (customColorEnabled) customColorHex else ""
 
-    /**
-     * 默认启动 tab：**存规范化值**（[TAB_KEY_HOME] 那五个，见 [normalizeDefaultTab]）。
-     *
-     * 为什么不直接存某一端的 tab id：三端的 tab 集合本就不一样（`:app` 五格 HOME/COURSES/PIDAI/TOOLS/PROFILE、
-     * web 同构五格、桌面六格 main/school_calendar/library/yellow_page/games/all）。存端 id 就是把某一端的
-     * 私有名字写进公共设置。规范化之后三端各有一张「规范值 → 本端 tab」的映射表：
-     * `:app` `bottomTabOf()`、`:desktop` `desktopStartTarget()`、`:web` `webStartTarget()`。
-     *
-     * 老值（老版本存的是 `BottomTab` 的**名字**：`HOME/COURSES/…`）读进来时就翻成规范值 ⇒ 升级上来的用户
-     * 不用重设，也不需要迁移脚本；写下去的一律是规范值。
-     */
+    /** 默认启动 tab。不在底栏上时由读的一方回首页（`BottomBarTabs.defaultTab`）。 */
     var defaultTab: String
-        get() = normalizeDefaultTab(store.getString(KEY_DEFAULT_TAB))
-        set(value) = store.putString(KEY_DEFAULT_TAB, normalizeDefaultTab(value))
+        get() = store.getString(KEY_DEFAULT_TAB) ?: TAB_COURSES
+        set(value) = store.putString(KEY_DEFAULT_TAB, value)
+
+    /** 底栏中间那几格的路由 id，逗号分隔；null = 没改过。解析见 `BottomBarTabs`。 */
+    var bottomBar: String?
+        get() = store.getString(KEY_BOTTOM_BAR)
+        set(value) = store.putString(KEY_BOTTOM_BAR, value)
     var networkMode: String
         get() = store.getString(KEY_NETWORK_MODE) ?: NETWORK_AUTO
         set(value) = store.putString(KEY_NETWORK_MODE, value)
-
-    var homeTheme: String
-        get() = store.getString(KEY_HOME_THEME) ?: THEME_CARD
-        set(value) = store.putString(KEY_HOME_THEME, value)
 
     var showQuickActions: Boolean
         get() = store.getBoolean(KEY_SHOW_QUICK_ACTIONS, true)
@@ -62,6 +53,28 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     var pinnedQuickRoutes: List<String>?
         get() = store.getString("pinned_quick_routes")?.split('\n')?.filter { it.isNotBlank() }
         set(value) = store.putString("pinned_quick_routes", value?.joinToString("\n"))
+
+    /** 首页头卡外观；auto 保留随时间、主题和日程变化的默认效果。 */
+    var heroBackground: String
+        get() = if (store.getString("hero_background") == "solid") "solid" else "liquid"
+        set(value) = store.putString("hero_background", if (value == "solid") "solid" else "liquid")
+
+    var heroPalette: String
+        get() = store.getString("hero_palette")?.takeIf { it in HERO_PALETTES } ?: "auto"
+        set(value) = store.putString("hero_palette", value.takeIf { it in HERO_PALETTES } ?: "auto")
+
+    var heroColorHex: String
+        get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty()).ifEmpty { "#2F7CFF" }
+        set(value) = store.putString("hero_color_hex", normalizeThemeColor(value))
+
+    var heroMotion: String
+        get() = store.getString("hero_motion")?.takeIf { it in HERO_MOTIONS } ?: "auto"
+        set(value) = store.putString("hero_motion", value.takeIf { it in HERO_MOTIONS } ?: "auto")
+
+    /** -1 每天自动换形状，其余值固定形状。 */
+    var heroSeed: Int
+        get() = store.getInt("hero_seed", -1).coerceIn(-1, 9999)
+        set(value) = store.putInt("hero_seed", value.coerceIn(-1, 9999))
 
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
@@ -79,6 +92,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         set(value) = store.putString(KEY_SCHEDULE_SOURCE, value)
 
     companion object {
+        private val HERO_PALETTES = setOf("auto", "midnight", "orchid", "blossom", "lagoon", "honey", "custom")
+        private val HERO_MOTIONS = setOf("auto", "gentle", "flowing", "lively", "still")
         fun normalizeThemeColor(value: String): String {
             val hex = value.trim().removePrefix("#")
             if (hex.length !in listOf(3, 6) || !hex.all { it in "0123456789abcdefABCDEF" }) return ""
@@ -91,8 +106,8 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_DARK_MODE = "dark_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DEFAULT_TAB = "default_tab"
+        private const val KEY_BOTTOM_BAR = "bottom_bar_tabs"
         private const val KEY_NETWORK_MODE = "network_mode"
-        private const val KEY_HOME_THEME = "home_theme"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
@@ -109,7 +124,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val DARK_MODE_DARK = "dark"
         const val THEME_CARD = "card"
         const val THEME_ICON = "icon"
-        /** 老写法：`:app` 的 `BottomTab` 名字（已写进用户设置，不能改）。只用来读老值，见 [normalizeDefaultTab]。 */
         const val TAB_HOME = "HOME"
         const val TAB_COURSES = "COURSES"
         const val TAB_PIDAI = "PIDAI"

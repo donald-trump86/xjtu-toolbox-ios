@@ -577,13 +577,14 @@ private fun backStepsSkippingAuth(web: WebView): Int? {
     return null
 }
 
-private fun isAuthHop(url: String): Boolean {
-    val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return false
+internal fun isAuthHop(url: String): Boolean {
+    val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
     val host = uri.host?.lowercase().orEmpty()
     return host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn" ||
-        (host == "org.xjtu.edu.cn" && uri.path.orEmpty().contains("login")) ||
+        (host == "org.xjtu.edu.cn" && (uri.path.orEmpty().contains("login") || uri.path.orEmpty().startsWith("/openplatform/oauth/"))) ||
+        (host == "202.117.17.144" && (uri.path.orEmpty().startsWith("/web/login/") || uri.path.orEmpty().startsWith("/web/cas/"))) ||
         (host == "webvpn.xjtu.edu.cn" && uri.path?.trimEnd('/') == "/login") ||
-        uri.getQueryParameter("ticket") != null
+        uri.rawQuery.orEmpty().split('&').any { it.substringBefore('=') == "ticket" }
 }
 
 /** 顶栏第二行显示的域名：WebVPN 代理地址换回原站域名，去掉 www.。 */

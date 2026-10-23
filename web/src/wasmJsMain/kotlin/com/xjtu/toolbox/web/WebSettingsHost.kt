@@ -32,32 +32,21 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** Web 这一端的设置页宿主面（`:core` 的 `SettingsScreen` 是共享屏）。 */
+/** Web 设置页宿主。 */
 internal class WebSettingsHost(
-    /** 外观改完之后戳一下外壳（`Main.kt` 重新读一次 `SettingsStore`）。 */
     private val notifyAppearanceChanged: () -> Unit,
-    /** 「数据与隐私」那两行归档动作 + 它的一行结果文本。 */
     private val archive: WebArchiveActions,
 ) : SettingsHost {
 
-    /** 版本那一行：本端没有版本号这个概念（页面是同一个 dist，服务端直接托管它）。 */
     override val versionText: String = "Web 构建（wasm）"
 
-    /**
-     * 真会照着办的行：深色模式与首页主题（外壳/首页读那两个键），加上 B-2 起接上的「默认启动 Tab」——
-     * `?route=` 没给时开场页就是它（[initialWebTarget] → `webStartTarget` 那张映射表），
-     * 再加 C-1b 接上的「界面风格」（外壳读它，判据就是 `:shared:designsystem` 的 `glassNavStyle`）。
-     *
-     * 「场馆验证码」**不列**：本端没有识别器（`WebSlideCaptchaHost.solve` 恒 null），列了就是假开关——
-     * 那一档写在 [gapNote] 里如实说明。
-     */
+    /** Web 端支持的设置项。 */
     override val honoredRows: Set<SettingsRow> =
         setOf(
             SettingsRow.DARK_MODE,
             SettingsRow.DYNAMIC_COLOR,
             SettingsRow.HOME_THEME,
             SettingsRow.DEFAULT_TAB,
-            // C-1b：外壳真读这个键了（`ToolboxWebApp` → `glassNavStyle` → `AppShell(glassStyle=…)`）
             SettingsRow.NAV_STYLE,
         )
 
@@ -76,11 +65,7 @@ internal class WebSettingsHost(
     /** 「更新」整组：本端的更新就是服务端换一份 dist（刷新一次页面） ⇒ 整组不画。 */
     override val updateSection: (@Composable () -> Unit)? = null
 
-    /**
-     * 屏底那一句（见 `SettingsHost.gapNote`）：缺的那几行加两个整组，挤成一段。
-     *
-     * 动态取色（W14）与触感（W13）不列：浏览器里那不是“缺”，是没有这个概念（豁免那一档）。
-     */
+    /** Web 端暂不支持的设置说明。 */
     override val gapNote: String =
         "网页版没有这些设置（要调请用 App）：常用功能、连接模式、考勤角标、场馆验证码" +
             "——常用功能是手机首页上的快捷入口，网页外壳另做了一层；场馆验证码要靠图片解码，" +
@@ -111,8 +96,6 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
             title = "导入数据存档",
             summary = "选一份 zip 档案读进来（先自校验，默认不覆盖本机数据）",
             startAction = { WebSettingsIcon(Icons.Default.Download) },
-            // 选 zip → 算两份差异（默认档 MERGE / 镜像档）→ 弹窗选档；本机数据到确认前一个字不动。
-            // 每次都从默认档起步：镜像档只能由用户自己点，不会预先选中。
             onClick = {
                 archive.mode = ArchiveImportMode.MERGE
                 archive.choose()

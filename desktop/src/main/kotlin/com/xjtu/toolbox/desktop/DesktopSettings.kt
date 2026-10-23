@@ -63,37 +63,21 @@ internal val desktopSettings: SettingsStore by lazy {
 /** 桌面端的设置页宿主（见 [SettingsHost] 与 [SettingsRow]）。 */
 internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Unit) : SettingsHost {
 
-    /** 版本号那一行：桌面包的版本（构建期烘进 `DesktopBuildConfig`，与 jpackage 的`packageVersion` 同一个来源）。 */
+    /** 版本号显示。 */
     override val versionText: String = "v${DesktopBuildConfig.VERSION_NAME} (desktop)"
 
-    /** 真会照着办的行。 */
+    /** 桌面端支持的设置项。 */
     override val honoredRows: Set<SettingsRow> = setOf(
         SettingsRow.DARK_MODE,
         SettingsRow.DYNAMIC_COLOR,
         SettingsRow.HOME_THEME,
-        // B-2：开场那一页就是它（`ToolboxDesktopApp` 的 `initialTarget` → `desktopStartTarget`）。
         SettingsRow.DEFAULT_TAB,
-        // B-2：真的控「要不要自动识别」——`VenueScreen(autoSolveCaptcha = ...)` 现读这个键，
-        // 而桌面有完整的解算器（`DesktopSlideCaptchaHost` → `VenueSlideCaptchaHost.solve`）。
         SettingsRow.VENUE_CAPTCHA,
-        // W-B2 把桌面考勤角标接上了（`DesktopScheduleHost.honored` 里有 ATTENDANCE，
-        // 开关读的就是这个键）⇒ 列出来，用户才关得掉；不列的话就是“能开不能关”。
         SettingsRow.SCHEDULE_ATTENDANCE,
-        // C-1b：壳真读这个键了（`ToolboxDesktopApp` → `glassNavStyle` → `AppShell(glassStyle=…)`）。
-        // 不列出来，用户就只能拿到默认那一档（玻璃），选不了经典。
         SettingsRow.NAV_STYLE,
     )
 
-    /**
-     * 屏底那一句（见 `SettingsHost.gapNote`）。
-     *
-     * 缺的那几行加两个整组挤成一段：设置页里逐条贴“本端没有”会读成一串故障；用户要的是
-     * 一句“这些去 App 调”加一句“为什么”。触感（D26 豁免）与小组件刷新（D22 豁免）不列：
-     * 桌面没有振动器、也没有主屏，说了对用户没意义。
-     *
-     * B-2 起“启动 Tab”与“场馆验证码”从这段里拿掉了：那两行现在真能照办（见 [honoredRows]）。
-     * C-1b 起“界面风格”也拿掉了：桌面外壳真读它（不宽屏时是玻璃底栏，宽屏那种侧栏形态下两者同形）。
-     */
+    /** 桌面端暂不支持的设置说明。 */
     override val gapNote: String =
         "桌面版没有这些设置（要调请用 App）：常用功能、连接模式" +
             "——常用功能是手机首页上的快捷入口，桌面外壳照桌面习惯另做了一套。" +

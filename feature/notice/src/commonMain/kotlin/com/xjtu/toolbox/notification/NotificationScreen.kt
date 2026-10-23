@@ -6,43 +6,31 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Merge
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.ui.components.AppFilterChip
-import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.util.todayOnCampus
@@ -61,12 +49,9 @@ fun NotificationScreen(
     val vm: NotificationViewModel = viewModel { NotificationViewModel(source) }
     val notifications = vm.notifications
     val searching = vm.searching
+    var showSourceSheet by remember { mutableStateOf(false) }
+    BackHandler(enabled = showSourceSheet) { showSourceSheet = false }
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
-
-    // 当前分类下的来源
-    val sourcesInCategory = remember(vm.selectedCategory) {
-        vm.selectedCategory?.let { NotificationSource.byCategory(it) } ?: NotificationSource.entries.toList()
-    }
 
     // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
     val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults) {
@@ -108,118 +93,9 @@ fun NotificationScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                actions = {
-                    IconButton(onClick = vm::toggleMerge) {
-                        Icon(
-                            Icons.Default.Merge,
-                            contentDescription = if (vm.mergeMode) "取消合并" else "合并模式",
-                            tint = if (vm.mergeMode) MiuixTheme.colorScheme.primary
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-                },
-                // 分类、来源两行是导航，不跟列表滚：挂在顶栏里和顶栏一起做一整块玻璃，
-                // 通知卡片从它们下面滚过去
                 bottomContent = {
                   Column {
-                    // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        val allCats = listOf<SourceCategory?>(null) + SourceCategory.entries
-                        allCats.forEach { cat ->
-                            val isSelected = vm.selectedCategory == cat
-                            val label = cat?.displayName ?: "全部"
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { vm.selectedCategory = cat }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    label,
-                                    style = MiuixTheme.textStyles.body2,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MiuixTheme.colorScheme.primary
-                                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    maxLines = 1
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Box(
-                                    Modifier
-                                        .width(if (isSelected) 20.dp else 0.dp)
-                                        .height(3.dp)
-                                        .background(
-                                            if (isSelected) MiuixTheme.colorScheme.primary else Color.Transparent,
-                                            RoundedCornerShape(1.5.dp)
-                                        )
-                                )
-                            }
-                        }
-                    }
-
-                    // ─── 分割线 ───
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        thickness = 0.5.dp,
-                        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.5f)
-                    )
-
-                    // ═══ 来源选择（Chip 样式） ═══
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        sourcesInCategory.forEach { source ->
-                            if (vm.mergeMode) {
-                                AppFilterChip(
-                                    selected = source in vm.selectedSources,
-                                    onClick = {
-                                        vm.toggleSource(source)
-                                    },
-                                    label = source.displayName
-                                )
-                            } else {
-                                AppFilterChip(
-                                    selected = source == vm.selectedSource,
-                                    onClick = { vm.selectedSource = source },
-                                    label = source.displayName
-                                )
-                            }
-                        }
-                    }
-
-                    // 合并模式提示
-                    if (vm.mergeMode) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Merge,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MiuixTheme.colorScheme.primary
-                            )
-                            Text(
-                                "已选 ${vm.selectedSources.size} 个来源 · 按时间排列",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.primary
-                            )
-                        }
-                    }
+                    NoticeSourceBar(vm.selectedSources) { showSourceSheet = true }
 
                     // ═══ 加载条 ═══
                     AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
@@ -230,7 +106,16 @@ fun NotificationScreen(
             )
         }
     ) { padding ->
-        // 内容铺到顶栏下面。宽屏不再限宽 720：下面的卡片分列铺开，上面两行跟着占满。
+        NoticeSourceSheet(
+            show = showSourceSheet,
+            sources = vm.selectedSources,
+            onDismiss = { showSourceSheet = false },
+            onConfirm = {
+                vm.selectSources(it)
+                showSourceSheet = false
+            },
+        )
+        // 内容铺到顶栏下面。宽屏不再限宽 720：下面的卡片分列铺开，来源入口跟着占满。
         val glassTop = padding.glassTop(glass)
         Column(
             modifier = Modifier
@@ -239,7 +124,7 @@ fun NotificationScreen(
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            // 分类、来源两行在顶栏里（bottomContent）；列表把 glassTop 放进 contentPadding，
+            // 来源入口在顶栏里（bottomContent）；列表把 glassTop 放进 contentPadding，
             // 不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
             val listShown = !(vm.isLoading && notifications.isEmpty()) &&
                 !(vm.errorMessage != null && notifications.isEmpty()) &&
@@ -247,7 +132,7 @@ fun NotificationScreen(
             if (!listShown) Spacer(Modifier.height(glassTop))
 
             // 搜索框和「有源不可达」提示：有通知列表时是列表的头两项，跟着列表滚走；
-            // 分类、来源两行是导航，留在顶上。以前这一整段都钉在顶部，占掉小半屏，
+            // 来源入口是导航，留在顶上。以前这一整段都钉在顶部，占掉小半屏，
             // 往上划只有下面一截通知在动。没有列表（加载中 / 出错 / 暂无通知）时它们照旧放在这里。
             // 搜不到匹配项时列表还在（只剩搜索框和一行「没有匹配」）：要是这时把搜索框挪出列表，
             // 输入框换了位置就会丢焦点，打字打到一半键盘收起来。
@@ -255,7 +140,7 @@ fun NotificationScreen(
                 com.xjtu.toolbox.ui.components.AppSearchBar(
                     query = vm.searchQuery,
                     onQueryChange = { vm.searchQuery = it },
-                    label = if (vm.mergeMode) "在已选的 ${vm.selectedSources.size} 个来源里搜索" else "在${vm.selectedSource.displayName}站内搜索",
+                    label = "搜索已选来源的通知",
                     modifier = m.fillMaxWidth()
                 )
             }
@@ -264,7 +149,7 @@ fun NotificationScreen(
             val skippedNoticeBanner: @Composable (Modifier) -> Unit = { m ->
               bannerText?.let { msg ->
                 Surface(
-                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                     modifier = m.fillMaxWidth(),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                 ) {
@@ -312,7 +197,6 @@ fun NotificationScreen(
                     if (!listShown) {
                         EmptyState(
                             title = "暂无通知",
-                            subtitle = "当前暂无新通知",
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -325,7 +209,7 @@ fun NotificationScreen(
                                 vm.refresh()
                             },
                             scrollBehavior = scrollBehavior,
-                            // 下拉指示器从玻璃顶栏（含分类、来源两行）下面出来
+                            // 下拉指示器从玻璃顶栏（含来源入口）下面出来
                             topPadding = glassTop,
                             modifier = Modifier.fillMaxSize(),
                         ) {
@@ -379,7 +263,7 @@ fun NotificationScreen(
                                 androidx.compose.foundation.layout.Box(Modifier.enterOnce(index)) {
                                 NotificationCard(
                                     notification = notification,
-                                    showSource = vm.mergeMode,
+                                    showSource = vm.selectedSources.size > 1,
                                     onClick = {
                                         onNavigate(AppRoute.Browser(notification.link))
                                     }
@@ -471,14 +355,14 @@ private fun NotificationCard(
                     if (showSource) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MiuixTheme.colorScheme.primaryContainer
+                            color = MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)
                         ) {
                             Text(
                                 notification.source.displayName,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
-                                color = MiuixTheme.colorScheme.onPrimaryContainer
+                                color = MiuixTheme.colorScheme.primary
                             )
                         }
                     }
@@ -498,13 +382,6 @@ private fun NotificationCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (!showSource) {
-                        Text(
-                            text = notification.source.displayName,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.primary
-                        )
-                    }
                     Text(
                         text = formatRelativeDate(notification.date),
                         style = MiuixTheme.textStyles.footnote1,

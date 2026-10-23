@@ -174,8 +174,14 @@ fun AppShell(
                         nav = nav,
                         pageHost = pageHost,
                         modifier = if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier,
-                        tabModifier = {
-                            if (glassStyle) Modifier.followTopBar({ stableTopBar.value }, padding) else Modifier
+                        // 跟随位移是给「按 contentTopPadding 留白、顶栏由壳画」的页补的；自带顶栏的页没留那段白，
+                        // 位移会把它整页往上推进状态栏（stableTopBar 记的是各格见过的最高顶栏）
+                        tabModifier = { tab ->
+                            if (glassStyle && tab?.drawsOwnTopBar != true) {
+                                Modifier.followTopBar({ stableTopBar.value }, padding)
+                            } else {
+                                Modifier
+                            }
                         },
                     ) { p ->
                         page(p, insets)

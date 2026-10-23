@@ -171,11 +171,7 @@ fun GamesScreen(
                 color = if (glass != null) Color.Transparent else MiuixTheme.colorScheme.background,
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(MiuixIcons.Back, contentDescription = "返回")
-                    }
-                },
+                navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 actions = {
                     // 所有小游戏共用这一个音效开关
                     IconButton(onClick = { GameSound.enabled = !GameSound.enabled }) {

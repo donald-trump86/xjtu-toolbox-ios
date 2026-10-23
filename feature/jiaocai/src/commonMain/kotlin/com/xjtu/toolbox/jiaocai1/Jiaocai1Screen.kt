@@ -496,7 +496,7 @@ private fun SearchTab(
                         Modifier
                             .fillMaxWidth()
                             .squircleSurface(
-                                color = MiuixTheme.colorScheme.tertiaryContainer,
+                                color = MiuixTheme.colorScheme.primaryContainer,
                                 cornerRadius = 10.dp,
                             )
                             .clickable(
@@ -510,13 +510,13 @@ private fun SearchTab(
                         Text(
                             "限定",
                             style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+                            color = MiuixTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
                             clsName,
                             style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onTertiaryContainer,
+                            color = MiuixTheme.colorScheme.onPrimaryContainer,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -526,7 +526,7 @@ private fun SearchTab(
                             Icons.Default.Close,
                             contentDescription = "取消分类限定",
                             modifier = Modifier.size(14.dp),
-                            tint = MiuixTheme.colorScheme.onTertiaryContainer,
+                            tint = MiuixTheme.colorScheme.onPrimaryContainer,
                         )
                     }
                 }
@@ -811,37 +811,7 @@ private fun CategoryPathChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-) {
-    val bg = if (selected) MiuixTheme.colorScheme.tertiaryContainer else Color.Transparent
-    val fg = if (selected) MiuixTheme.colorScheme.onTertiaryContainer
-    else MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val outline = MiuixTheme.colorScheme.outline
-    val corner = 10.dp
-    Box(
-        Modifier
-            .squircleSurface(color = bg, cornerRadius = corner)
-            .squircleBorder(
-                width = { if (selected) 0.dp else 1.dp },
-                color = { outline },
-                cornerRadius = corner,
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick,
-            )
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-            color = fg,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
+) = com.xjtu.toolbox.ui.components.AppFilterChip(selected = selected, onClick = onClick, label = label)
 
 @Composable
 private fun CategoryBrowseAllRow(
@@ -930,9 +900,9 @@ private fun CategoryRow(
 private fun CategoryMark(label: String, tinted: Boolean = false) {
     val ch = coverInitial(label)
     val bg = if (tinted) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-    else MiuixTheme.colorScheme.tertiaryContainer
+    else MiuixTheme.colorScheme.primaryContainer
     val fg = if (tinted) MiuixTheme.colorScheme.primary
-    else MiuixTheme.colorScheme.onTertiaryContainer
+    else MiuixTheme.colorScheme.onPrimaryContainer
     Box(
         Modifier
             .size(36.dp)

@@ -529,7 +529,8 @@ class ServeAgentTest {
             listOf(
                 Step(
                     reasoning = listOf(AgentFixture.REASONING_TEXT),
-                    toolCalls = listOf(AgentToolCall("c1", "get_schedule", "{}")),
+                    // 跳转建议只给模型点名 show 的那次调用
+                    toolCalls = listOf(AgentToolCall("c1", "get_schedule", """{"show":true}""")),
                 ),
                 Step(deltas = listOf(AgentFixture.REPLY_TEXT), totalTokens = AgentFixture.TOTAL_TOKENS),
             ),
@@ -698,7 +699,7 @@ class ServeAgentTest {
                 .arrOf("messages").map { it.jsonObject }
             assertEquals(2, messages.size)
             assertEquals("user", messages[0].optString("role"))
-            assertEquals("（已停止）", messages[1].optString("content"))
+            assertEquals("[用户打断]", messages[1].optString("content"))
         }
     }
 

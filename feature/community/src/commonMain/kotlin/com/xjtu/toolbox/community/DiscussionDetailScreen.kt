@@ -521,7 +521,6 @@ private fun CommunityEditorPage(
     var body by rememberSaveable(target) { mutableStateOf(initialBody) }
     var preview by rememberSaveable(target) { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
-    var imageBusy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmDiscard by remember { mutableStateOf(false) }
     val dirty = body != initialBody || (withTitle && title != discussion.title)
@@ -536,7 +535,7 @@ private fun CommunityEditorPage(
         EditorTarget.EditDiscussion -> "编辑帖子"
     }
     val submitLabel = if (target is EditorTarget.EditComment || withTitle) "保存" else "发送"
-    val canSubmit = !sending && !imageBusy && body.isNotBlank() && (!withTitle || title.isNotBlank())
+    val canSubmit = !sending && body.isNotBlank() && (!withTitle || title.isNotBlank())
     val submit = {
         sending = true; error = null
         scope.launch {
@@ -609,7 +608,6 @@ private fun CommunityEditorPage(
                 enabled = !sending,
                 minLines = if (withTitle) 10 else 6,
                 mentionCandidates = mentionCandidates,
-                onImageBusy = { imageBusy = it },
             )
             error?.let { Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2) }
         }

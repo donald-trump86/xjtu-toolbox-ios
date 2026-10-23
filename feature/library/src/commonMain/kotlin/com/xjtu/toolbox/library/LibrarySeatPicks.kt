@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightOutcome
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.platform.cropImageToJpegDataUri
 import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.InsightState
@@ -47,6 +48,7 @@ internal fun seatPicksSpec(images: () -> List<String>) = InsightSpec(
 只输出：
 {"summary":"不超过 30 字：这个区域现在怎么样","picks":[{"seat":"座位号","why":"不超过 20 字"}]}
     """.trimIndent(),
+    card = PidaiCard.LIBRARY,
 )
 
 /** 交给屁岱的文字快照：区域、空座数、候选及本地评分。 */

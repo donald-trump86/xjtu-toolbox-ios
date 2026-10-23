@@ -29,15 +29,22 @@ import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 
-/** 主界面选中的底栏 tab，放在导航根部，跳转时可直接切。 */
+/** 主界面选中的底栏格（[BarTab.id]）与底栏上有哪几格，放在导航根部，跳转时可直接切。 */
 @Stable
-class MainTabState(initial: BottomTab) {
-    var selected by mutableStateOf(initial)
+class MainTabState(initialId: String) {
+    var selectedId by mutableStateOf(initialId)
+
+    /** 底栏从左到右的格子，跟着设置变（MainScreen 收集）。 */
+    var bar by mutableStateOf(BottomTab.entries.map { BarTab.of(it) })
+
+    fun select(tab: BottomTab) {
+        selectedId = tab.name
+    }
 
     companion object {
-        val Saver = Saver<MainTabState, Int>(
-            save = { it.selected.ordinal },
-            restore = { MainTabState(BottomTab.entries[it]) },
+        val Saver = Saver<MainTabState, String>(
+            save = { it.selectedId },
+            restore = { MainTabState(it) },
         )
     }
 }
@@ -89,9 +96,17 @@ class AppRouter(
         }
     }
 
-    /** 切到底栏 [tab]，顺带退回主界面。 */
+    /** 切到底栏 [tab]，顺带退回主界面；用户已把它移出底栏时改为打开那一页。 */
     fun selectTab(tab: BottomTab) {
-        tabs.selected = tab
+        if (tabs.bar.none { it.core == tab }) {
+            tab.route?.let(::open)
+            return
+        }
+        selectBarTab(tab.name)
+    }
+
+    private fun selectBarTab(id: String) {
+        tabs.selectedId = id
         if (navigator.backStack.size > 1) {
             ExpandOrigins.clear() // 首页格子不在原处了，返回动画别再往那儿缩
             navigator.popUntil { it == AppRoute.Main }
@@ -108,13 +123,13 @@ class AppRouter(
         autoLoginMessage = null
     }
 
-    /** 真正落地：tab、覆盖层还是压栈。 */
+    /** 真正落地：底栏上有它就切 tab，付款码开覆盖层，其余压栈。 */
     private fun go(route: AppRoute) {
-        when (route) {
-            AppRoute.Main -> selectTab(tabs.selected)
-            AppRoute.Schedule -> selectTab(BottomTab.COURSES)
-            AppRoute.Agent -> selectTab(BottomTab.PIDAI)
-            AppRoute.PaymentCode -> showPaymentCode = true
+        val tab = tabs.bar.firstOrNull { it.route == route }
+        when {
+            route == AppRoute.Main -> selectBarTab(tabs.selectedId)
+            tab != null -> selectBarTab(tab.id)
+            route == AppRoute.PaymentCode -> showPaymentCode = true
             else -> navigator.navigate(route)
         }
     }

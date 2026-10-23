@@ -4,21 +4,19 @@ package com.xjtu.toolbox.agent
 
 import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -41,6 +39,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -131,7 +133,12 @@ internal fun ChatPanel(
         vm.sendMessage(text, config)
     }
 
-    Column(
+    val glass = LocalGlassStyle.current
+    val chatBackdrop = rememberLayerBackdrop()
+    var composerHeightPx by remember { mutableIntStateOf(0) }
+    val composerHeight = with(LocalDensity.current) { composerHeightPx.toDp() }
+
+    Box(
         modifier
             // 宽屏下一行聊天横跨平板全宽让人找不到行首，整块（含输入栏）限宽居中。
             .readableWidth(760.dp)
@@ -141,7 +148,13 @@ internal fun ChatPanel(
             .padding(top = padding.calculateTopPadding())
             .background(MiuixTheme.colorScheme.surface)
     ) {
-        Box(Modifier.weight(1f).clipToBounds()) {
+        // 内容层只录聊天列表和气泡；输入栏玻璃采样这一层，不能把自己也录进去。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(if (glass) Modifier.layerBackdrop(chatBackdrop) else Modifier)
+        ) {
+            Box(Modifier.fillMaxSize().clipToBounds()) {
             key(vm.currentSessionId) {
                 val listState = rememberLazyListState()
                 val chatRows = groupAgentRows(vm.messages, config.showReasoning)
@@ -155,7 +168,7 @@ internal fun ChatPanel(
                         .fillMaxSize()
                         .overScrollVertical()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp),
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
             // 这一端的屁岱缺什么：说在最前面（用户一眼看到"这一端少的那几样"，
@@ -222,10 +235,19 @@ internal fun ChatPanel(
             // 聊天中戳底栏屁岱：首屏已经不在了，就在输入框正上方冒一句小话，几秒后自己收起。
             // 不走底栏气泡（会压住输入框），也不打断对话。
             if (vm.messages.isNotEmpty()) {
-                pokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                pokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 10.dp))
+            }
             }
         }
 
+        // 输入区浮在聊天内容上：玻璃模式下不铺底色，内容从下面透出来；经典模式保持原来的实底。
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .onSizeChanged { composerHeightPx = it.height }
+                .then(if (glass) Modifier else Modifier.background(MiuixTheme.colorScheme.surface))
+        ) {
         // 未配置模型时的提示条。放在输入栏正上方而不是弹窗或整页表单，
         // 是因为它要解释「为什么现在发不出去」，紧挨着发送动作才说得通。
         if (!config.isConfigured && vm.messages.isNotEmpty()) {
@@ -235,6 +257,7 @@ internal fun ChatPanel(
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
                     .clickable { onOpenConfig() },
             ) {
                 Row(
@@ -313,33 +336,25 @@ internal fun ChatPanel(
                 // 还没发出去就撤了，压缩件留着没用。
                 host.deleteImageFiles(listOf(path))
             },
+            backdrop = if (glass) chatBackdrop else null,
         )
+        }
     }
 }
-/** 三个依次明灭的小圆点，替代静态"思考中…"，让等待更有生气。 */
+/** 三个依次明灭的小圆点（共享的呼吸节奏，逐个错开相位），替代静态"思考中…"。 */
 @Composable
 private fun ThinkingDots() {
-    val transition = rememberInfiniteTransition(label = "thinking")
+    val phase = com.xjtu.toolbox.ui.components.rememberLoopPhase()
+    val dotColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         repeat(3) { i ->
-            // 拿 State 本身，只在绘制阶段读：三个点闪烁时不每帧重组
-            val alpha = transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(600, delayMillis = i * 180),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "dot$i"
-            )
-            val dotColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Box(
                 Modifier
                     .size(7.dp)
-                    .graphicsLayer { this.alpha = alpha.value }
+                    .graphicsLayer { alpha = com.xjtu.toolbox.ui.components.breath(phase.value, low = 0.25f, offset = i * 0.15f) }
                     .background(dotColor, RoundedCornerShape(50))
             )
         }
@@ -440,10 +455,12 @@ private fun AgentTraceCard(
         color = MiuixTheme.colorScheme.surfaceVariant,
         modifier = modifier
             .widthIn(max = 340.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier),
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 22.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 leading()
                 Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = accent)
                 if (!expanded && summary.isNotBlank()) {
@@ -453,9 +470,9 @@ private fun AgentTraceCard(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     )
-                }
+                } else Spacer(Modifier.weight(1f))
                 trailing()
                 if (expandable) {
                     Icon(
@@ -483,19 +500,27 @@ private fun ReasoningBar(
     var expanded by rememberSaveable { mutableStateOf(false) }
     AgentTraceCard(
         label = "思考",
-        summary = text.replace(Regex("\\s+"), " ").trim(),
+        summary = text.take(240).replace(Regex("\\s+"), " ").trim(),
         accent = MiuixTheme.colorScheme.primary,
         expandable = text.isNotBlank(),
         expanded = expanded,
         onToggle = { expanded = !expanded },
-        trailing = { if (streaming) ThinkingDots() },
+        trailing = {
+            Box(Modifier.width(31.dp).height(10.dp), contentAlignment = Alignment.Center) {
+                if (streaming) ThinkingDots()
+            }
+        },
         details = {
-            MarkdownText(
-                text = text,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                images = images,
-                onLink = { url -> onNavigate(AppRoute.Browser(url)) },
-            )
+            Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+                // 流式 Markdown 的未闭合列表、代码块会反复重排；生成时用稳定文本，结束后再排版。
+                if (streaming) Text(text, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                else MarkdownText(
+                    text = text,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    images = images,
+                    onLink = { url -> onNavigate(AppRoute.Browser(url)) },
+                )
+            }
         },
     )
 }
@@ -585,6 +610,7 @@ private fun MessageBubble(
                         color = MiuixTheme.colorScheme.primary,
                         modifier = Modifier
                             .widthIn(max = 300.dp)
+                            .clip(RoundedCornerShape(20.dp, 6.dp, 20.dp, 20.dp))
                             .then(
                                 if (canEdit) Modifier.combinedClickable(
                                     onClick = {},

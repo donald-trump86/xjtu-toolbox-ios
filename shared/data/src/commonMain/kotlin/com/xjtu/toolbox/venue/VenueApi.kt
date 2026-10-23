@@ -38,7 +38,7 @@ import org.jsoup.Jsoup
  * 之前打的是 80 端口那套 `/xjtu/…` 部署，会话时常失效、订单接口取不到数据。
  * 两套是并存的不同部署，不是同一批接口。
  *
- * 支付页仍在 80 端口，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
+ * 支付页也在 8080 端口的 /web 下，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
  *
  * ## 它在哪一端
  */
@@ -56,7 +56,7 @@ class VenueApi(private val site: SiteSession) {
         /** 业务接口前缀 */
         private const val BASE = "$ROOT/web"
 
-        /** 支付页在 80 端口的另一套站点上 */
+        /** 支付页与业务接口使用同一部署 */
         const val PAYMENT_BASE = VenueLogin.PAY_BASE_URL
         const val BROWSER_LOGIN_URL = VenueLogin.VENUE_OAUTH_URL
 
@@ -190,6 +190,9 @@ class VenueApi(private val site: SiteSession) {
 
     /** 滑块验证码。注意在站点根路径，不带 `/web/`。 */
     suspend fun generateCaptcha(serviceid: Int): CaptchaData {
+        // 场馆列表不验登录，快照里恢复的过期会话要到下单才露馅，而重登后旧验证码作废。
+        // 先碰一下要登录的订单页，过期就在这里重登，验证码随新会话生成。
+        execute(ajaxRequest("$BASE/yyuser/searchorder.html?page=1&rows=1", "$BASE/yyuser/searchorder.html")).close()
         val body = fetchJson(ajaxRequest("$ROOT/gen", "$BASE/product/show.html?id=$serviceid"))
         val json = body.safeParseJsonObject()
         val captcha = json.requireObj("captcha")
@@ -251,6 +254,7 @@ class VenueApi(private val site: SiteSession) {
         // 末尾这段写的是 8071 端口，是服务端签名用的常量，不是真实访问端口。
         val yzm = "${sliderTrackJson}synjones${captchaId}synjoneshttp://202.117.17.144:8071"
         val referer = "$BASE/product/show.html?id=$serviceid"
+        val epoch = site.loginEpoch
 
         var lastMessage = "预订失败"
         repeat(3) { attempt ->
@@ -289,6 +293,8 @@ class VenueApi(private val site: SiteSession) {
                     message = message.ifBlank { "预订成功" }
                 )
             }
+            // 提交途中重登过：验证码属于旧会话，服务端只会报错，让用户重来一次
+            if (site.loginEpoch != epoch) return BookingResult(false, message = "登录刚过期，已自动重新登录，请再订一次")
             lastMessage = message.ifBlank { "预订失败（$result）" }
             Log.i(TAG, "submitBooking: 第 ${attempt + 1} 次 result=$result message=$message")
             if (result == "100" && message.contains("验证码")) {

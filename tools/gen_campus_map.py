@@ -101,9 +101,17 @@ for fname, title, (btype, bid) in CAMPUS:
     allpts = [p for ring in rings for p in ring]
     box = (min(p[0] for p in allpts), min(p[1] for p in allpts), max(p[0] for p in allpts), max(p[1] for p in allpts))
     pois, roads, seen = [], [], set()
-    for el in list(r.iter('way')) + list(r.iter('node')):
+    for el in list(r.iter('way')) + list(r.iter('node')) + list(r.iter('relation')):
         tags = {x.get('k'): x.get('v') for x in el.findall('tag')}
-        if el.tag == 'way':
+        if el.tag == 'relation':
+            if tags.get('type') != 'multipolygon' or not any(k in tags for k in ('building', 'amenity', 'leisure')): continue
+            segments = [way_pts(ways[m.get('ref')], nodes) for m in el.findall('member')
+                        if m.get('type') == 'way' and m.get('role') in ('outer', '') and m.get('ref') in ways]
+            outlines = assemble(segments)
+            if not outlines: continue
+            pts = max(outlines, key=len)
+            c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+        elif el.tag == 'way':
             pts = way_pts(el, nodes)
             if not pts: continue
             hw = tags.get('highway')
@@ -114,7 +122,9 @@ for fname, title, (btype, bid) in CAMPUS:
             c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
         else:
             pts, c = None, nodes[el.get('id')]
-        name = tags.get('name')
+        name = tags.get('name:zh') or tags.get('name') or tags.get('official_name')
+        if not name and tags.get('building'):
+            name = tags.get('building:ref') or tags.get('ref')
         if not name or 'highway' in tags or 'public_transport' in tags or SKIP.search(name): continue
         kind = kind_of(name, tags)
         ok = inside(c, rings) or (kind == 'GATE' and near_ring(c, rings, 40))

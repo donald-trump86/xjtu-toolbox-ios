@@ -6,17 +6,21 @@ package com.xjtu.toolbox.community
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
-import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -100,14 +104,30 @@ fun DiscussionReplies(
             }
         }
         when {
-            !full && total > shown.size -> TextButton(
-                text = "查看全部 $total 条回复",
+            !full && total > shown.size -> ReplyExpansionAction(
+                text = "展开剩余 ${total - shown.size} 条回复",
                 onClick = { full = true; loader.fetch(true) },
-                minHeight = 32.dp,
             )
-            full && connection.loading -> CircularProgressIndicator(size = 18.dp)
-            full && connection.failed -> TextButton(text = "加载失败，点这里重试", onClick = { loader.fetch(!connection.loaded) }, minHeight = 32.dp)
-            full && connection.cursor != null -> TextButton(text = "加载更多回复", onClick = { loader.fetch(false) }, minHeight = 32.dp)
+            full && connection.loading -> ReplyExpansionAction("正在加载回复…", loading = true, onClick = {})
+            full && connection.failed -> ReplyExpansionAction("加载失败 · 重试", retry = true, onClick = { loader.fetch(!connection.loaded) })
+            full && connection.cursor != null -> ReplyExpansionAction("加载更多回复", onClick = { loader.fetch(false) })
         }
+    }
+}
+
+@Composable
+private fun ReplyExpansionAction(text: String, loading: Boolean = false, retry: Boolean = false, onClick: () -> Unit) {
+    val color = MiuixTheme.colorScheme.primary
+    Row(
+        Modifier.padding(start = 32.dp).fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp)).background(color.copy(alpha = 0.06f))
+            .clickable(enabled = !loading, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (loading) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
+        else Icon(if (retry) Icons.Default.Refresh else Icons.Default.ExpandMore, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+        Text(text, style = MiuixTheme.textStyles.footnote1, color = color)
     }
 }

@@ -1,13 +1,9 @@
 package com.xjtu.toolbox.home
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -17,13 +13,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.R
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.LoginType
@@ -34,7 +24,6 @@ import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.schedule.TermWeeks
 import com.xjtu.toolbox.util.toJavaTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,7 +44,6 @@ internal class AppHome(
 internal fun rememberAppHome(
     loginState: AppLoginState,
     isRestoring: Boolean = false,
-    theme: String,
     showQuickActions: Boolean = true,
     bulletinItems: List<Bulletin> = emptyList(),
     onNavigate: (AppRoute) -> Unit,
@@ -98,7 +86,7 @@ internal fun rememberAppHome(
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
         // 返回 Triple(下一项安排, 当前周次, 课表数据是否不可用)。第三位 true 时
-        // Hero 卡显示「课表还没同步」而不是「接下来两周都没课」，见 scheduleDataMissing。
+        // Hero 卡显示「课表还没同步」而不是「接下来两周没有安排」，见 scheduleDataMissing。
         val loadedFocus = withContext(Dispatchers.IO) {
             try {
                 val dataCache = DataCache(context)
@@ -195,7 +183,7 @@ internal fun rememberAppHome(
     val heroStatus: HomeStatusLine? = if (isLoggedIn) {
         val (netLabel, netTone) = when (loginState.isOnCampus) {
             true -> "校园网" to HomeTone.NORMAL
-            false -> "校外" to HomeTone.ACCENT
+            false -> "非校园网" to HomeTone.ACCENT
             null -> "检测中" to HomeTone.MUTED
         }
         val types = LoginType.entries
@@ -214,7 +202,7 @@ internal fun rememberAppHome(
     val today = campusNow.date.toJavaTime()
     val weekDay = today.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.CHINESE)
 
-    // 杂志版式把待办与消息放进头版；彩虹主题仍只靠顶栏铃铛的角标
+    // 待办与消息摘要放进首页头卡。
     val inboxVersion = com.xjtu.toolbox.inbox.InboxStore.version
     val inboxSummary = remember(inboxVersion, loginState.accountId) {
         HomeCards.inboxSummary(com.xjtu.toolbox.inbox.InboxStore.load(), System.currentTimeMillis())
@@ -231,16 +219,15 @@ internal fun rememberAppHome(
             add(HomeCard.QUICK_ACTIONS)
             add(HomeCard.CATEGORY_STATS)
             add(HomeCard.SERVICE_GRID)
-            if (theme != com.xjtu.toolbox.settings.SettingsStore.THEME_ICON) add(HomeCard.INBOX)
+            add(HomeCard.INBOX)
         }
         override val inbox: HomeInboxSummary? get() = inboxSummary
 
         override val audience = loginState.accountType
-        override val homeTheme: String = theme
         override val greetingName: String = loginState.cachedNickname.orEmpty()
             .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
             .ifBlank { loginState.activeUsername }
-        override val dateLabel: String = "${today.monthOfMonth()} · $weekDay"
+        override val dateLabel: String = "${today.monthOfMonth()} $weekDay"
         override val weekNumber: Int get() = currentWeekNumber
         override val statusLine: HomeStatusLine? get() = heroStatus
         override val bulletins: List<Bulletin> get() = bulletinItems
@@ -264,7 +251,7 @@ internal fun rememberAppHome(
                     title = "正在读取今日安排…",
                 )
                 // 学期代码 / 开学日期缺失或缓存读挂了，和「真没课」不是一回事：
-                // 这里说「去同步」，真没课才说「接下来两周都没课」。点击都是进课表页。
+                // 这里说「去同步」，真空着才说「接下来两周没有安排」。点击都是进课表页。
                 scheduleDataMissing -> HomeNextUp(
                     icon = HomeHero.MISSING_ICON,
                     title = "课表还没同步",
@@ -273,7 +260,7 @@ internal fun rememberAppHome(
                 )
                 else -> HomeNextUp(
                     icon = HomeHero.EMPTY_ICON,
-                    title = "接下来两周都没课",
+                    title = HomeHero.NOTHING_TITLE,
                     detail = "问问屁岱怎么安排",
                     route = AppRoute.Schedule,
                 )
@@ -301,16 +288,6 @@ internal fun rememberAppHome(
                             route = AppRoute.CampusCard,
                         )
                     )
-                    // 杂志版式的头版只放数据，这一格是入口不是数据
-                    if (theme == com.xjtu.toolbox.settings.SettingsStore.THEME_ICON) add(
-                        HomeGlanceItem(
-                            icon = Icons.Default.Forum,
-                            label = "社区",
-                            value = "聊两句",
-                            caption = "提建议 · 报问题",
-                            route = AppRoute.Community,
-                        )
-                    )
                     if (exam != null) {
                         add(
                             HomeGlanceItem(
@@ -326,18 +303,6 @@ internal fun rememberAppHome(
                     }
                 }
             }
-
-        override val heroArt: (@Composable BoxScope.() -> Unit) = {
-            Image(
-                painter = painterResource(R.drawable.home_campus_hero),
-                contentDescription = "兴庆校区主楼",
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 12.dp, end = 12.dp)
-                    .size(104.dp),
-                contentScale = ContentScale.Fit,
-            )
-        }
 
         override fun onRoute(route: AppRoute) {
             // 日程格子直接切 tab，不先登教务：日程页自己有缓存，也会自己登

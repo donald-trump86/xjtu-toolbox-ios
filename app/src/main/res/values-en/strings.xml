@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">XJTUToolBox</string>
+    <string name="pidai_reader_name">Pidai</string>
     <string name="schedule_widget_2x2_name">Schedule (2x2)</string>
     <string name="schedule_widget_4x2_name">Schedule (4x2)</string>
     <string name="schedule_widget_desc">Today\'s schedule and next event</string>

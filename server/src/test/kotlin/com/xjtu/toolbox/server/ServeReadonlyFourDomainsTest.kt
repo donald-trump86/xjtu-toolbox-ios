@@ -2,7 +2,6 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
 import com.xjtu.toolbox.coupon.CouponFakeUpstream
-import com.xjtu.toolbox.dormpower.DormPowerFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import io.ktor.server.cio.CIOApplicationEngine
@@ -490,90 +489,6 @@ class ServeReadonlyFourDomainsTest {
         assertEquals(0, fake.coupon.activateBodies.size, "本批不端领券")
     }
 
-    // ── 宿舍电费（ssn）：rooms + reading ────────────────────────────────
-
-    @Test
-    fun `dorm rooms 与 reading：未登录 401 + 逐字段（kwh 是度、没有时间戳）`() = withFakeProxy { fake ->
-        val token = AccessToken.newToken()
-        val session = ServeSession()
-        val (server, http) = startEndpointServer(token) {
-            sessionRoutes(session, token)
-            dormRoutes(session)
-        }
-        started = server
-
-        val anonymous = http.get(DORM_ROOMS_PATH)
-        assertEquals(401, anonymous.statusCode())
-        assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(anonymous))
-        assertTrue(envelopeMessage(anonymous).orEmpty().contains("登录"), "401 要指路「先登录」")
-        assertEquals(401, http.get("$DORM_READING_PATH?roomId=${DormPowerFakeUpstream.ROOM_ID}").statusCode())
-        assertEquals(0, fake.dormPower.roomCalls.get(), "未登录那一枪不该到取数层")
-
-        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
-
-        // ── rooms：一间 ──
-        val roomsResponse = http.get(DORM_ROOMS_PATH)
-        assertEquals(200, roomsResponse.statusCode())
-        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(roomsResponse))
-        assertNoIdentity(roomsResponse.body(), "GET $DORM_ROOMS_PATH", IDENTITY)
-        val roomsData = envelopeData(roomsResponse)
-        assertEquals(setOf("rooms"), roomsData.keys)
-        val rooms = roomsData.getValue("rooms").jsonArray
-        assertEquals(1, rooms.size)
-        val room = rooms[0] as JsonObject
-        assertEquals(setOf("id", "name"), room.keys, "`DormRoom` 就两格（id 是要原样带回来的句柄）")
-        assertEquals(DormPowerFakeUpstream.ROOM_ID, room.optString("id"))
-        assertEquals(DormPowerFakeUpstream.ROOM_NAME, room.optString("name"))
-
-        // ── reading：拿 rooms 给的 id 去查 ──
-        val readingResponse = http.get("$DORM_READING_PATH?roomId=${DormPowerFakeUpstream.ROOM_ID}")
-        assertEquals(200, readingResponse.statusCode())
-        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(readingResponse))
-        assertNoIdentity(readingResponse.body(), "GET $DORM_READING_PATH", IDENTITY)
-        val reading = envelopeData(readingResponse)
-        assertEquals(
-            setOf("roomId", "kwh"),
-            reading.keys,
-            "没有时间戳：`:core` 的 DormReading.at 是本机记的，上游不给 ⇒ 本层不编（契约 §4）",
-        )
-        assertEquals(DormPowerFakeUpstream.ROOM_ID, reading.optString("roomId"))
-        assertEquals(DormPowerFakeUpstream.KWH, reading.optString("kwh")?.toDouble() ?: Double.NaN, 1e-9)
-
-        // 会话里的 cid 真被带上了（`SsnLogin` 登录时从缴费页 HTML 里取的那个）
-        assertEquals(DormPowerFakeUpstream.CID, fake.dormPower.lastListCid, "列表请求要带会话里的 cid")
-        assertEquals(DormPowerFakeUpstream.ROOM_ID, fake.dormPower.lastKwhRoomId)
-    }
-
-    @Test
-    fun `dorm reading：roomId 缺 400，rooms 不收参数`() = withFakeProxy { fake ->
-        val token = AccessToken.newToken()
-        val session = ServeSession()
-        val (server, http) = startEndpointServer(token) {
-            sessionRoutes(session, token)
-            dormRoutes(session)
-        }
-        started = server
-
-        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
-
-        // roomId 缺 / 空白 ⇒ 400（文案说出缺什么）
-        val missing = http.get(DORM_READING_PATH)
-        assertEquals(400, missing.statusCode())
-        assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(missing))
-        assertTrue(envelopeMessage(missing).orEmpty().contains("roomId"), "400 要说出缺什么")
-        assertEquals(400, http.get("$DORM_READING_PATH?roomId=%20").statusCode())
-        assertEquals(0, fake.dormPower.kwhCalls.get(), "400 那两枪都没到取数层")
-
-        // rooms 不收参数：随便塞一个也不影响（列表照常出来）
-        val rooms = http.get("$DORM_ROOMS_PATH?roomId=whatever")
-        assertEquals(200, rooms.statusCode())
-        assertEquals(1, envelopeData(rooms).getValue("rooms").jsonArray.size)
-        assertEquals(1, fake.dormPower.roomCalls.get())
-
-        // rooms 的响应里没有 null 字段可挑：`kwh` 才是唯一可空的那一格
-        assertNull(envelopeData(rooms).optString("kwh"), "rooms 的形状里没有 kwh")
-    }
-
     // ── 脚手架 ─────────────────────────────────────────────────────────
 
     private companion object {
@@ -587,8 +502,6 @@ class ServeReadonlyFourDomainsTest {
         const val ATTENDANCE_STREAMS_PATH = "/api/attendance/streams"
         const val COUPON_LIST_PATH = "/api/coupon/list"
         const val COUPON_DETAIL_PATH = "/api/coupon/detail"
-        const val DORM_ROOMS_PATH = "/api/dorm/rooms"
-        const val DORM_READING_PATH = "/api/dorm/reading"
 
         /** §5.2 红线的钉子组（编造值，非真人）：学号 / 姓名 / 令牌一律不许出现。 */
         val IDENTITY = listOf(

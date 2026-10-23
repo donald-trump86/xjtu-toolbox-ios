@@ -5,6 +5,7 @@ import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.AgentWidget
 import com.xjtu.toolbox.agent.ExamWidget
 import com.xjtu.toolbox.agent.LiveRoomWidget
+import com.xjtu.toolbox.agent.WidgetDisplay
 import com.xjtu.toolbox.agent.RoomWidget
 import com.xjtu.toolbox.agent.ScheduleWidget
 import com.xjtu.toolbox.agent.ToolReply
@@ -101,18 +102,18 @@ internal class ServeAgentTools(
         val args = runCatching { AppJson.parseToJsonElement(argsJson).jsonObject }
             .getOrDefault(JsonObject(emptyMap()))
 
-        val widgetsBefore = pendingWidgets.size
-        val result = when (name) {
+        when (name) {
             // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
             "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.argStr("term"))
             "get_schedule" -> getSchedule(args.argStr("date"), args.argStr("term"))
             "get_exam_schedule" -> getExamSchedule()
-            "get_empty_rooms" -> getEmptyRooms(
-                campus = args.argStr("campus"),
-                building = args.argStr("building"),
-                section = args.argInt("section"),
-                date = args.argStr("date"),
-            )
+            "get_empty_rooms" -> com.xjtu.toolbox.agent.agentRoomRequest(args).let { request ->
+                getEmptyRooms(
+                    campus = args.argStr("campus"), building = args.argStr("building"),
+                    section = args.argInt("section"), date = args.argStr("date"),
+                    view = request.view, sections = request.sections, minimum = request.minimum,
+                )
+            }
             "search_yellow_page" -> searchYellowPage(
                 query = args.argStr("query"),
                 category = args.argStr("category"),
@@ -134,7 +135,6 @@ internal class ServeAgentTools(
             // 工具表里没画的档回 not_found：模型可能凭旧对话里的记忆调过来（那段历史是在别的端上生成的）
             else -> ToolReply.notFound("tool", name)
         }
-        if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 取数（这一端自己的那几件：黄页 / 教师检索，与 DesktopAgentTools 同形）────────────
@@ -247,6 +247,7 @@ internal class ServeAgentTools(
         lastSiteError = null
         session.sessionManager.ensureSite(type, silent = true)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -254,6 +255,7 @@ internal class ServeAgentTools(
         lastSiteError = null
         session.sessionManager.ensureSite(siteKey, silent = true)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -542,7 +544,7 @@ internal class ServeAgentTools(
             agentStaleFallback(dataCache, "agent_exam", ToolReply.failed("get_exam_schedule", e.message))
         }
     }
-    private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?): String {
+    private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?, view: String = "auto", sections: List<Int> = emptyList(), minimum: Int = 1): String {
         return try {
             val api = EmptyRoomApi(null)
             val targetDate = parseToolDate(date)
@@ -556,13 +558,20 @@ internal class ServeAgentTools(
             val sourcePref: String? = null
             val nowSection = currentPeriodIndex() + 1
             val asksNow = targetDate == LocalDate.now(CampusZoneId) && (section == null || section == nowSection)
+            if (view !in setOf("auto", "slots", "status", "both")) return ToolReply.badValue("view", "auto/slots/status/both")
             var liveNote: String? = null
-            if (asksNow && (sourcePref == null || sourcePref == "live") && targetCampus in LIVE_CAMPUSES) {
+            var liveSnapshot: LiveRoomWidget? = null
+            val canQueryLive = targetDate == LocalDate.now(CampusZoneId) && targetCampus in LIVE_CAMPUSES
+            if (view != "slots" && canQueryLive && (view in setOf("status", "both") || asksNow && (sourcePref == null || sourcePref == "live"))) {
                 val site = ensureSiteKey(com.xjtu.toolbox.auth.JsSession.SITE_KEY)
                 if (site != null) {
                     val live = runCatching { liveRoomsReply(site, targetCampus, building) }
-                    live.getOrNull()?.let { return it }
-                    liveNote = if (live.isSuccess) {
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    live.getOrNull()?.let {
+                        if (view != "both") return it
+                        liveSnapshot = pendingWidgets.lastOrNull() as? LiveRoomWidget
+                    }
+                    if (liveSnapshot == null) liveNote = if (live.isSuccess) {
                         // 楼不在智慧教室平台上（仲英楼、中1 等），课表里有
                         "实时状态里没有「$building」，以下按课表"
                     } else {
@@ -572,35 +581,28 @@ internal class ServeAgentTools(
                     liveNote = "实时状态登录不上（${lastSiteError?.javaClass?.simpleName ?: "未登录"}），以下按课表"
                 }
             }
+            if (view in setOf("status", "both") && !canQueryLive) liveNote = "该日期或校区无实时状态，以下仅展示课表空闲"
 
             val targetBuildings = if (building != null) {
                 buildings.filter { it == building || it.startsWith(building) }
                     .ifEmpty { return ToolReply.notFound("building", "$targetCampus $building") }
             } else buildings
 
-            // 复用页面的「CDN / 直连教务」选择。直连较重（每楼逐节查询，约11次请求/楼），
-            // 仅在用户已开启直连且指定了具体楼栋时启用，避免对全校区直连冲击学校服务器。
-            val preferDirect = sourcePref == "direct"
-            val directClient = if (preferDirect && building != null) {
-                ensureSite(LoginType.JWXT)?.client
-            } else null
-            val usingDirect = directClient != null
-
-            // 并发请求各楼栋，避免整校区串行导致超时
-            val allRooms = coroutineScope {
-                targetBuildings.map { b ->
-                    async(Dispatchers.IO) {
-                        runCatching {
-                            if (directClient != null)
-                                EmptyRoomDirectQuery(directClient, null).queryDay(targetCampus, b, dateStr)
-                            else api.getEmptyRooms(targetCampus, b, dateStr)
-                        }.getOrDefault(emptyList())
-                    }
-                }.awaitAll().flatten()
+            val timetable = try {
+                com.xjtu.toolbox.emptyroom.queryRoomTimetable(
+                    targetCampus, targetBuildings.toSet(), dateStr, api, preferDirect = sourcePref == "direct",
+                ) {
+                    val directClient = ensureSite(LoginType.JWXT)?.client ?: error("教务登录失败")
+                    EmptyRoomDirectQuery(directClient, null)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return ToolReply.failed("get_empty_rooms", "课表查询失败：${e.message}。" +
+                    if (liveSnapshot != null) "已取得实时状态，只代表此刻状态。" else "")
             }
-            if (allRooms.isEmpty()) return ToolReply.empty(
-                "empty_rooms_data; date: $dateStr; campus: $targetCampus" + (liveNote?.let { "; note: $it" } ?: "")
-            )
+            val allRooms = timetable.rooms
+            if (allRooms.isEmpty()) return ToolReply.empty("empty_rooms_data; date: $dateStr; campus: $targetCampus")
 
             val filtered = if (section != null && section in 1..11) {
                 allRooms.filter { it.status.getOrElse(section - 1) { 1 } == 0 }
@@ -608,7 +610,12 @@ internal class ServeAgentTools(
                 // 无指定节次，取全天任意节次空闲的教室
                 allRooms.filter { r -> r.status.any { it == 0 } }
             }
-            if (filtered.isEmpty()) return ToolReply.empty(
+            val selected = filtered.filter { r -> sections.all { r.status.getOrNull(it - 1) == 0 } &&
+                r.status.fold(0 to 0) { (run, longest), status ->
+                    val next = if (status == 0) run + 1 else 0
+                    next to maxOf(longest, next)
+                }.second >= minimum }
+            if (selected.isEmpty()) return ToolReply.empty(
                 "empty_rooms; date: $dateStr; campus: $targetCampus" +
                     (building?.let { "; building: $it" } ?: "") +
                     (section?.let { "; section: $it" } ?: "")
@@ -619,23 +626,33 @@ internal class ServeAgentTools(
                 building?.let { append(" $it") }
                 section?.let { append(" 第${it}节") }
                 append(" $dateStr")
-                if (usingDirect) append(" · 直连")
+                if (timetable.direct) append(" · 教务直连")
             }
-            pendingWidgets.add(RoomWidget(cond, filtered, section?.minus(1) ?: currentPeriodIndex()))
-            val shown = filtered.take(15)
+            liveSnapshot?.let { pendingWidgets.remove(it) }
+            pendingWidgets.add(RoomWidget(
+                cond, selected,
+                if (targetDate == LocalDate.now(CampusZoneId)) section?.minus(1) ?: currentPeriodIndex() else -1,
+                display = WidgetDisplay(view = if (liveSnapshot != null) "both" else "slots", sections = sections),
+                liveRooms = liveSnapshot?.rooms.orEmpty(), fetchedAt = liveSnapshot?.fetchedAt ?: 0L,
+            ))
+            val shown = selected.take(15)
             buildString {
                 liveNote?.let { append(it).append("。\n") }
-                append("空教室（$cond，共${filtered.size}间）：\n")
+                if (timetable.skippedBuildings.isNotEmpty()) append("未取得楼栋：${timetable.skippedBuildings.joinToString("、")}\n")
+                append("空教室（$cond，共${selected.size}间）：\n")
                 shown.forEach { r ->
                     val freeSlots = r.status.mapIndexedNotNull { i, s -> if (s == 0) i + 1 else null }
                     append("${r.name}｜${r.size} 座｜空闲节次 ${freeSlots.joinToString(",")}\n")
                 }
-                if (filtered.size > shown.size) append("…还有${filtered.size - shown.size}间，可指定楼栋缩小范围。\n")
+                if (selected.size > shown.size) append("…还有${selected.size - shown.size}间，可指定楼栋缩小范围。\n")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             ToolReply.failed("get_empty_rooms", e.message)
         }
     }
+
     private fun parseToolDate(date: String?): LocalDate {
         val today = LocalDate.now(CampusZoneId)
         return when (date?.trim()?.lowercase()) {

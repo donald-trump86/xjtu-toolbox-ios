@@ -36,10 +36,10 @@ class VenueLogin(
         const val BASE_URL = "http://202.117.17.144:8080"
 
         /**
-         * 支付页在 80 端口的另一套站点上，且要求浏览器自身的会话，
+         * 支付页与业务接口使用同一部署，且要求浏览器自身的会话，
          * 不能把 App 内的 cookie 拼进 URL。
          */
-        const val PAY_BASE_URL = "http://202.117.17.144"
+        const val PAY_BASE_URL = "$BASE_URL/web"
 
         const val VENUE_OAUTH_URL =
             "https://org.xjtu.edu.cn/openplatform/oauth/authorize?" +

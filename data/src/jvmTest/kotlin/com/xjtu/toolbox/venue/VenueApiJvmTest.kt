@@ -49,7 +49,7 @@ class VenueApiJvmTest {
     @Test
     fun `夹具与生产指同一个场馆站，URL 一字未改`() {
         assertEquals(VenueLogin.BASE_URL, VenueFakeUpstream.ORIGIN)
-        assertEquals(VenueLogin.PAY_BASE_URL, VenueFakeUpstream.PAY_ORIGIN)
+        assertEquals("${VenueFakeUpstream.PAY_ORIGIN}/web", VenueLogin.PAY_BASE_URL)
         assertEquals(VenueLogin.VENUE_OAUTH_URL, VenueFakeUpstream.OAUTH_URL)
         assertEquals(VenueApi.BROWSER_LOGIN_URL, VenueFakeUpstream.OAUTH_URL)
         assertEquals("${VenueLogin.BASE_URL}/web/cas/oauth2url.html", VenueFakeUpstream.OAUTH_CALLBACK_URL)
@@ -265,7 +265,7 @@ class VenueApiJvmTest {
         assertEquals(2, fake.venue.orderCalls.get())
     }
 
-    /** 两个纯函数：`prepareOrder` 拼服务端参数（stockdetail 的 key 是库存、value 是逗号连起来的场地）、`paymentUrl` 在 80 端口那台站上。 */
+    /** 两个纯函数：`prepareOrder` 拼服务端参数（stockdetail 的 key 是库存、value 是逗号连起来的场地）、`paymentUrl` 与业务使用同一部署。 */
     @Test
     fun `prepareOrder 与 paymentUrl 是纯计算，不碰网络`() {
         val api = VenueApi(VenueSession())

@@ -116,7 +116,7 @@ class FitnessProtocolTest {
             FitnessProtocol.requestUserInfo(client, FitnessProtocol.extractLaunch(callback()).session, FitnessProtocol.H5_HOME_URL)
             fail("5xx 应当直接报学校服务故障")
         } catch (e: IOException) {
-            assertTrue(e.message!!.contains("学校体测系统"))
+            assertEquals("学校体测服务暂不可用，请过段时间再试。", com.xjtu.toolbox.error.FriendlyError.of(e))
         }
     }
 }

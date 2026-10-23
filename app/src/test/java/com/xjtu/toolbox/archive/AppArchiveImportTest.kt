@@ -58,13 +58,13 @@ class AppArchiveImportTest {
             .commit()
         // 档案里：一条端内没有的键（写进来）+ 一条与端内不同但**没有 at** 的键（本端胜）
         val entries = archiveOf(
-            StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("list"), "dark_mode" to StoreValue.S("dark"))),
+            StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME"), "dark_mode" to StoreValue.S("dark"))),
         )
 
         val outcome = importInto(local, entries)
 
         assertEquals(ImportResult.Ok(keysWritten = 1, keysKept = 1, filesWritten = 0), (outcome as ArchiveImportOutcome.Imported).result)
-        assertEquals("list", local.of("app_settings").getString("home_theme", null))
+        assertEquals("HOME", local.of("app_settings").getString("default_tab", null))
         assertEquals("light", local.of("app_settings").getString("dark_mode", null))
         assertEquals(4, local.of("app_settings").getInt("eula_accepted_version", 0))
     }
@@ -134,7 +134,7 @@ class AppArchiveImportTest {
         val local = Prefs()
         val before = local.snapshot()
         val entries = archiveOf(
-            StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("list"))),
+            StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME"))),
             files = listOf(ArchiveFile("", RoomArchiveFamilies.JIAOCAI_SHELF_REL, "{ 坏的行数组")),
         )
         val root = newTempDir("xjtu-precheck")
@@ -145,7 +145,7 @@ class AppArchiveImportTest {
             assertTrue("$outcome", outcome is ArchiveImportOutcome.Failed)
             // 预检排在 §6.4 合并之前 ⇒ 连那条「端内没有的键」都没被写进来
             assertEquals(before, local.snapshot())
-            assertNull(local.of("app_settings").getString("home_theme", null))
+            assertNull(local.of("app_settings").getString("default_tab", null))
         } finally {
             root.deleteRecursively()
         }
@@ -186,7 +186,7 @@ class AppArchiveImportTest {
     @Test
     fun `zip 形态的标记写在 zip 旁边`() {
         val local = Prefs()
-        val entries = archiveOf(StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("list"))))
+        val entries = archiveOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME"))))
         val root = newTempDir("xjtu-zip")
         try {
             val zip = File(root, "xjtu-toolbox-archive.zip")
@@ -197,7 +197,7 @@ class AppArchiveImportTest {
 
             assertTrue("$outcome", outcome is ArchiveImportOutcome.Imported)
             assertTrue(File(root, "xjtu-toolbox-archive.zip.imported").isFile)
-            assertEquals("list", local.of("app_settings").getString("home_theme", null))
+            assertEquals("HOME", local.of("app_settings").getString("default_tab", null))
         } finally {
             root.deleteRecursively()
         }

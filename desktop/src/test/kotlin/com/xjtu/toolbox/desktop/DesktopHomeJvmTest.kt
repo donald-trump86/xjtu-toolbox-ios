@@ -199,7 +199,6 @@ class DesktopHomeJvmTest {
         )
         assertFalse(HomeCard.QUICK_ACTIONS in host.honoredCards, "桌面没有点击记录 ⇒ 常用功能那一排不画")
         assertNull(host.statusLine, "桌面没有校内外判定 ⇒ 那一行状态不画")
-        assertNull(host.heroArt, "桌面没有校区插画那张资源（不拿别的东西冒充）")
         assertEquals(emptyList(), host.quickRoutes, "常用入口那一排没接")
         assertEquals(listOf("社区"), host.glances.map { it.label }, "没有校园卡缓存、也没有考试表 ⇒ 只剩社区那一格")
 
@@ -209,7 +208,7 @@ class DesktopHomeJvmTest {
         assertEquals("课表还没同步", host.nextUp?.title)
         assertEquals(AppRoute.Schedule, host.nextUp?.route, "点这一格去同步课表")
         state.scheduleDataMissing = false
-        assertEquals("接下来两周都没课", host.nextUp?.title)
+        assertEquals("接下来两周没有安排", host.nextUp?.title)
 
         // 宫格按「这一端真能打开的路由」筛：打不开的入口**不画**
         val all = HomeCards.groups(AccountType.UNDERGRADUATE, emptyMap())

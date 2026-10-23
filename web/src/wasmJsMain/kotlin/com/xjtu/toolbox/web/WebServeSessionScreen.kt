@@ -134,7 +134,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                     Text("已登录（会话在 :server 进程里）", color = colors.onSurface, fontSize = 14.sp)
                     Text(
                         "取数（课表 / 成绩 / 黄页 / 图书馆 / 校园卡 …）现在都走 `:server`。" +
-                            "登出会删掉 :server 上的凭据、cookie 与站点快照。",
+                            "退出后将清除服务端保存的校园账号登录信息。",
                         color = colors.onBackgroundVariant,
                         fontSize = 11.sp,
                     )
@@ -184,9 +184,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "验证码是发给 :server 那条登录流程的，结论从下一次轮询（被拒次数涨没涨）或" +
-                        "那发登录请求的响应读 —— 所以这里交完可能还显示一会儿「等待」。" +
-                        "（契约不投影绑定手机号，所以这里不写「已发送到 138****」。）",
+                    "请输入学校发送的短信验证码，验证可能需要几秒。",
                     color = MiuixTheme.colorScheme.onBackgroundVariant,
                     fontSize = 11.sp,
                 )

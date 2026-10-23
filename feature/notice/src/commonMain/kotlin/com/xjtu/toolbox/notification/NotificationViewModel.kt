@@ -17,15 +17,12 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
- * 通知：单个来源或多来源合并、翻页、站内搜索。
- * 选择项由界面直接改，这里监听变化：来源 / 模式变了重新加载，搜索词停手 0.5 秒后查全站。
+ * 通知：来源多选、合并分页与站内搜索。
+ * 选择项由界面直接改，这里监听变化：来源变了重新加载，搜索词停手 0.5 秒后查全站。
  */
 internal class NotificationViewModel(private val api: NoticeSource) : ViewModel() {
 
-    var selectedCategory by mutableStateOf<SourceCategory?>(null)   // null = 全部分类
-    var selectedSource by mutableStateOf(NotificationSource.JWC)
-    var mergeMode by mutableStateOf(false)
-    var selectedSources by mutableStateOf(setOf(NotificationSource.JWC))
+    var selectedSources by mutableStateOf(setOf(NotificationSource.JWC)); private set
     var searchQuery by mutableStateOf("")
 
     var notifications by mutableStateOf<List<Notification>>(emptyList()); private set
@@ -41,20 +38,20 @@ internal class NotificationViewModel(private val api: NoticeSource) : ViewModel(
     var searchLoading by mutableStateOf(false); private set
     var searchNotice by mutableStateOf<String?>(null); private set
 
-    /** 每次换来源 / 模式后的重新加载完成就加一，界面据此滚回顶部。 */
+    /** 每次换来源后的重新加载完成就加一，界面据此滚回顶部。 */
     var reloadGeneration by mutableIntStateOf(0); private set
 
     /** 按来源组合缓存：切回去时先显示上次的内容。 */
-    private val cache = mutableMapOf<Any, List<Notification>>()
+    private val cache = mutableMapOf<String, List<Notification>>()
     // `toSortedSet()` 是 JVM 专属（默认导入，import 判据抓不到）⇒ 换成 `sorted()`：
     // 枚举的自然序就是 ordinal 序，键的语义不变（它只是缓存 map 的键）。
-    private val cacheKey: Any get() = if (mergeMode) selectedSources.sorted().joinToString(",") else selectedSource
+    private val cacheKey: String get() = selectedSources.sorted().joinToString(",")
     val searching get() = searchQuery.isNotBlank()
     private var loadJob: Job? = null
 
     init {
         viewModelScope.launch {
-            snapshotFlow { Triple(selectedSource, mergeMode, selectedSources) }.distinctUntilChanged().collectLatest {
+            snapshotFlow { selectedSources }.distinctUntilChanged().collectLatest {
                 reload()
             }
         }
@@ -63,16 +60,8 @@ internal class NotificationViewModel(private val api: NoticeSource) : ViewModel(
         }
     }
 
-    fun toggleMerge() {
-        mergeMode = !mergeMode
-        if (mergeMode && selectedSources.isEmpty()) selectedSources = setOf(selectedSource)
-    }
-
-    /** 合并模式下至少留一个来源。 */
-    fun toggleSource(source: NotificationSource) {
-        selectedSources = if (source in selectedSources) {
-            if (selectedSources.size > 1) selectedSources - source else selectedSources
-        } else selectedSources + source
+    fun selectSources(sources: Set<NotificationSource>) {
+        if (sources.isNotEmpty()) selectedSources = sources
     }
 
     /** 下拉刷新：丢掉这个组合的缓存重拉。 */
@@ -103,24 +92,9 @@ internal class NotificationViewModel(private val api: NoticeSource) : ViewModel(
         if (!append && cache[key] == null) isLoading = true
         errorMessage = null
         // Compose 状态在主线程取好再进 IO：init 里就会走到这里，那时状态还在组合的快照里没提交
-        val merge = mergeMode
         val sources = selectedSources.toList()
-        val source = selectedSource
         try {
-            val fetched = run {
-                if (merge) {
-                    api.merged(sources, page)
-                } else {
-                    val single = try {
-                        api.page(source, page)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        NotificationPage(emptyList(), false)
-                    }
-                    MergedNotificationPage(single.items, emptySet(), single.hasMore)
-                }
-            }
+            val fetched = api.merged(sources, page)
             skippedSourceNotice = fetched.skipped.takeIf { it.isNotEmpty() }
                 ?.joinToString("、") { it.displayName }?.let { "$it 暂不可达，可能是网络问题或站点维护" }
             if (append) {
@@ -157,7 +131,7 @@ internal class NotificationViewModel(private val api: NoticeSource) : ViewModel(
         searchLoading = true
         delay(500)
         try {
-            val sources = if (mergeMode) selectedSources.toList() else listOf(selectedSource)
+            val sources = selectedSources.toList()
             val r = api.search(sources, kw)
             searchResults = r.items
             searchNotice = r.skipped.takeIf { it.isNotEmpty() }

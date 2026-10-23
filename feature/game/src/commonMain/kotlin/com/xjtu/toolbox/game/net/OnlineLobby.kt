@@ -220,19 +220,5 @@ fun LobbyOptionRow(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun LobbyChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = FontWeight.SemiBold,
-            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-        )
-    }
-}
+fun LobbyChip(text: String, selected: Boolean, onClick: () -> Unit) =
+    com.xjtu.toolbox.ui.components.AppFilterChip(selected = selected, onClick = onClick, label = text)

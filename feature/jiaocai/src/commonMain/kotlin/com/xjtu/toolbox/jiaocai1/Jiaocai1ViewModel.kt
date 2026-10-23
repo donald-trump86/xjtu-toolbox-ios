@@ -84,7 +84,7 @@ class Jiaocai1ViewModel(
                 books = if (page == 1) r.books else books + r.books
             } catch (e: Exception) {
                 // `:core` 抓不到 `:app`/`:data` 的 `AuthExpiredException` ⇒ 按 `:core` 的标记接口
-                // [SessionExpiredFailure] 认（它实现了那个接口），与 coupon / dormpower 同一条写法。
+                // 会话失效交给宿主重新认证。
                 if (e is SessionExpiredFailure) authExpired = true
                 else if (page == 1) error = FriendlyError.of(e, "检索") else moreFailed = true
             } finally {

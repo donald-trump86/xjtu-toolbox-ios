@@ -2,6 +2,7 @@ package com.xjtu.toolbox.home
 
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.inbox.InboxData
+import com.xjtu.toolbox.inbox.InboxItem
 import com.xjtu.toolbox.inbox.InboxRules
 import com.xjtu.toolbox.nav.AppRoute
 
@@ -26,6 +27,8 @@ data class HomeInboxSummary(
     val unreadCount: Int,
     /** 最该先办的那条待办的标题（`InboxRules.todos` 的排序：快截止的在前；没有待办时为 null）。 */
     val nextTodo: String?,
+    /** 最早一条还没到截止的待办：截止比下一项安排早时，首页「下一项」就换成它（见 [HomeHero.dueLead]）。 */
+    val nextDue: InboxItem? = null,
 ) {
     val isEmpty: Boolean get() = todoCount == 0 && unreadCount == 0
 }
@@ -60,6 +63,7 @@ object HomeCards {
     /** 某个功能此刻的状态。 */
     fun statOf(key: String, stats: Map<String, HomeStat>): HomeStat? = when (key) {
         AppRoute.CampusCard.id, AppRoute.SchoolCalendar.id -> null
+        AppRoute.Fitness.id -> stats[key]?.takeIf { it.value.trim().toDoubleOrNull()?.let { score -> score >= 60 } == true }
         AppRoute.Attendance.id -> stats[AppRoute.Attendance.id]?.let { att ->
             val punch = stats[AppRoute.Iclassface.id]
             val detail = if (punch != null && punch.value != "今日未刷卡") {
@@ -79,6 +83,7 @@ object HomeCards {
             todoCount = todos.size,
             unreadCount = InboxRules.groups(data, now).count { it.unread },
             nextTodo = todos.firstOrNull()?.title?.takeIf { t -> t.isNotBlank() },
+            nextDue = todos.filter { it.expiresAt > now && it.title.isNotBlank() }.minByOrNull { it.expiresAt },
         )
     }
 }

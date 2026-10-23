@@ -207,6 +207,19 @@ class ServeAgentToolsTest {
 
     // ── 7. 白名单之外的档：一个都不下发 ──────────────────────────────────────
 
+    @Test fun `CDN 缺失由工具自动直连并按多节次过滤`() = withFakeProxy { fake ->
+        wipeToolStores()
+        val tools = newTools(loggedInSession())
+        val result = runBlocking { tools.execute("get_empty_rooms",
+            """{"campus":"兴庆校区","building":"主楼A","view":"slots","sections":[1,6,11],"date":"${EmptyRoomFakeUpstream.NO_DATA_DATE}"}""") }
+        assertTrue(result.contains("教务直连"), result)
+        val widget = tools.drainWidgets().single() as com.xjtu.toolbox.agent.RoomWidget
+        assertEquals(listOf(JwxtFakeUpstream.EMPTY_ROOM_A102), widget.rooms.map { it.name })
+        assertEquals(listOf(1, 6, 11), widget.display.sections)
+        assertEquals(EmptyRoomFakeUpstream.NO_DATA_DATE, fake.emptyRoom.lastCdnDate)
+        assertEquals(12, fake.jwxt.emptyRoomQueryCalls.get())
+    }
+
     /** 这条是设计稿 §6.2 那把尺子的落点：没开放的档一个字都不画（画了就得能用）。 */
     @Test
     fun `白名单之外的工具不会被下发，调过来也只会回 not_found`() = withFakeProxy(casEnabled = false) { _ ->

@@ -54,6 +54,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 val LocalGlassStyle = compositionLocalOf { false }
 
+/** 二级页被用户放到了底栏上（没有上一级）：[com.xjtu.toolbox.ui.components.BackButton] 不画。 */
+val LocalTabRoot = compositionLocalOf { false }
+
 /** 这一页的玻璃采样源；经典风格时为 null。每页自己建一份，不借主界面的。 */
 @Composable
 fun rememberPageGlass(): LayerBackdrop? {

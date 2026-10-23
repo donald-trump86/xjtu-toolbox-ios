@@ -5,6 +5,7 @@ import com.xjtu.toolbox.util.intValue
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.PortalRedirect
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -43,7 +44,11 @@ class Jiaocai1Api(private val site: SiteSession) {
             if (!ok) break
             body = exec(request, "biz-retry$round")
         }
-        if (PortalRedirect.needsLogin(body)) Log.e(TAG, "跟完登录链仍未建立会话")
+        // 会话没建起来时拿到的是跳转页，当数据解析只会是一片空白：交给宿主重新登录
+        if (PortalRedirect.needsLogin(body)) {
+            Log.e(TAG, "跟完登录链仍未建立会话")
+            throw AuthExpiredException("教材全文库")
+        }
         return body
     }
 
@@ -63,31 +68,26 @@ class Jiaocai1Api(private val site: SiteSession) {
 
     // ── 分类树 ───────────────────────────────────────────────────────
 
-    /** 四级中图法分类树，返回顶层节点。 */
+    /** 四级中图法分类树，返回顶层节点。取不到就抛，由界面给原因和重试。 */
     suspend fun classifyTree(): List<Jiaocai1Category> {
-        var body = ""
-        return try {
-            body = get("$BASE/front/classify/info?channeltype=$CHANNEL")
-            val arr = body.safeParseJsonObject().arr("classifyList") ?: return emptyList()
-            val flat = arr.mapNotNull { el ->
-                try {
-                    val o = el.jsonObject
-                    Jiaocai1Category(
-                        id = o.get("classifyid")?.stringValue ?: return@mapNotNull null,
-                        name = o.get("classifyname")?.stringValue ?: "",
-                        level = o.get("clevel")?.intValue ?: 1,
-                        parentId = o.get("pid")?.intValue ?: 0,
-                        nodeId = o.get("id")?.intValue ?: 0,
-                    )
-                } catch (_: Exception) {
-                    null
-                }
+        val body = get("$BASE/front/classify/info?channeltype=$CHANNEL")
+        val arr = body.safeParseJsonObject().arr("classifyList")
+            ?: throw IllegalStateException("全文库没返回分类目录")
+        val flat = arr.mapNotNull { el ->
+            try {
+                val o = el.jsonObject
+                Jiaocai1Category(
+                    id = o.get("classifyid")?.stringValue ?: return@mapNotNull null,
+                    name = o.get("classifyname")?.stringValue ?: "",
+                    level = o.get("clevel")?.intValue ?: 1,
+                    parentId = o.get("pid")?.intValue ?: 0,
+                    nodeId = o.get("id")?.intValue ?: 0,
+                )
+            } catch (_: Exception) {
+                null
             }
-            buildTree(flat)
-        } catch (e: Exception) {
-            Log.e(TAG, "classifyTree failed: ${e.message}")
-            emptyList()
         }
+        return buildTree(flat)
     }
 
     private fun buildTree(flat: List<Jiaocai1Category>): List<Jiaocai1Category> {
@@ -129,7 +129,7 @@ class Jiaocai1Api(private val site: SiteSession) {
             parseSearchHtml(html)
         } catch (e: Exception) {
             Log.e(TAG, "search failed", e)
-            Jiaocai1SearchResult()
+            throw e
         }
     }
 

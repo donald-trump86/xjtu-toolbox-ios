@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.zyxf
 
 import android.annotation.SuppressLint
+import android.text.format.Formatter
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
@@ -22,11 +23,11 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,16 +38,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xjtu.toolbox.util.releaseSafely
+import com.xjtu.toolbox.lms.LmsDownloadStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -67,17 +74,15 @@ private const val LARGE_FILE_BYTES = 20L * 1024 * 1024
  * 没有去嵌资料站的页面本身：它的预览是 BrowsePage 里的一个弹层，没有可直达的路由，
  * 靠模拟点击既脆弱、又会把整套 SPA（侧边栏、知识图谱、聊天）一起拖进来。
  *
- * 版式照搬它那个浮层的结构（`Preview/index.jsx`）：整屏浮层 + 一行紧凑标题栏
- * （文件名单行省略、下载、关闭），正文占满剩余空间。**加载态由 Compose 画**，
+ * 文件信息放在顶部，下载操作和结果放在正文下方，窄屏弹窗与宽屏右栏共用。
+ * 正文占满剩余空间。**加载态由 Compose 画**，
  * 不在壳页里放占位块——之前那版把 `正在加载预览…` 写死在 HTML 里并留了 40vh 的内边距，
  * SDK 渲染出来之后它还杵在上面，把正文顶下去一大截。
  */
 /**
  * 窄屏的文件预览：接近全高的底部弹窗。
  *
- * 标题就是文件名，下载放在标题右边，关掉靠下拉、点外面或返回——不再有自己那条
- * 「文件名 / 下载 / ×」标题栏。以前是全屏 Dialog 加这条栏，Dialog 打开时状态栏内边距
- * 晚一帧才到位，这条栏会跳一下，看着就是「顶栏闪了」。
+ * 弹窗只提供拖动条，文件标题和底部下载栏由 [PreviewContent] 统一绘制。
  *
  * [file] 为 null 时弹窗收起。弹窗要一直留在组合里、由 show 从 false 变 true 来打开
  * （miuix 弹窗的约定，条件式创建会没有打开动画）；收起动画期间保留上一次的文件，内容不会先塌掉。
@@ -89,6 +94,7 @@ fun ZyxfPreviewSheet(
     file: ZyxfApi.Entry?,
     onDismiss: () -> Unit,
     onDownload: (ZyxfApi.Entry) -> Unit,
+    downloadState: (Int) -> String? = { null },
 ) {
     var last by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<ZyxfApi.Entry?>(null) }
     if (file != null) last = file
@@ -97,18 +103,7 @@ fun ZyxfPreviewSheet(
     val sheetHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp
     top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
         show = file != null,
-        title = shown?.name,
-        endAction = {
-            shown?.let { f ->
-                IconButton(onClick = { onDownload(f) }) {
-                    Icon(
-                        Icons.Default.Download,
-                        contentDescription = "下载",
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-            }
-        },
+        backgroundColor = MiuixTheme.colorScheme.surface,
         // 默认左右 24dp 内边距，预览是整页文档，贴边显示得更多
         insideMargin = androidx.compose.ui.unit.DpSize(0.dp, 0.dp),
         onDismissRequest = onDismiss,
@@ -121,8 +116,9 @@ fun ZyxfPreviewSheet(
                     sizeBytes = shown.sizeBytes,
                     onBack = onDismiss,
                     onDownload = { onDownload(shown) },
+                    downloadState = downloadState(shown.id),
                     embedded = true,
-                    showHeader = false,
+                    showClose = false,
                 )
             }
         }
@@ -144,9 +140,9 @@ internal fun PreviewContent(
     sizeBytes: Long,
     onBack: () -> Unit,
     onDownload: () -> Unit,
+    downloadState: String? = null,
     embedded: Boolean = false,
-    /** false：不画自己的「文件名 / 下载 / ×」标题栏（底部弹窗用它自己的标题和下载按钮）。 */
-    showHeader: Boolean = true,
+    showClose: Boolean = true,
 ) {
     var token by remember(fileId) { mutableStateOf<ZyxfApi.Weboffice?>(null) }
     var ready by remember(fileId) { mutableStateOf(false) }
@@ -166,34 +162,42 @@ internal fun PreviewContent(
                 .fillMaxSize()
                 .then(
                     if (embedded) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars),
-                ),
+                )
+                .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
-            // 标题栏：文件名一行放不下就省略，不要换行成两行大字。
-            if (showHeader) Row(
+            Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(start = 20.dp, end = 20.dp, top = if (showClose) 12.dp else 0.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    fileName,
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(4.dp))
-                IconButton(onClick = onDownload) {
-                    Icon(
-                        Icons.Default.Download,
-                        contentDescription = "下载",
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.size(19.dp),
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        fileName,
+                        style = MiuixTheme.textStyles.body1,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        listOfNotNull(
+                            "在线预览",
+                            fileName.substringAfterLast('.', "").uppercase().takeIf { it.isNotBlank() },
+                            if (sizeBytes > 0) Formatter.formatShortFileSize(LocalContext.current, sizeBytes) else null,
+                        ).joinToString(" · "),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onBack) {
+                if (showClose) IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(14.dp))
+                        .background(MiuixTheme.colorScheme.surfaceVariant),
+                ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "关闭",
@@ -202,7 +206,7 @@ internal fun PreviewContent(
                     )
                 }
             }
-            if (showHeader) HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f))
+            HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f))
 
             if (sizeBytes > LARGE_FILE_BYTES) {
                 Text(
@@ -218,8 +222,7 @@ internal fun PreviewContent(
             Box(
                 Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.navigationBars),
+                    .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
                 val t = token
@@ -257,6 +260,75 @@ internal fun PreviewContent(
                         )
                     }
                 }
+            }
+            PreviewDownloadBar(downloadState, onDownload)
+        }
+    }
+}
+
+/** 在预览所在层显示持久反馈，弹窗不会把列表里的下载结果盖住。 */
+@Composable
+private fun PreviewDownloadBar(state: String?, onDownload: () -> Unit) {
+    val downloading = state == DOWNLOADING
+    val failed = state == "下载失败"
+    val saved = state != null && !downloading && !failed
+    HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.5f))
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                when {
+                    downloading -> "正在下载原文件…"
+                    saved -> "下载成功"
+                    failed -> "下载失败，请重试"
+                    else -> "下载原文件"
+                },
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                color = if (saved) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+            )
+            Text(
+                when {
+                    saved -> "已保存至 ${LmsDownloadStore.publicDisplayPath()}"
+                    failed -> "检查网络后可再次下载"
+                    else -> "保存到系统下载文件夹"
+                },
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        Button(
+            onClick = onDownload,
+            enabled = !downloading,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (downloading) {
+                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        if (saved) Icons.Default.CheckCircle else Icons.Default.Download,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Text(
+                    when {
+                        downloading -> "下载中"
+                        saved -> "重新下载"
+                        failed -> "重试"
+                        else -> "下载"
+                    },
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
             }
         }
     }

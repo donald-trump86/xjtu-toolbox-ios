@@ -107,6 +107,10 @@ class FitnessApi(private val site: SiteSession) : FitnessSource {
             FitnessProtocol.postEncrypted(site, v3Path, extra, refererUrl)
         } catch (e: AuthExpiredException) {
             throw e
+        } catch (e: FitnessServiceUnavailableException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }
@@ -134,6 +138,7 @@ class FitnessApi(private val site: SiteSession) : FitnessSource {
                     .build()
             ).use { response ->
             val text = response.body?.string().orEmpty()
+            FitnessProtocol.checkNotServerError(response.code)
             if (!response.isSuccessful) throw RuntimeException("体测服务响应 ${response.code}")
             val root = text.safeParseJsonObject()
             if (root.get("status")?.intValue != 1) {

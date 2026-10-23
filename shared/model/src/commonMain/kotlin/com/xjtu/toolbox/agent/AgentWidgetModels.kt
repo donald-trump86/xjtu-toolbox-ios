@@ -17,17 +17,48 @@ import kotlinx.serialization.Serializable
  */
 sealed interface AgentWidget
 
+/** 标题与链接只来自通知查询；why/level 是对这些真实条目的推荐说明。 */
+@Serializable
+data class NoticeWidgetItem(
+    val title: String, val source: String, val date: String, val link: String,
+    val why: String = "", val level: Int = 1, val excerpt: String = "",
+)
+
+@Serializable
+data class NoticeWidget(
+    val items: List<NoticeWidgetItem> = emptyList(), val query: String = "",
+    val caption: String = "", val display: WidgetDisplay = WidgetDisplay(limit = 6),
+) : AgentWidget
+
+/** 已验证的展示配置，随历史卡片保存；业务数据仍来自查询结果。 */
+@Serializable
+data class WidgetDisplay(
+    val view: String = "auto",
+    val fields: List<String> = emptyList(),
+    val sections: List<Int> = emptyList(),
+    val summary: String = "all",
+    val matchedCount: Int = 0,
+    val limit: Int = 12,
+) {
+    fun shows(field: String): Boolean = fields.isEmpty() || field in fields
+}
+
 /** 课表：courses 已按目标日期/本周过滤好，控件内部按星期分组展示。 */
 @Serializable
-data class ScheduleWidget(val title: String = "", val courses: List<CourseItem> = emptyList()) : AgentWidget
+data class ScheduleWidget(val title: String = "", val courses: List<CourseItem> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 考试安排。 */
 @Serializable
-data class ExamWidget(val exams: List<ExamItem> = emptyList()) : AgentWidget
+data class ExamWidget(val exams: List<ExamItem> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 空闲教室。currentPeriod 为 0 基节次索引，-1 表示无"当前节次"语境。 */
 @Serializable
-data class RoomWidget(val condition: String = "", val rooms: List<RoomInfo> = emptyList(), val currentPeriod: Int = -1) : AgentWidget
+data class RoomWidget(
+    val condition: String = "", val rooms: List<RoomInfo> = emptyList(), val currentPeriod: Int = -1,
+    val display: WidgetDisplay = WidgetDisplay(),
+    val liveRooms: List<com.xjtu.toolbox.emptyroom.LiveRoom> = emptyList(),
+    val fetchedAt: Long = 0L,
+) : AgentWidget
 
 /** 空闲教室的实时状态（智慧教室平台）：只放空闲和"没排课但有人"的教室。 */
 @Serializable
@@ -35,19 +66,28 @@ data class LiveRoomWidget(
     val condition: String = "",
     val rooms: List<com.xjtu.toolbox.emptyroom.LiveRoom> = emptyList(),
     val fetchedAt: Long = 0L,
+    val display: WidgetDisplay = WidgetDisplay(),
 ) : AgentWidget
 
 /** 考勤记录。 */
 @Serializable
-data class AttendanceWidget(val records: List<AttendanceWaterRecord> = emptyList()) : AgentWidget
+data class AttendanceWidget(val records: List<AttendanceWaterRecord> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 成绩 + 加权 GPA 汇总。 */
 @Serializable
-data class GradeWidget(val grades: List<ReportedGrade> = emptyList(), val gpa: Double? = null, val totalPoints: Double = 0.0) : AgentWidget
+data class GradeWidget(val grades: List<ReportedGrade> = emptyList(), val gpa: Double? = null, val totalPoints: Double = 0.0, val display: WidgetDisplay = WidgetDisplay(limit = 15)) : AgentWidget
 
 /** 校园卡信息。 */
 @Serializable
-data class CardWidget(val info: CardInfo) : AgentWidget
+data class CardWidget(
+    val info: CardInfo,
+    val transactions: List<com.xjtu.toolbox.card.Transaction> = emptyList(),
+    val rangeLabel: String = "",
+    val transactionsLoaded: Boolean = false,
+    val display: WidgetDisplay = WidgetDisplay(),
+    val spend: Double? = null,
+    val income: Double? = null,
+) : AgentWidget
 
 /**
  * 仲英学辅资料站的检索结果。
@@ -57,7 +97,7 @@ data class CardWidget(val info: CardInfo) : AgentWidget
  * 复述给屁岱，中间那几步毫无意义。
  */
 @Serializable
-data class ZyxfWidget(val query: String = "", val items: List<ZyxfEntryRef> = emptyList()) : AgentWidget
+data class ZyxfWidget(val query: String = "", val items: List<ZyxfEntryRef> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
 /** 卡片里的一条。卡片要随会话一起存盘。 */
 @Serializable
@@ -81,7 +121,14 @@ data class LibraryWidget(
     val areaName: String = "",
     val imageName: String = "",
     val seats: List<com.xjtu.toolbox.library.PlanSeat> = emptyList(),
+    val display: WidgetDisplay = WidgetDisplay(),
+    val highlightedSeats: List<String> = emptyList(),
+    val areas: List<LibraryAreaRef> = emptyList(),
+    val booking: String? = null,
 ) : AgentWidget
+
+@Serializable
+data class LibraryAreaRef(val code: String = "", val name: String = "", val free: Int? = null, val total: Int? = null)
 
 /** 校区简图：标出几个地点（按名字回查打包的地图数据），[route] 为 true 时按顺序连成路线。 */
 @Serializable
@@ -93,10 +140,12 @@ data class CampusMapWidget(
     val caption: String = "",
     /** 用户当前位置 [lat, lon]，有就标一个「你在这」。 */
     val here: List<Double>? = null,
+    val display: WidgetDisplay = WidgetDisplay(),
 ) : AgentWidget
 
 /** 类型名是存盘格式的一部分（沿用旧版的类名），不要改。 */
 fun AgentWidget.toStored(): StoredWidget = when (this) {
+    is NoticeWidget -> StoredWidget("NoticeWidget", AppJson.encodeToString(this))
     is ScheduleWidget -> StoredWidget("ScheduleWidget", AppJson.encodeToString(this))
     is ExamWidget -> StoredWidget("ExamWidget", AppJson.encodeToString(this))
     is RoomWidget -> StoredWidget("RoomWidget", AppJson.encodeToString(this))
@@ -112,6 +161,7 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
 /** 读不回来（旧版半截写入、未知类型）就丢掉这张卡片，不影响整段会话。 */
 fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
     when (stored.type) {
+        "NoticeWidget" -> AppJson.decodeFromString<NoticeWidget>(stored.json)
         "ScheduleWidget" -> AppJson.decodeFromString<ScheduleWidget>(stored.json)
         "ExamWidget" -> AppJson.decodeFromString<ExamWidget>(stored.json)
         "RoomWidget" -> AppJson.decodeFromString<RoomWidget>(stored.json)

@@ -46,11 +46,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.MeetingRoom
-import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -261,7 +258,6 @@ fun EmptyRoomScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    var showActionsMenu by remember { mutableStateOf(false) }
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -271,66 +267,7 @@ fun EmptyRoomScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                actions = {
-                    Box {
-                        IconButton(onClick = { showActionsMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "切换数据源")
-                        }
-                        AppDropdownMenu(
-                            expanded = showActionsMenu,
-                            onDismissRequest = { showActionsMenu = false }
-                        ) {
-                            Text(
-                                "数据源",
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            )
-                            // 只列本端真有取数的档位（[EmptyRoomSource.availableSources]）：Web 只有 CDN，
-                            // 于是“实时状态”“直查教务”两个选项根本不出现（在这端不是失败，是没有这条数据）。
-                            val options = buildList {
-                                add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人"))
-                                add(Triple(RoomSource.CDN, "CDN 课表", "今明两天逐节安排，免登录"))
-                                // 沿用原来的限制：研究生身份不提供直查教务
-                                if (accountType != AccountType.POSTGRADUATE) {
-                                    add(Triple(RoomSource.DIRECT, "直查教务", "登录教务查课表，和 CDN 同源"))
-                                }
-                            }.filter { (kind, _, _) -> kind in source.availableSources }
-                            options.forEach { (option, label, hint) ->
-                                AppDropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(
-                                                label,
-                                                style = MiuixTheme.textStyles.body2,
-                                                fontWeight = if (sourceKind == option) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                            Text(
-                                                hint,
-                                                style = MiuixTheme.textStyles.footnote1,
-                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        showActionsMenu = false
-                                        if (sourceKind != option) {
-                                            vm.selectSource(option)
-                                            if (option == RoomSource.CDN && !cdnTipRead) {
-                                                tipVisible = true
-                                            }
-                                        }
-                                    },
-                                    trailingIcon = {
-                                        if (sourceKind == option) {
-                                            Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                },
+
             )
         }
     ) { padding ->
@@ -338,11 +275,8 @@ fun EmptyRoomScreen(
             OverlayDialog(
                 show = true,
                 title = "Cloudflare CDN 查询说明",
-                summary = if (accountType == AccountType.POSTGRADUATE) {
-                    "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态。"
-                } else {
-                    "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态，查询失败可改用直查教务。"
-                },
+                summary = "无需登录。按课表生成，只知道有没有课，不知道此刻有没有人。" +
+                    if (accountType == AccountType.POSTGRADUATE) "" else "查不到可改用直查教务。",
                 onDismissRequest = {
                     onCdnTipRead()
                     cdnTipRead = true
@@ -445,8 +379,9 @@ fun EmptyRoomScreen(
                         }
                     }
                     if (isLive) {
+                        val byPeriod = if (vm.availableSources.count { it != RoomSource.LIVE } > 1) "「课表 CDN」或「直查教务」" else "「按节找空闲」"
                         Text(
-                            "实时状态只覆盖兴庆、雁塔、创新港；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区，请在右上角切到课表数据。",
+                            "部分教学楼暂无实时状态，可切到${byPeriod}查看。",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
@@ -493,6 +428,28 @@ fun EmptyRoomScreen(
                         colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            // 实况和两种按节来源并成一排；只有一种按节来源时就叫「按节找空闲」
+                            val sources = vm.availableSources
+                            val periodCount = sources.count { it != RoomSource.LIVE }
+                            if (sources.size > 1) {
+                                AppSegmentedTabs(
+                                    tabs = sources.map {
+                                        when {
+                                            it == RoomSource.LIVE -> "此刻实况"
+                                            periodCount == 1 -> "按节找空闲"
+                                            it == RoomSource.CDN -> "课表 CDN"
+                                            else -> "直查教务"
+                                        }
+                                    },
+                                    selectedTabIndex = sources.indexOf(sourceKind).coerceAtLeast(0),
+                                    onTabSelected = { index ->
+                                        val target = sources[index]
+                                        vm.selectSource(target)
+                                        if (target == RoomSource.CDN && !cdnTipRead) tipVisible = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                )
+                            }
                             // 第一行：楼栋（点开选校区、选楼）+ 日期
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(
@@ -694,7 +651,7 @@ fun EmptyRoomScreen(
                 vm.staleNote?.let { note ->
                     fullLineItem(key = "stale") {
                         Surface(
-                            color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                            color = MiuixTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) {
@@ -734,11 +691,7 @@ fun EmptyRoomScreen(
                 }
                 if (isLive) when {
                     vm.isLoading && liveInScope.isEmpty() -> stateBox {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            com.xjtu.toolbox.ui.components.MorphingLoader()
-                            Spacer(Modifier.height(8.dp))
-                            Text("正在读取实时状态…", style = MiuixTheme.textStyles.body2)
-                        }
+                        com.xjtu.toolbox.ui.components.LoadingState("正在读取实时状态…")
                     }
 
                     vm.errorMessage != null -> stateBox {
@@ -799,18 +752,19 @@ fun EmptyRoomScreen(
                     }
                 } else when {
                     vm.isLoading && rooms.isEmpty() -> stateBox {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
-                            Spacer(Modifier.height(8.dp))
-                            val pg = vm.directProgress
-                            Text(
-                                if (pg != null) "直查教务更新中…${pg.first}/${pg.second}" else "正在查询...",
-                                style = MiuixTheme.textStyles.body2,
-                            )
-                        }
+                        val pg = vm.directProgress
+                        com.xjtu.toolbox.ui.components.LoadingState(
+                            if (pg != null) "直查教务更新中…${pg.first}/${pg.second}" else "正在查询…",
+                        )
                     }
 
                     vm.errorMessage != null -> stateBox {
+                        // CDN 源只是上游每天生成的快照，缺了就给一条能自己查的路
+                        val fallback = if (sourceKind == RoomSource.CDN) {
+                            listOf(RoomSource.DIRECT, RoomSource.LIVE).firstOrNull { it in vm.availableSources }
+                        } else {
+                            null
+                        }
                         RoomStateBlock(
                             icon = Icons.Outlined.CloudOff,
                             title = if (sourceKind == RoomSource.DIRECT) "直查教务失败" else "课表数据加载失败",
@@ -818,6 +772,12 @@ fun EmptyRoomScreen(
                             isError = true,
                             primaryLabel = "重试",
                             onPrimary = { vm.refresh() },
+                            secondaryLabel = when (fallback) {
+                                RoomSource.DIRECT -> "改用直查教务"
+                                RoomSource.LIVE -> "改看实时状态"
+                                else -> null
+                            },
+                            onSecondary = { fallback?.let(vm::selectSource) },
                         )
                     }
 

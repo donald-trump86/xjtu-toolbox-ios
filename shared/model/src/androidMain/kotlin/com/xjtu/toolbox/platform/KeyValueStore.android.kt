@@ -20,7 +20,9 @@ private class AndroidKeyValueStore(private val name: String) : KeyValueStore {
     private val prefs: SharedPreferences
         get() = requireContext().getSharedPreferences(name, Context.MODE_PRIVATE)
 
-    override fun getString(key: String): String? = prefs.getString(key, null)
+    // 迁移前有些键是 putInt/putLong 存的，按字符串读会抛 ClassCastException，转成文本交回去
+    override fun getString(key: String): String? =
+        try { prefs.getString(key, null) } catch (_: ClassCastException) { prefs.all[key]?.toString() }
     override fun putString(key: String, value: String?) {
         // 与 SharedPreferences 语义一致：写 null 等于删键
         if (value == null) prefs.edit().remove(key).apply() else prefs.edit().putString(key, value).apply()

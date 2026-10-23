@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.PidaiChip
 import com.xjtu.toolbox.ui.components.PidaiChipRow
@@ -51,6 +52,7 @@ private val MEAL_PICKS = InsightSpec(
 只输出：
 {"meals":[{"slot":"午饭","time":"11:50","where":"食堂（档口）","what":"不超过 12 字","price":"约 15 元","why":"不超过 20 字"}],"quip":"一句俏皮吐槽他的吃饭习惯，不超过 30 字，可以没有"}
     """.trimIndent(),
+    card = PidaiCard.MEAL,
 )
 
 /** 「今天吃啥」的偏好：按账号记在本机。 */

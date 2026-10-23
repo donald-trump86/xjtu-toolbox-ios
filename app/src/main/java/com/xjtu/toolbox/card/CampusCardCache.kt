@@ -49,7 +49,8 @@ object CampusCardCache {
             transactions = transactions,
             rangeStart = rangeStart.toString(),
             rangeEnd = rangeEnd.toString(),
-            savedAt = System.currentTimeMillis()
+            savedAt = System.currentTimeMillis(),
+            transactionsComplete = true,
         )
         context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE)
             .edit()

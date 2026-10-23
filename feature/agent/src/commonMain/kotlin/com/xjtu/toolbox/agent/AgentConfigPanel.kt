@@ -137,7 +137,7 @@ internal fun ConfigPanel(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("首次使用前请确认", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                     Text(
-                        "推荐用 DeepSeek 官方 API，只选可信来源并保管好 Key。第三方中转能看到你的提问和查询结果；由此产生的密钥泄露、费用或隐私风险需自行承担。",
+                        "建议用 DeepSeek 官方 API；第三方中转能看到你的对话，风险自负。",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -392,8 +392,7 @@ internal fun ConfigPanel(
                                 needsOwnKey ->
                                     "聊天没走 DeepSeek，联网搜索要单独一个 DeepSeek Key；留空则不联网搜索。"
                                 else ->
-                                    "用 DeepSeek 官方搜索与读网页接口，和聊天共用 Key。" +
-                                        "按成功次数计费，每千次 0.75 美元（2026 年 11 月 1 日起）。"
+                                    "DeepSeek 官方搜索，和聊天共用 Key，每千次 0.75 美元。"
                             },
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -407,7 +406,7 @@ internal fun ConfigPanel(
                 Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("MCP 远程工具", style = MiuixTheme.textStyles.title3)
-                        Text("连接 Streamable HTTP 服务，可带 Bearer 令牌；需要 OAuth 或本地 stdio 的服务请先经兼容桥接接入。每次调用前都会让你确认参数。", style = MiuixTheme.textStyles.footnote1)
+                        Text("支持 Streamable HTTP（可带 Bearer 令牌），每次调用前需你确认。",style = MiuixTheme.textStyles.footnote1)
                         top.yukonga.miuix.kmp.preference.SwitchPreference(
                             title = "启用 MCP", checked = mcpEnabled,
                             onCheckedChange = { mcpEnabled = it; saveNow() },
@@ -433,6 +432,8 @@ internal fun ConfigPanel(
                 }
             }
         }
+        // 页面上的屁岱卡只有挂了屁岱的端才有（见 AgentInsightHub）
+        if (AgentInsightHub.insights.available) item { PidaiCardsSection() }
         // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取
         //（见 `PidaiAppearanceHost`）。**只有有形象的端才画**：`:app` 交 `PidaiAppearancePanel`，
         // 桌面没有形象设置那一档 ⇒ 这里什么都不出（见 [AgentScreen] 的 `appearanceSection`）。
@@ -447,6 +448,31 @@ internal fun ConfigPanel(
     }
 }
 
+/** 各页面屁岱卡的开关，见 [PidaiCards]。 */
+@Composable
+private fun PidaiCardsSection() {
+    val off by PidaiCards.off.collectAsState()
+    Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
+        Column(Modifier.padding(vertical = 16.dp)) {
+            Text("页面里的屁岱卡", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp))
+            Text(
+                "关掉的卡不再出现，也不会调用模型。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            PidaiCard.entries.forEach { card ->
+                top.yukonga.miuix.kmp.preference.SwitchPreference(
+                    title = card.label,
+                    checked = card !in off,
+                    onCheckedChange = { PidaiCards.set(card, it) },
+                )
+            }
+        }
+    }
+}
+
 /** 「记住的偏好」那一块的内置实现：读本端的 [AgentMemory]（落盘在本端数据根目录里）。 */
 @Composable
 private fun AgentMemorySection() {
@@ -457,7 +483,7 @@ private fun AgentMemorySection() {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                 Text(
-                    "存在这台设备上，聊天时会一并发给你配置的模型作参考。最多 ${AgentMemory.MAX_ITEMS} 条。增删从下一个新对话起生效。",
+                    "仅存本机，最多 ${AgentMemory.MAX_ITEMS} 条，新对话起生效。",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )

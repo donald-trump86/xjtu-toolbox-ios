@@ -95,6 +95,10 @@ private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): S
 
 @Composable
 internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
+    if (PidaiAppearanceHost.plain) {
+        agentWelcomePlainHero(title, facts, now)
+        return
+    }
     val primary = MiuixTheme.colorScheme.primary
     val look = pidaiNavAppearance()
     val host = ProactiveBubbleHost

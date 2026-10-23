@@ -44,6 +44,8 @@ internal class WebAgentSession(
 
     /** 事件 → 状态那一半（屏读的就是它那几格）。 */
     internal val state = AgentStreamState()
+    private val pendingInterjections = mutableListOf<String>()
+    private var steeringJob: kotlinx.coroutines.Job? = null
 
     override val messages: SnapshotStateList<ChatMessage> get() = state.messages
 
@@ -156,7 +158,27 @@ internal class WebAgentSession(
 
     override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {
         // 与 `AgentViewModel` 同一判据：正在生成就静默忽略（同一页里撞不上；两个标签页那种并发由服务端答 409）
-        if (userText.isBlank() || isLoading) return
+        if (userText.isBlank()) return
+        if (isLoading) {
+            pendingInterjections.add(userText)
+            if (steeringJob?.isActive == true) return
+            val target = turnSessionId ?: currentSessionId ?: return
+            cancelTurn(clearInterjections = false)
+            val generation = turnGeneration
+            state.setLoading(true)
+            steeringJob = scope.launch {
+                agentCall(AGENT_STOP_PATH, AppJson.encodeToString(AgentStopBody.serializer(), AgentStopBody(sessionId = target)))
+                    .onSuccess {
+                        if (generation == turnGeneration && currentSessionId == target) {
+                            val text = pendingInterjections.joinToString("\n\n")
+                            pendingInterjections.clear()
+                            startTurn(target, text)
+                        }
+                    }
+                    .onFailure { if (generation == turnGeneration) state.fail(it.message ?: "停止上一轮失败") }
+            }
+            return
+        }
         if (contextExhausted) {
             errorMessage = AGENT_CONTEXT_EXHAUSTED_MESSAGE
             return
@@ -256,7 +278,13 @@ internal class WebAgentSession(
     }
 
     /** 取消当前那一轮：abort 掉流，并让它的消费者一个字都不再写（见 [turnGeneration]）。 */
-    private fun cancelTurn() {
+    private fun cancelTurn(clearInterjections: Boolean = true) {
+        if (clearInterjections) {
+            pendingInterjections.clear()
+            steeringJob?.cancel()
+            steeringJob = null
+        }
+        if (state.isLoading) state.stopped()
         turnGeneration++
         turnSessionId = null
         runningKey?.let { AgentSseBridge.abort(it) }

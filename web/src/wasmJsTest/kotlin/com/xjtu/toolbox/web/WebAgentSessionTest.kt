@@ -123,13 +123,13 @@ class WebAgentSessionTest {
         val state = frames(AgentFrame.Delta("答了一半"))
         state.flush()
         state.stopped()
-        assertEquals("答了一半", state.messages.last().content)
+        assertEquals("答了一半\n\n[用户打断]", state.messages.last().content)
 
         val empty = AgentStreamState()
         empty.beginTurn("问")
         empty.apply(AgentFrame.Delta(""))
         empty.stopped()
-        assertEquals("（已停止）", empty.messages.last().content)
+        assertEquals("[用户打断]", empty.messages.last().content)
     }
 
     @Test

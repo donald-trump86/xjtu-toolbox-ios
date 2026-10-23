@@ -14,6 +14,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.ColorPalette
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -21,6 +22,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,7 +42,8 @@ data class CustomCourseDraft(
     val startMinute: Int = 0,
     val endHour: Int = 9,
     val endMinute: Int = 0,
-    val selectedWeeks: Set<Int> = emptySet()  // 默认空，由 Dialog 用 totalWeeks 填充
+    val selectedWeeks: Set<Int> = emptySet(),  // 默认空，由 Dialog 用 totalWeeks 填充
+    val colorHex: String? = null,
 )
 
 /**
@@ -83,6 +86,9 @@ fun CustomCourseDialog(
         mutableStateOf(if (existing != null) existing.courseName else draft.courseName)
     }
     val teacher = existing?.teacher.orEmpty()
+    var color by remember(existing, draft) {
+        mutableStateOf(existing?.let { CourseColors.of(it.courseName) } ?: draft.colorHex?.let(CourseColors::parseHex))
+    }
     var location by remember(existing, draft) {
         mutableStateOf(if (existing != null) existing.location else draft.location)
     }
@@ -121,7 +127,8 @@ fun CustomCourseDialog(
             startMinute = startMinute,
             endHour = endHour,
             endMinute = draftSafeEndMinute,
-            selectedWeeks = selectedWeeks
+            selectedWeeks = selectedWeeks,
+            colorHex = color?.let(CourseColors::toHex),
         )
     }
 
@@ -225,6 +232,13 @@ fun CustomCourseDialog(
             )
 
             // ── 星期 ──
+            SectionHeader("日程颜色", trailing = "同名日程一起生效")
+            ColorPalette(
+                color = color ?: defaultCourseColor(courseName),
+                onColorChanged = { color = it.copy(alpha = 1f) },
+            )
+            TextButton(text = "使用默认颜色", onClick = { color = null })
+
             SectionHeader("星期")
             WeekdaySelectorRow(
                 dayOfWeek = dayOfWeek,
@@ -345,6 +359,7 @@ fun CustomCourseDialog(
                     termCode = termCode,
                     note = encodeAgendaNote(note)
                 )
+                CourseColors.set(entity.courseName, color)
                 onSave(entity)
                 if (!isEdit) onAutoSave?.invoke(CustomCourseDraft())
                 show.value = false
@@ -456,7 +471,7 @@ private fun TimeColumn(
 @Composable
 private fun WeekPresetChip(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
-        modifier = modifier.heightIn(min = 34.dp).clickable { onClick() },
+        modifier = modifier.heightIn(min = 34.dp).clip(RoundedCornerShape(12.dp)).clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         color = if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
         else MiuixTheme.colorScheme.secondaryContainer
@@ -505,6 +520,7 @@ private fun WeekdaySelectorRow(dayOfWeek: Int, onDaySelect: (Int) -> Unit) {
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 44.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .clickable { onDaySelect(day) },
                 shape = RoundedCornerShape(14.dp),
                 color = if (isSelected) MiuixTheme.colorScheme.primary
@@ -533,7 +549,7 @@ private fun WeekCheckboxGrid(totalWeeks: Int, selectedWeeks: Set<Int>, onToggle:
                 for (week in row) {
                     val isSelected = week in selectedWeeks
                     Surface(
-                        modifier = Modifier.weight(1f).heightIn(min = 34.dp).clickable { onToggle(week) },
+                        modifier = Modifier.weight(1f).heightIn(min = 34.dp).clip(RoundedCornerShape(10.dp)).clickable { onToggle(week) },
                         shape = RoundedCornerShape(10.dp),
                         color = if (isSelected) MiuixTheme.colorScheme.primary
                         else MiuixTheme.colorScheme.secondaryContainer,

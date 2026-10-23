@@ -73,6 +73,7 @@ class AgentToolRegistry(
     private val memory: AgentMemory = AgentMemory(),
     /** 端上的能力槽位（见 `:core` 的 [AgentHost]）：闹钟、应用设置那几档由它接。 */
     private val host: AgentHost,
+    private val allowInteractiveLogin: Boolean = false,
 ) : AgentTools {
     // [AgentTools] 是 `:core` 调度循环（[AgentRunner]）要的三件事：工具清单 / 限流分组键 / 执行一次调用。
     // `memoryBlock()` 不在其中：它是系统提示那一侧要的，调用方是 ViewModel。
@@ -251,14 +252,13 @@ class AgentToolRegistry(
     /**
      * 取一个已登录的子系统会话。
      *
-     * **silent = true**：模型自己决定调工具时，不能在用户毫不知情的情况下触发一次
-     * 带凭据的认证并把短信验证码发到他手机上。撞上 MFA 就抛 MfaRequiredException，
-     * 由 [loginHint] 翻译成"你自己去那个页面登一次"。
+     * 对话中的查询允许宿主处理短信验证；自动卡片和后台任务保持静默。
      */
     private suspend fun ensureSite(type: LoginType): SiteSession? = try {
         lastSiteError = null
-        loginState.sessionManager?.ensureSite(type, silent = true)
+        loginState.sessionManager?.ensureSite(type, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -266,8 +266,9 @@ class AgentToolRegistry(
     /** 同 [ensureSite]，给不在 [LoginType] 里的站点（智慧教室等）用。 */
     private suspend fun ensureSiteKey(siteKey: String): SiteSession? = try {
         lastSiteError = null
-        loginState.sessionManager?.ensureSite(siteKey, silent = true)
+        loginState.sessionManager?.ensureSite(siteKey, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)
     } catch (e: Throwable) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         lastSiteError = e
         null
     }
@@ -360,8 +361,7 @@ class AgentToolRegistry(
         // （那一段历史是在别的端上生成的）。
         if (!honors(name)) return@withContext ToolReply.notFound("tool", name)
 
-        val widgetsBefore = pendingWidgets.size
-        val result = when (name) {
+        when (name) {
             // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
             "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.argStr("term"))
             "get_schedule" -> getSchedule(args.argStr("date"), args.argStr("term"))
@@ -382,12 +382,13 @@ class AgentToolRegistry(
                 electiveCategory = args.argStr("elective_category"),
                 limit = args.argInt("limit") ?: 10
             )
-            "get_empty_rooms" -> getEmptyRooms(
-                campus = args.argStr("campus"),
-                building = args.argStr("building"),
-                section = args.argInt("section"),
-                date = args.argStr("date")
-            )  // suspend: parallel per-building fetches inside
+            "get_empty_rooms" -> com.xjtu.toolbox.agent.agentRoomRequest(args).let { request ->
+                getEmptyRooms(
+                    campus = args.argStr("campus"), building = args.argStr("building"),
+                    section = args.argInt("section"), date = args.argStr("date"),
+                    view = request.view, sections = request.sections, minimum = request.minimum,
+                )
+            }
             "get_attendance" -> getAttendance(
                 limit = args.argInt("limit") ?: 20
             )
@@ -471,8 +472,6 @@ class AgentToolRegistry(
             "app_guide" -> agentGuideText(args.argStr("topic"))
             else -> ToolReply.notFound("tool", name)
         }
-        // 这次调用生成了卡片（课表、成绩、空教室……）就明确告诉模型：用户已经看到了
-        if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────
@@ -927,7 +926,7 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?): String {
+    private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?, view: String = "auto", sections: List<Int> = emptyList(), minimum: Int = 1): String {
         return try {
             val api = EmptyRoomApi(EmptyRoomCache(context))
             val targetDate = parseToolDate(date)
@@ -941,13 +940,20 @@ class AgentToolRegistry(
                 .getString("empty_room_source", null)
             val nowSection = currentPeriodIndex() + 1
             val asksNow = targetDate == LocalDate.now(CampusZoneId) && (section == null || section == nowSection)
+            if (view !in setOf("auto", "slots", "status", "both")) return ToolReply.badValue("view", "auto/slots/status/both")
             var liveNote: String? = null
-            if (asksNow && (sourcePref == null || sourcePref == "live") && targetCampus in LIVE_CAMPUSES) {
+            var liveSnapshot: LiveRoomWidget? = null
+            val canQueryLive = targetDate == LocalDate.now(CampusZoneId) && targetCampus in LIVE_CAMPUSES
+            if (view != "slots" && canQueryLive && (view in setOf("status", "both") || asksNow && (sourcePref == null || sourcePref == "live"))) {
                 val site = ensureSiteKey(com.xjtu.toolbox.auth.JsSession.SITE_KEY)
                 if (site != null) {
                     val live = runCatching { liveRoomsReply(site, targetCampus, building) }
-                    live.getOrNull()?.let { return it }
-                    liveNote = if (live.isSuccess) {
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    live.getOrNull()?.let {
+                        if (view != "both") return it
+                        liveSnapshot = pendingWidgets.lastOrNull() as? LiveRoomWidget
+                    }
+                    if (liveSnapshot == null) liveNote = if (live.isSuccess) {
                         // 楼不在智慧教室平台上（仲英楼、中1 等），课表里有
                         "实时状态里没有「$building」，以下按课表"
                     } else {
@@ -957,35 +963,28 @@ class AgentToolRegistry(
                     liveNote = "实时状态登录不上（${lastSiteError?.javaClass?.simpleName ?: "未登录"}），以下按课表"
                 }
             }
+            if (view in setOf("status", "both") && !canQueryLive) liveNote = "该日期或校区无实时状态，以下仅展示课表空闲"
 
             val targetBuildings = if (building != null) {
                 buildings.filter { it == building || it.startsWith(building) }
                     .ifEmpty { return ToolReply.notFound("building", "$targetCampus $building") }
             } else buildings
 
-            // 复用页面的「CDN / 直连教务」选择。直连较重（每楼逐节查询，约11次请求/楼），
-            // 仅在用户已开启直连且指定了具体楼栋时启用，避免对全校区直连冲击学校服务器。
-            val preferDirect = sourcePref == "direct"
-            val directClient = if (preferDirect && building != null) {
-                ensureSite(LoginType.JWXT)?.client
-            } else null
-            val usingDirect = directClient != null
-
-            // 并发请求各楼栋，避免整校区串行导致超时
-            val allRooms = coroutineScope {
-                targetBuildings.map { b ->
-                    async(Dispatchers.IO) {
-                        runCatching {
-                            if (directClient != null)
-                                EmptyRoomDirectQuery(directClient, EmptyRoomCache(context)).queryDay(targetCampus, b, dateStr)
-                            else api.getEmptyRooms(targetCampus, b, dateStr)
-                        }.getOrDefault(emptyList())
-                    }
-                }.awaitAll().flatten()
+            val timetable = try {
+                com.xjtu.toolbox.emptyroom.queryRoomTimetable(
+                    targetCampus, targetBuildings.toSet(), dateStr, api, preferDirect = sourcePref == "direct",
+                ) {
+                    val directClient = ensureSite(LoginType.JWXT)?.client ?: error("教务登录失败")
+                    EmptyRoomDirectQuery(directClient, EmptyRoomCache(context))
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return ToolReply.failed("get_empty_rooms", "课表查询失败：${e.message}。" +
+                    if (liveSnapshot != null) "已取得实时状态，只代表此刻状态。" else "")
             }
-            if (allRooms.isEmpty()) return ToolReply.empty(
-                "empty_rooms_data; date: $dateStr; campus: $targetCampus" + (liveNote?.let { "; note: $it" } ?: "")
-            )
+            val allRooms = timetable.rooms
+            if (allRooms.isEmpty()) return ToolReply.empty("empty_rooms_data; date: $dateStr; campus: $targetCampus")
 
             val filtered = if (section != null && section in 1..11) {
                 allRooms.filter { it.status.getOrElse(section - 1) { 1 } == 0 }
@@ -993,7 +992,12 @@ class AgentToolRegistry(
                 // 无指定节次，取全天任意节次空闲的教室
                 allRooms.filter { r -> r.status.any { it == 0 } }
             }
-            if (filtered.isEmpty()) return ToolReply.empty(
+            val selected = filtered.filter { r -> sections.all { r.status.getOrNull(it - 1) == 0 } &&
+                r.status.fold(0 to 0) { (run, longest), status ->
+                    val next = if (status == 0) run + 1 else 0
+                    next to maxOf(longest, next)
+                }.second >= minimum }
+            if (selected.isEmpty()) return ToolReply.empty(
                 "empty_rooms; date: $dateStr; campus: $targetCampus" +
                     (building?.let { "; building: $it" } ?: "") +
                     (section?.let { "; section: $it" } ?: "")
@@ -1004,19 +1008,28 @@ class AgentToolRegistry(
                 building?.let { append(" $it") }
                 section?.let { append(" 第${it}节") }
                 append(" $dateStr")
-                if (usingDirect) append(" · 直连")
+                if (timetable.direct) append(" · 教务直连")
             }
-            pendingWidgets.add(RoomWidget(cond, filtered, section?.minus(1) ?: currentPeriodIndex()))
-            val shown = filtered.take(15)
+            liveSnapshot?.let { pendingWidgets.remove(it) }
+            pendingWidgets.add(RoomWidget(
+                cond, selected,
+                if (targetDate == LocalDate.now(CampusZoneId)) section?.minus(1) ?: currentPeriodIndex() else -1,
+                display = WidgetDisplay(view = if (liveSnapshot != null) "both" else "slots", sections = sections),
+                liveRooms = liveSnapshot?.rooms.orEmpty(), fetchedAt = liveSnapshot?.fetchedAt ?: 0L,
+            ))
+            val shown = selected.take(15)
             buildString {
                 liveNote?.let { append(it).append("。\n") }
-                append("空教室（$cond，共${filtered.size}间）：\n")
+                if (timetable.skippedBuildings.isNotEmpty()) append("未取得楼栋：${timetable.skippedBuildings.joinToString("、")}\n")
+                append("空教室（$cond，共${selected.size}间）：\n")
                 shown.forEach { r ->
                     val freeSlots = r.status.mapIndexedNotNull { i, s -> if (s == 0) i + 1 else null }
                     append("${r.name}｜${r.size} 座｜空闲节次 ${freeSlots.joinToString(",")}\n")
                 }
-                if (filtered.size > shown.size) append("…还有${filtered.size - shown.size}间，可指定楼栋缩小范围。\n")
+                if (selected.size > shown.size) append("…还有${selected.size - shown.size}间，可指定楼栋缩小范围。\n")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             ToolReply.failed("get_empty_rooms", e.message)
         }
@@ -1124,7 +1137,8 @@ class AgentToolRegistry(
             ?: return loginHint(LoginType.CAMPUS_CARD)
         return try {
             val info = CampusCardApi(site).getCardInfo()
-            pendingWidgets.add(CardWidget(info))
+            var transactions = emptyList<com.xjtu.toolbox.card.Transaction>()
+            var transactionsLoaded = false
             val text = buildString {
                 append("校园卡余额：¥%.2f".format(info.balance))
                 if (info.pendingAmount > 0) append("，待入账¥%.2f".format(info.pendingAmount))
@@ -1143,6 +1157,8 @@ class AgentToolRegistry(
                             allowIncomplete = false,
                         )
                     }.onSuccess { txs ->
+                        transactions = txs
+                        transactionsLoaded = true
                         if (txs.isEmpty()) {
                             append("\n最近${d}天无消费记录。")
                         } else {
@@ -1159,6 +1175,11 @@ class AgentToolRegistry(
                     }
                 }
             }.trimEnd()
+            pendingWidgets.add(CardWidget(
+                info, transactions, days?.let { "最近${it.coerceIn(1, 180)}天" }.orEmpty(), transactionsLoaded,
+                spend = transactions.filter { it.amount < 0 }.sumOf { -it.amount },
+                income = transactions.filter { it.amount > 0 }.sumOf { it.amount },
+            ))
             dataCache.put("agent_card", text)
             text
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1214,11 +1235,14 @@ class AgentToolRegistry(
             val scope = sources.joinToString("、") { it.displayName } +
                 if (source.isNullOrBlank()) "（按你的身份自动选）" else ""
             val api = com.xjtu.toolbox.notification.NotificationApi()
-            if (keyword != null) {
+            if (!keyword.isNullOrBlank()) {
                 // 站内搜索：查的是各站全站索引，不是本地已抓的那几页（见 NotificationApi.search）
                 val found = api.search(sources, keyword)
                 val hits = found.items.take(limit.coerceIn(1, 20))
-                if (hits.isEmpty()) return ToolReply.empty("notifications: $keyword（已查：$scope）")
+                if (hits.isEmpty()) return if (found.skipped.isNotEmpty()) {
+                    ToolReply.failed("get_notifications", "部分来源暂时搜索失败：${found.skipped.joinToString("、") { it.displayName }}；已完成的来源未找到匹配，不能认定全站没有结果。")
+                } else ToolReply.empty("notifications: $keyword（已查：$scope）")
+                pendingWidgets.add(NoticeWidget(hits.map { NoticeWidgetItem(it.title, it.source.displayName, it.date.toString(), it.link, excerpt = it.description) }, query = keyword))
                 return buildString {
                     append("「$keyword」站内搜索结果（${hits.size}条，按日期从新到旧")
                     if (found.skipped.isNotEmpty()) append("；${found.skipped.joinToString("、") { it.displayName }}这次没搜成")
@@ -1234,6 +1258,7 @@ class AgentToolRegistry(
                 .sortedByDescending { it.date }
                 .take(limit.coerceIn(1, 20))
             if (list.isEmpty()) return ToolReply.empty("notifications（已查：$scope）")
+            pendingWidgets.add(NoticeWidget(list.map { NoticeWidgetItem(it.title, it.source.displayName, it.date.toString(), it.link, excerpt = it.description) }))
             val text = buildString {
                 append("校内最新通知（${list.size}条）\n已查：$scope\n")
                 list.forEach { n ->
@@ -1394,6 +1419,10 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
         val api = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site))
+        val bookingResult = api.fetchMyBooking()
+        val booking = if (bookingResult.isSuccess) bookingResult.getOrNull()?.let {
+            listOfNotNull(it.area, it.seatId?.let { id -> "座位 $id" }, it.statusText).joinToString(" · ")
+        } ?: "当前没有预约" else null
         val current = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
         val requested = campusArg?.trim()?.takeIf { it.isNotEmpty() }?.let { arg ->
             com.xjtu.toolbox.library.LibraryCampus.entries.firstOrNull { arg.contains(it.displayName) || it.displayName.contains(arg) }
@@ -1409,7 +1438,12 @@ class AgentToolRegistry(
             return ToolReply.failed("get_library.campus", "切到${campus.displayName}查询失败")
         }
         try {
-            return withContext(Dispatchers.IO) { librarySeatsIn(api, campus, area) }
+            val firstWidget = pendingWidgets.size
+            val result = withContext(Dispatchers.IO) { librarySeatsIn(api, campus, area) }
+            for (index in firstWidget until pendingWidgets.size) {
+                (pendingWidgets[index] as? LibraryWidget)?.let { pendingWidgets[index] = it.copy(booking = booking) }
+            }
+            return result + (booking?.let { "\n本人预约：$it" } ?: "")
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
@@ -1439,6 +1473,11 @@ class AgentToolRegistry(
         val areaMap = discovered.ifEmpty { com.xjtu.toolbox.library.LibraryApi.AREA_MAP }
         val where = "${campus.displayName}校区"
         if (area.isNullOrBlank()) {
+            pendingWidgets.add(LibraryWidget(
+                campusId = campus.id, campusName = campus.displayName, areaName = "图书馆空座",
+                display = WidgetDisplay(view = "summary"),
+                areas = areaMap.map { (name, code) -> LibraryAreaRef(code, name, stats[code]?.available, stats[code]?.total) },
+            ))
             val lines = areaMap.entries.map { (name, code) ->
                 val s = stats[code]
                 when {

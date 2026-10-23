@@ -7,7 +7,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cached
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.*
@@ -59,7 +58,7 @@ fun WebVpnConverterScreen(
  * @param onOpenWithWebVpn 用户点击访问按钮时调用，参数为最终要访问的（已转为 WebVPN 域的）URL。
  *                        `:app` 那侧外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen；
  *                        桌面端没有内置浏览器，直接把地址交给系统浏览器。
- * @param onOpenApply 「去申请 WebVPN 权限」（打开 [WebVpnDenied.APPLY_URL]）；为 null 的端不显示这张卡。
+ * @param onOpenApply 「去申请 WebVPN 权限」（打开 [WebVpnDenied.APPLY_URL]）；为 null 的端不显示申请按钮。
  */
 @Composable
 fun WebVpnConverterScreen(
@@ -107,10 +106,16 @@ fun WebVpnConverterScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "校外访问内网要经 webvpn.xjtu.edu.cn 代理。这里可双向转换网址，也能直接用内置浏览器打开（已登录免验证）。",
+                        "WebVPN 用于在非校园网下访问校园内网。使用前需申请权限。",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
+                    if (onOpenApply != null) {
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth()) {
+                            Text("申请 WebVPN 权限")
+                        }
+                    }
                 }
             }
         }
@@ -125,7 +130,7 @@ fun WebVpnConverterScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Spacer(Modifier.height(glassTop))
-            // 宽屏两栏：左边是真正要用的转换卡，右边放说明和速查。以前整页限宽 720 居中，
+            // 宽屏两栏：左边是真正要用的转换卡，右边放说明与申请入口。以前整页限宽 720 居中，
             // 三张卡竖着排，平板横屏两边各空一大块。窄屏转换卡也放到最前面：进来就是为了转网址。
             com.xjtu.toolbox.ui.adaptive.AdaptiveTwoColumns(
                 verticalSpacing = 12.dp,
@@ -245,78 +250,8 @@ fun WebVpnConverterScreen(
             }
 
                 },
-                second = {
-            introCard()
-            // 申请入口：提示「学校 WebVPN 没给你的账号开通…」的用户来这儿
-            if (onOpenApply != null) {
-                Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(
-                            "用不了 WebVPN？",
-                            style = MiuixTheme.textStyles.subtitle,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "WebVPN 要先在学校事务中心申请权限，通过后才能从校外访问。点下面按钮直达申请页，已带上你的登录状态。",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("去申请 WebVPN 权限")
-                        }
-                    }
-                }
-            }
-            // 示例提示卡
-            Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Language,
-                            contentDescription = null,
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "常用站点速查",
-                            style = MiuixTheme.textStyles.subtitle,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    val examples = listOf(
-                        "教务系统" to "https://jwxt.xjtu.edu.cn/",
-                        "图书馆主页" to "https://www.lib.xjtu.edu.cn/",
-                        "一网通办" to "https://ywtb.xjtu.edu.cn/",
-                        "考勤" to "https://kq.xjtu.edu.cn/"
-                    )
-                    examples.forEach { (name, url) ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(name, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(0.3f))
-                            Text(
-                                url,
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.weight(0.7f)
-                            )
-                        }
-                    }
-                }
-            }
-                },
+                second = { introCard() },
             )
-
-            Spacer(Modifier.height(24.dp))
         }
     }
 }

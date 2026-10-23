@@ -25,7 +25,7 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -112,7 +112,7 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                 modifier = Modifier.fillMaxSize(),
             ) {
                 when {
-                    vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { LoadingState(message = "正在加载评教列表...", modifier = Modifier.fillMaxSize()) }
+                    vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { SkeletonList(Modifier.fillMaxSize()) }
                     vm.errorMessage != null -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { ErrorState(message = vm.errorMessage.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) }
                     else -> AppTabPager(
                         pageCount = 2,

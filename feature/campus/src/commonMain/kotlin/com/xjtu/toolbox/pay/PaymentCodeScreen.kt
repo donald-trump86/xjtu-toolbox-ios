@@ -237,7 +237,7 @@ fun PaymentCodeScreen(
                         // 编码器编不出（null）时只画下面那串数字，不画假码。
                         if (qrMatrix == null && barMatrix == null) {
                             Text(
-                                "本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。",
+                                "付款码图片暂不可用，下方为数字付款码。",
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 textAlign = TextAlign.Center,
@@ -367,7 +367,7 @@ private fun VoucherSelectorCard(
                     isLoading || isSyncing -> CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
                     error != null -> Unit
                     vouchers.isEmpty() -> Text("暂无可用", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    !canSelect -> Text("共 ${vouchers.size} 张 · 本端只读", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    !canSelect -> Text("共 ${vouchers.size} 张 · 仅供查看", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     selected > 0 -> Text("已选 $selected 张", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
                     else -> Text("未使用", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }

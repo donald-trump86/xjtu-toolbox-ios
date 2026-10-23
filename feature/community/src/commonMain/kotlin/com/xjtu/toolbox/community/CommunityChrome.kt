@@ -3,9 +3,14 @@ package com.xjtu.toolbox.community
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.graphicsLayer
@@ -194,14 +201,86 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
             }
         },
     )
-    Markdown(
-        content = linked,
-        colors = markdownColors,
-        typography = typography,
-        components = components,
-        imageTransformer = Coil3ImageTransformerImpl,
-        modifier = modifier,
-    )
+    // 独占一行的图片拆出来自己画：渲染库把图片当行内元素，尺寸一变整段重排，图多时界面连跳好几下
+    val parts = remember(linked) { splitBlockImages(linked) }
+    if (parts.size == 1 && parts[0] is PostPart.Text) {
+        Markdown(linked, markdownColors, typography, modifier, components = components, imageTransformer = Coil3ImageTransformerImpl)
+        return
+    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        parts.forEach { part ->
+            when (part) {
+                is PostPart.Text -> Markdown(part.markdown, markdownColors, typography, Modifier.fillMaxWidth(),
+                    components = components, imageTransformer = Coil3ImageTransformerImpl)
+                is PostPart.Image -> PostImage(part)
+            }
+        }
+    }
+}
+
+internal sealed interface PostPart {
+    data class Text(val markdown: String) : PostPart
+    /** [width]/[height] 来自 GitHub 网页插图的 `<img width height>`，有就能一次占好位。 */
+    data class Image(val url: String, val alt: String, val width: Int?, val height: Int?) : PostPart
+}
+
+private val MD_IMAGE_LINE = Regex("""^!\[([^\]]*)]\(<?(https://[^\s)>]+)>?(?:\s+"[^"]*")?\)$""")
+private val HTML_IMAGE_LINE = Regex("""^(?:<p[^>]*>\s*)?<img\b([^>]*?)/?>(?:\s*</p>)?$""", RegexOption.IGNORE_CASE)
+private fun htmlAttr(attrs: String, name: String): String? =
+    Regex("""\b$name\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE).find(attrs)?.groupValues?.get(1)
+
+/** 把独占一行的图片（Markdown 或 `<img>`）切成单独的块；代码块里的不动。 */
+internal fun splitBlockImages(markdown: String): List<PostPart> {
+    val parts = mutableListOf<PostPart>()
+    val buffer = StringBuilder()
+    fun flush() {
+        if (buffer.isNotBlank()) parts += PostPart.Text(buffer.toString().trim('\n'))
+        buffer.clear()
+    }
+    var fenced = false
+    markdown.split('\n').forEach { line ->
+        val t = line.trim()
+        if (t.startsWith("```") || t.startsWith("~~~")) fenced = !fenced
+        val image = if (fenced) null else MD_IMAGE_LINE.matchEntire(t)?.let { PostPart.Image(it.groupValues[2], it.groupValues[1], null, null) }
+            ?: HTML_IMAGE_LINE.matchEntire(t)?.groupValues?.get(1)?.let { attrs ->
+                htmlAttr(attrs, "src")?.takeIf { it.startsWith("https://") }?.let { src ->
+                    PostPart.Image(src, htmlAttr(attrs, "alt").orEmpty(),
+                        htmlAttr(attrs, "width")?.toIntOrNull(), htmlAttr(attrs, "height")?.toIntOrNull())
+                }
+            }
+        if (image != null) { flush(); parts += image } else buffer.append(line).append('\n')
+    }
+    flush()
+    return parts.ifEmpty { listOf(PostPart.Text(markdown)) }
+}
+
+/** 帖子里的一张图：知道比例就一次占好位，不知道先占一块，加载完平滑变到真实比例。 */
+@Composable
+private fun PostImage(image: PostPart.Image) {
+    val known = image.width?.takeIf { it > 0 }?.let { w -> image.height?.takeIf { it > 0 }?.let { h -> w.toFloat() / h } }
+    var ratio by remember(image.url) { mutableStateOf(known) }
+    Box(
+        Modifier
+            .then(if (image.width != null && image.width > 0) Modifier.widthIn(max = image.width.dp) else Modifier)
+            .fillMaxWidth()
+            .animateContentSize()
+            .then(ratio?.let { Modifier.aspectRatio(it.coerceIn(0.25f, 4f)) } ?: Modifier.height(180.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f)),
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true).build(),
+            contentDescription = image.alt.ifBlank { null },
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
+            onSuccess = { state ->
+                if (ratio == null) {
+                    val size = state.painter.intrinsicSize
+                    if (size.width > 0f && size.height > 0f) ratio = size.width / size.height
+                }
+            },
+        )
+    }
 }
 
 private val MENTION = Regex("""(^|[\s(（，。、：；！？])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![A-Za-z0-9-])""")

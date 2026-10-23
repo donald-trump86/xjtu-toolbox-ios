@@ -13,6 +13,17 @@ import kotlin.test.assertTrue
 class HomeCardsTest {
 
     @Test
+    fun fitnessSummaryShowsPassingScoresWithoutExposingOtherResults() {
+        fun summary(value: String) = HomeCards.statOf(AppRoute.Fitness.id,
+            mapOf(AppRoute.Fitness.id to HomeStat(value, "学校返回的结果")))
+        assertNull(summary("59.9"))
+        assertNull(summary("--"))
+        assertNull(summary("未测"))
+        assertEquals("60", summary("60")?.value)
+        assertEquals("89.5", summary("89.5")?.value)
+    }
+
+    @Test
     fun `分类卡按目录里的分类顺序出，空分类不下发`() {
         val groups = HomeCards.groups(AccountType.UNDERGRADUATE, emptyMap())
         val expected = ServiceCategory.entries.filter { category ->

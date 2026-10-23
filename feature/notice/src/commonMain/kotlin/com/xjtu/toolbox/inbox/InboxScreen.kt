@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LoginType
@@ -113,6 +114,8 @@ fun InboxScreen(
     onOpen: (String) -> Unit,
     /** 收纳是**按账号**存的；null = 当前账号（:core 的 AccountContext）。 */
     account: String? = null,
+    /** 屁岱消息弹窗里的「接着问屁岱」：宿主把这条消息当快照带进对话。null = 只按路由打开屁岱页。 */
+    onAskPidai: ((InboxItem) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -130,6 +133,8 @@ fun InboxScreen(
     fun accentOf(item: InboxItem) = if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source) else null
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
+    // 点开过的这次就算看了，返回时红点立刻熄掉
+    var openedTodos by remember { mutableStateOf(emptySet<String>()) }
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
@@ -165,7 +170,10 @@ fun InboxScreen(
 
     fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
         InboxStore.markRead(ids)
-        item.resolvedRouteId()?.let(onOpen) ?: run { detail = item }
+        openedTodos = openedTodos + ids
+        // 屁岱的简报正文就是全部内容，屁岱页里没有它：先弹窗看全文，想接着聊再进屁岱
+        val route = item.resolvedRouteId()
+        if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
     }
 
     Scaffold(
@@ -239,7 +247,7 @@ fun InboxScreen(
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
                             section(title, list.map {
                                 Entry(
-                                    it, it.id, unread = it.id !in seenAtOpen, count = 1, accent = accentOf(it),
+                                    it, it.id, unread = it.id !in seenAtOpen && it.id !in openedTodos, count = 1, accent = accentOf(it),
                                     onLongClick = {
                                         val selfId = SelfTodoRules.todoIdOf(it.id)
                                         actions = if (selfId != null) {
@@ -284,7 +292,12 @@ fun InboxScreen(
         InboxSettingsSheet(showSettings, data) { showSettings = false }
     }
 
-    detail?.let { d -> InboxDetailDialog(d) { detail = null } }
+    detail?.let { d ->
+        val ask: (() -> Unit)? = if (d.category != InboxCategories.PIDAI) null else {
+            { onAskPidai?.invoke(d) ?: d.resolvedRouteId()?.let(onOpen) }
+        }
+        InboxDetailDialog(d, onAskPidai = ask) { detail = null }
+    }
     actions?.let { a -> RowActionsDialog(a) { actions = null } }
     if (showAdd) AddTodoDialog { showAdd = false }
 }
@@ -460,16 +473,34 @@ private fun categoryIcon(category: String): ImageVector = when (category) {
 
 /** 首页顶栏的铃铛：角标 = 未读消息组 + 没看过的待办。角标叠在按钮外面，不会被按钮的圆形裁掉。 */
 @Composable
-fun InboxBell(onClick: () -> Unit) {
+fun InboxBell(
+    onClick: () -> Unit,
+    clickable: Boolean = true,
+    iconSize: Dp = 24.dp,
+    /** 非点击模式的容器边长；嵌在圆钮里时传圆钮的尺寸，角标才会和圆钮对齐。 */
+    containerSize: Dp = 48.dp,
+) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
     Box {
-        IconButton(onClick = onClick) {
-            Icon(
-                Icons.Default.Notifications,
-                contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
-                tint = MiuixTheme.colorScheme.onSurface,
-            )
+        if (clickable) {
+            IconButton(onClick = onClick) {
+                Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
+                    tint = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(iconSize),
+                )
+            }
+        } else {
+            Box(Modifier.size(containerSize), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
+                    tint = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(iconSize),
+                )
+            }
         }
         if (count > 0) {
             Box(
@@ -650,7 +681,7 @@ private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: 
 }
 
 @Composable
-private fun InboxDetailDialog(item: InboxItem, onDismiss: () -> Unit) {
+private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = item.title, summary = "${item.source} · ${timeLabel(item.time)}", onDismissRequest = onDismiss) {
         Column {
             Text(
@@ -658,7 +689,20 @@ private fun InboxDetailDialog(item: InboxItem, onDismiss: () -> Unit) {
                 style = MiuixTheme.textStyles.body2,
                 modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             )
-            TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+            if (onAskPidai == null) {
+                TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+            } else {
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(12.dp))
+                    TextButton(
+                        text = "接着问屁岱",
+                        onClick = { onDismiss(); onAskPidai() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+            }
         }
     }
 }

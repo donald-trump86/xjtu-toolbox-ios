@@ -3,6 +3,7 @@ package com.xjtu.toolbox.ui.components
 import kotlin.time.TimeSource
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -19,10 +20,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -41,6 +45,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import kotlin.math.PI
+import kotlin.math.cos
 
 /*
  * 全 App 共用的动效零件。规矩和屁岱页一致，新加的效果都照这几条来：
@@ -59,21 +66,75 @@ private const val ENTER_MS = 240
 private const val ENTER_STAGGER_MS = 28L
 private const val ENTER_MAX = 6
 
+/** 图表、进度条这类「揭开」的默认时长。 */
+private const val REVEAL_MS = 550
+
+/** 常驻循环（骨架高光、思考中的呼吸）的周期。 */
+private const val LOOP_MS = 1200L
+
 /**
- * 入场进度 0→1，第 [index] 项错开 45ms。[index] ≥ [maxAnimated] 的直接是 1：
+ * 0→1 的揭开进度。[key] 变了才重播（数据换了再演一遍）；播过的 key 记在 rememberSaveable 里，
+ * 返回页面、滚出去再滚回来都直接是 1。[skip] 为 true 时直接就位。
+ * 进度请在 graphicsLayer / drawBehind 里读。
+ */
+@Composable
+fun rememberRevealProgress(
+    key: Any? = Unit,
+    delayMillis: Long = 0L,
+    spec: AnimationSpec<Float> = tween(REVEAL_MS, easing = FastOutSlowInEasing),
+    skip: Boolean = false,
+): State<Float> {
+    val k = key.hashCode()
+    val played = rememberSaveable { mutableStateOf(if (skip) k else null) }
+    val a = remember { Animatable(if (played.value == k) 1f else 0f) }
+    LaunchedEffect(k) {
+        if (played.value == k) {
+            a.snapTo(1f)
+            return@LaunchedEffect
+        }
+        a.snapTo(0f)
+        if (delayMillis > 0) delay(delayMillis)
+        a.animateTo(1f, spec)
+        played.value = k
+    }
+    return a.asState()
+}
+
+/**
+ * 入场进度 0→1，第 [index] 项错开 [ENTER_STAGGER_MS]。[index] ≥ [maxAnimated] 的直接是 1：
  * 只有第一屏值得演一下，滚到后面还逐条淡入只会显得拖沓。
  */
 @Composable
-fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float> {
-    val played = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(index >= maxAnimated) }
-    val a = remember { Animatable(if (played.value) 1f else 0f) }
-    LaunchedEffect(Unit) {
-        if (played.value) return@LaunchedEffect
-        delay(index * ENTER_STAGGER_MS)
-        a.animateTo(1f, tween(ENTER_MS, easing = FastOutSlowInEasing))
-        played.value = true
+fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float> =
+    rememberRevealProgress(
+        delayMillis = index * ENTER_STAGGER_MS,
+        spec = tween(ENTER_MS, easing = FastOutSlowInEasing),
+        skip = index >= maxAnimated,
+    )
+
+/**
+ * 常驻循环的相位 0→1（周期 [periodMillis]）：按约 30 帧/秒推进，页面不可见就停。
+ * 骨架高光、思考中的呼吸都从这里取，节奏全 App 一致。
+ */
+@Composable
+fun rememberLoopPhase(periodMillis: Long = LOOP_MS): State<Float> {
+    val phase = remember { mutableFloatStateOf(0f) }
+    if (LocalPageVisible.current) {
+        LaunchedEffect(periodMillis) {
+            val start = TimeSource.Monotonic.markNow()
+            while (true) {
+                phase.floatValue = (start.elapsedNow().inWholeMilliseconds % periodMillis) / periodMillis.toFloat()
+                delay(33)
+            }
+        }
     }
-    return a.asState()
+    return phase
+}
+
+/** 呼吸：按 [phase] 在 [low]..1 之间余弦起伏；[offset]（0..1）错开相位，一排点就成了波浪。 */
+fun breath(phase: Float, low: Float = 0.35f, offset: Float = 0f): Float {
+    val t = (phase - offset + 1f) % 1f
+    return low + (1f - low) * (0.5f - 0.5f * cos(2f * PI.toFloat() * t))
 }
 
 /** 入场：从下方 12dp 淡入上浮，只播一次。值在 graphicsLayer 里读，不引起重组。 */
@@ -87,7 +148,10 @@ fun Modifier.enterOnce(index: Int, maxAnimated: Int = ENTER_MAX): Modifier {
     }
 }
 
-/** 按下时缩到 0.96、松手弹回来，摸起来是「软」的。和屁岱首页卡片同一组弹簧参数。 */
+/**
+ * 按下时缩小、松手弹回来，摸起来是「软」的。卡片、圆钮用它；小圆钮可以压得更深（如 0.92）。
+ * 整行的列表项用 [pressHighlight]：一整行跟着缩放太晃。
+ */
 @Composable
 fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.96f): Modifier {
     val isPressed by source.collectIsPressedAsState()
@@ -99,6 +163,18 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.96f
     return graphicsLayer {
         scaleX = s.value
         scaleY = s.value
+    }
+}
+
+/** 列表行的按压：盖一层淡淡的前景色，按下即现、松手淡出；深浅色主题下都看得见。 */
+@Composable
+fun Modifier.pressHighlight(source: MutableInteractionSource): Modifier {
+    val isPressed by source.collectIsPressedAsState()
+    val a = animateFloatAsState(if (isPressed) 1f else 0f, tween(if (isPressed) 60 else 220), label = "pressHighlight")
+    val tint = MiuixTheme.colorScheme.onSurface
+    return drawWithContent {
+        drawContent()
+        if (a.value > 0f) drawRect(tint.copy(alpha = 0.07f * a.value))
     }
 }
 
@@ -193,14 +269,7 @@ fun SegmentedBar(
     gap: Dp = 2.dp,
     delayMillis: Int = 0,
 ) {
-    val played = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    val reveal = remember { Animatable(if (played.value) 1f else 0f) }
-    LaunchedEffect(Unit) {
-        if (played.value) return@LaunchedEffect
-        if (delayMillis > 0) delay(delayMillis.toLong())
-        reveal.animateTo(1f, tween(550, easing = FastOutSlowInEasing))
-        played.value = true
-    }
+    val reveal = rememberRevealProgress(delayMillis = delayMillis.toLong())
     val total = parts.sumOf { it.first.toDouble() }.toFloat()
     Box(
         modifier
@@ -240,13 +309,7 @@ fun SlotStripe(
     busyColor: Color = Color.Gray.copy(alpha = 0.16f),
     height: Dp = 6.dp,
 ) {
-    val played = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    val reveal = remember { Animatable(if (played.value) 1f else 0f) }
-    LaunchedEffect(Unit) {
-        if (played.value) return@LaunchedEffect
-        reveal.animateTo(1f, tween(450, easing = FastOutSlowInEasing))
-        played.value = true
-    }
+    val reveal = rememberRevealProgress(spec = tween(450, easing = FastOutSlowInEasing))
     Box(
         modifier
             .fillMaxWidth()
@@ -302,25 +365,10 @@ val DefaultHeroMeshWeights = listOf(
     listOf(0.03f, 0.02f, 0.05f),
 )
 
-/**
- * 骨架屏占位块：圆角灰块 + 一道斜向高光扫过。高光相位按 30 帧/秒推进，
- * 页面不可见时停；只在加载期间组合，数据一到就被真内容换掉。
- */
+/** 骨架屏占位块：圆角灰块 + 一道斜向高光扫过；只在加载期间组合，数据一到就被真内容换掉。 */
 @Composable
 fun SkeletonBlock(modifier: Modifier = Modifier, cornerRadius: Dp = 12.dp) {
-    val visible = LocalPageVisible.current
-    val phase = remember { mutableFloatStateOf(0f) }
-    if (visible) {
-        LaunchedEffect(Unit) {
-            // System.nanoTime 属于 java.lang（JVM 默认导入，所以 import 判据看不见它）。
-            // 换成 kotlin.time 的单调时钟：跨端可用，语义也一致（单调、不受系统时间调整影响）。
-            val start = TimeSource.Monotonic.markNow()
-            while (true) {
-                phase.floatValue = ((start.elapsedNow().inWholeMilliseconds % 1400L) / 1400f)
-                delay(33)
-            }
-        }
-    }
+    val phase = rememberLoopPhase(1400L)
     val base = AppInsetColor
     Box(
         modifier.drawWithCache {
@@ -328,7 +376,7 @@ fun SkeletonBlock(modifier: Modifier = Modifier, cornerRadius: Dp = 12.dp) {
             onDrawBehind {
                 drawRoundRect(base, cornerRadius = r)
                 val band = size.width * 0.6f
-                val x = -band + (size.width + band * 2) * phase.floatValue
+                val x = -band + (size.width + band * 2) * phase.value
                 drawRoundRect(
                     Brush.linearGradient(
                         listOf(Color.Transparent, Color.White.copy(alpha = 0.35f), Color.Transparent),
@@ -342,9 +390,12 @@ fun SkeletonBlock(modifier: Modifier = Modifier, cornerRadius: Dp = 12.dp) {
     )
 }
 
-/** 一次性描出来的对勾（扫码登录成功这类时刻）：外圈弹一下，对勾沿路径画出。 */
+/** 「成功」的绿色：打勾动画和成功文案共用。 */
+val SuccessGreen = Color(0xFF34C759)
+
+/** 一次性描出来的对勾（登录、预订、生成成功这类时刻）：外圈弹一下，对勾沿路径画出。 */
 @Composable
-fun DrawCheckmark(color: Color, modifier: Modifier = Modifier, size: Dp = 72.dp) {
+fun DrawCheckmark(color: Color = SuccessGreen, modifier: Modifier = Modifier, size: Dp = 72.dp) {
     val ring = remember { Animatable(0.6f) }
     val stroke = remember { Animatable(0f) }
     LaunchedEffect(Unit) {

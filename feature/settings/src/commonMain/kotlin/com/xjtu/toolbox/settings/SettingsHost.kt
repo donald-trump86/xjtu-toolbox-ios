@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.xjtu.toolbox.nav.AppRoute
 
 /** 设置页里那些只有某些端才真会照着办的行。 */
 enum class SettingsRow {
@@ -10,9 +12,6 @@ enum class SettingsRow {
     /** 跟随系统取色（Monet）。 */
     DYNAMIC_COLOR,
 
-    /** 首页主题（卡片 / 图标）：`:app` 首页那两套布局。 */
-    HOME_THEME,
-
     /** 首页「显示常用功能」。 */
     QUICK_ACTIONS,
 
@@ -21,6 +20,9 @@ enum class SettingsRow {
 
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
+
+    /** 底栏放哪几格（`:app` 的底栏）。 */
+    BOTTOM_TABS,
 
     /** 触感反馈。 */
     HAPTICS,
@@ -79,9 +81,12 @@ interface SettingsHost {
     /** 换连接模式之后要通知的事（`:app` = `loginState.onNetworkChanged()`：按新模式重新挑 backend）。 */
     val onNetworkModeChanged: (() -> Unit)?
 
-    /** 外观设置（深色模式 / 取色 / 首页主题 / 界面风格）写完之后的回调。 */
+    /** 外观设置（深色模式 / 取色 / 界面风格）写完之后的回调。 */
     fun onAppearanceChanged() {}
 
     /** 打开一个外链（关于与致谢那几行的项目主页 / 许可证）。 */
     val onOpenUrl: (String) -> Unit
+
+    /** 功能图标（底栏候选列表用，与首页宫格同一套）；null = 不画图标。 */
+    val serviceIcon: ((AppRoute) -> ImageVector)? get() = null
 }

@@ -123,7 +123,7 @@ fun AgentScreen(
             vm.draft = pending.text
             return@LaunchedEffect
         }
-        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot)
+        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot, images = pending.images)
     }
 
     // 上下文耗尽主动弹窗：避免"输入框禁用 + label 文字里藏一句"的隐晦提示

@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.card
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -15,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -31,7 +32,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.HeroMesh
 import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.appCardShadow
-import kotlinx.coroutines.delay
+import com.xjtu.toolbox.ui.components.rememberRevealProgress
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -119,12 +120,7 @@ internal fun SpendingHeroCard(
 
 @Composable
 private fun PersonaChip(emoji: String, text: String, index: Int, tint: Color) {
-    val pop = remember { Animatable(0f) }
-    LaunchedEffect(text) {
-        pop.snapTo(0f)
-        delay(250L + index * 110L)
-        pop.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 380f))
-    }
+    val pop = rememberRevealProgress(text, 250L + index * 110L, spring(dampingRatio = 0.5f, stiffness = 380f))
     Row(
         Modifier
             .graphicsLayer {
@@ -156,11 +152,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
     if (hourly.size != 24 || hourly.all { it == 0 }) return
     val max = hourly.max().toFloat()
     val peak = hourly.indices.maxBy { hourly[it] }
-    val grow = remember { Animatable(0f) }
-    LaunchedEffect(hourly) {
-        grow.snapTo(0f)
-        grow.animateTo(1f, tween(1100, easing = FastOutSlowInEasing))
-    }
+    val grow = rememberRevealProgress(hourly, spec = tween(1100, easing = FastOutSlowInEasing))
     val idle = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f)
     val track = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.06f)
     val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -308,12 +300,7 @@ internal fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
 private fun PodiumColumn(m: MerchantStat, rank: Int, modifier: Modifier = Modifier) {
     val (medal, color, height) = PODIUM[rank]
     // 台子从地面升起来，冠军最后到
-    val rise = remember { Animatable(0f) }
-    LaunchedEffect(m.name, m.totalAmount) {
-        rise.snapTo(0f)
-        delay(listOf(260L, 120L, 0L)[rank])
-        rise.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = 260f))
-    }
+    val rise = rememberRevealProgress(m.name to m.totalAmount, listOf(260L, 120L, 0L)[rank], spring(dampingRatio = 0.62f, stiffness = 260f))
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(medal, fontSize = if (rank == 0) 28.sp else 22.sp)
         Spacer(Modifier.height(4.dp))
@@ -331,7 +318,12 @@ private fun PodiumColumn(m: MerchantStat, rank: Int, modifier: Modifier = Modifi
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(height * rise.value.coerceAtLeast(0f))
+                .layout { measurable, constraints ->
+                    // 高度在布局阶段读：升起时只重排这一根柱子，不重组整列
+                    val h = (height.toPx() * rise.value.coerceAtLeast(0f)).roundToInt()
+                    val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                    layout(placeable.width, h) { placeable.place(0, 0) }
+                }
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                 .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.75f), color.copy(alpha = 0.22f)))),
             contentAlignment = Alignment.TopCenter,

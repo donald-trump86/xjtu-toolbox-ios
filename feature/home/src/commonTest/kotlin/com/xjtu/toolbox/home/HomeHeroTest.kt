@@ -1,12 +1,16 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.inbox.InboxItem
+import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.CUSTOM_COURSE_CODE_PREFIX
 import com.xjtu.toolbox.schedule.CourseItem
+import com.xjtu.toolbox.util.CampusTimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.toInstant
 
 /** Hero 的两项本地推算（[HomeHero]）。 */
 class HomeHeroTest {
@@ -130,6 +134,40 @@ class HomeHeroTest {
                 now = LocalDateTime(2026, 10, 12, 10, 0),
             )
         )
+    }
+
+    private fun due(at: LocalDateTime, title: String = "交实验报告") = InboxItem(
+        id = "todo",
+        category = "todo",
+        source = "思源学堂",
+        title = title,
+        expiresAt = at.toInstant(CampusTimeZone).toEpochMilliseconds(),
+    )
+
+    @Test
+    fun `待办截止比下一节课早就顶上下一项`() {
+        val now = LocalDateTime(2026, 10, 12, 7, 0)
+        val course = HomeHero.find(listOf(math), termStart, now = now)
+        val lead = HomeHero.dueLead(course, due(LocalDateTime(2026, 10, 12, 7, 30)), now)
+        assertEquals("交实验报告", lead?.title)
+        assertEquals("07:30", lead?.timeLabel)
+        assertEquals("截止", lead?.timeCaption)
+        assertEquals("30分钟后", lead?.eta)
+        assertEquals("思源学堂", lead?.detail)
+        assertEquals(AppRoute.Inbox, lead?.route)
+
+        assertNull(HomeHero.dueLead(course, due(LocalDateTime(2026, 10, 12, 9, 0)), now), "截止在上课之后 ⇒ 课仍是下一项")
+        assertNull(HomeHero.dueLead(course, due(LocalDateTime(2026, 10, 12, 6, 0)), now), "已经过了截止")
+    }
+
+    @Test
+    fun `两周没有安排时让给两周内的待办`() {
+        val now = LocalDateTime(2026, 10, 12, 10, 0)
+        val empty = HomeNextUp(icon = HomeHero.EMPTY_ICON, title = HomeHero.NOTHING_TITLE)
+        assertEquals("明天 截止", HomeHero.dueLead(empty, due(LocalDateTime(2026, 10, 13, 23, 59)), now)?.timeCaption)
+        assertNull(HomeHero.dueLead(empty, due(LocalDateTime(2026, 11, 30, 12, 0)), now), "超出两周窗口")
+        val missing = HomeNextUp(icon = HomeHero.MISSING_ICON, title = "课表还没同步")
+        assertNull(HomeHero.dueLead(missing, due(LocalDateTime(2026, 10, 12, 11, 0)), now), "同步提示不让")
     }
 
     @Test

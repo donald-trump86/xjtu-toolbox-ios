@@ -36,11 +36,11 @@ class ServeAgentToolCopyDriftTest {
     private val seams = listOf(
         // 1. 会话那一格：serve 的会话在内核里，没有 `loginState` 那半层
         Seam(
-            listOf("loginState.sessionManager?.ensureSite(type, silent = true)"),
+            listOf("loginState.sessionManager?.ensureSite(type, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)"),
             listOf("session.sessionManager.ensureSite(type, silent = true)"),
         ),
         Seam(
-            listOf("loginState.sessionManager?.ensureSite(siteKey, silent = true)"),
+            listOf("loginState.sessionManager?.ensureSite(siteKey, silent = !allowInteractiveLogin, userInitiated = allowInteractiveLogin)"),
             listOf("session.sessionManager.ensureSite(siteKey, silent = true)"),
         ),
         Seam(
@@ -93,8 +93,8 @@ class ServeAgentToolCopyDriftTest {
             ),
         ),
         Seam(
-            listOf("EmptyRoomDirectQuery(directClient, EmptyRoomCache(context)).queryDay(targetCampus, b, dateStr)"),
-            listOf("EmptyRoomDirectQuery(directClient, null).queryDay(targetCampus, b, dateStr)"),
+            listOf("EmptyRoomDirectQuery(directClient, EmptyRoomCache(context))"),
+            listOf("EmptyRoomDirectQuery(directClient, null)"),
         ),
         // 5. 校历那一格：`:app` 自己 new，serve 收一格注入
         Seam(

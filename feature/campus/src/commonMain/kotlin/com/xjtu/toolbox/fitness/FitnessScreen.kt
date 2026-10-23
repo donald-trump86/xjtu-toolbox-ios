@@ -297,21 +297,8 @@ private fun Throwable.isAuthExpiry(): Boolean =
     this is com.xjtu.toolbox.error.SessionExpiredFailure
 
 @Composable
-private fun YearChip(year: FitnessYear, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MiuixTheme.colorScheme.primary
-    else MiuixTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MiuixTheme.colorScheme.onPrimary
-    else MiuixTheme.colorScheme.onSurface
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 9.dp)
-    ) {
-        Text(year.name, color = fg, style = MiuixTheme.textStyles.footnote1)
-    }
-}
+private fun YearChip(year: FitnessYear, selected: Boolean, onClick: () -> Unit) =
+    com.xjtu.toolbox.ui.components.AppFilterChip(selected = selected, onClick = onClick, label = year.name)
 
 @Composable
 private fun ScoreHero(score: FitnessScore) {

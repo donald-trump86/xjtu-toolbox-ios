@@ -77,17 +77,19 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
             .get()
             .build()
 
-        val response = client.newCall(request).execute()
-
-        if (response.code == 404) {
-            throw NoDataException("当天暂无空闲教室数据，请稍后再试")
+        // 上游每天中午前后生成今明两天，之后删掉昨天；生成失败（如上游账号被要求 MFA）当天就是 404
+        val body = client.newCall(request).execute().use { response ->
+            if (response.code == 404) {
+                throw NoDataException(
+                    if (date > today) "明天的数据一般中午过后才生成，可以晚点再看"
+                    else "CDN 课表源今天没有更新（上游每天生成，这次没成功）"
+                )
+            }
+            if (!response.isSuccessful) {
+                throw RuntimeException("请求失败: HTTP ${response.code}")
+            }
+            response.body.string()
         }
-
-        if (!response.isSuccessful) {
-            throw RuntimeException("请求失败: HTTP ${response.code}")
-        }
-
-        val body = response.body.string()
 
         val json = body.safeParseJsonObject()
         cache?.writeJson("cdn_day_$date", body)

@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.datetime.LocalDate
 
 /** 校园卡的取数端口：屏与 ViewModel 都在 `:core`，两端各自填同一批字段。 */
@@ -70,13 +72,18 @@ suspend fun CampusCardSource.allTransactions(
     if (records.size > total) {
         throw RuntimeException("查询校园卡流水返回的流水记录超过总数")
     }
-    if (records.size == total || totalPages <= 1) return records
+    if (records.size == total) return records
+    if (totalPages <= 1) {
+        if (allowIncomplete) return records
+        throw RuntimeException("查询校园卡流水返回了残缺流水数据")
+    }
 
     // 其余分页最多 3 路并发，每页 45 秒超时
     val pageDispatcher = Dispatchers.Default.limitedParallelism(3)
+    val gate = Semaphore(3)
     coroutineScope {
         val pages = (2..totalPages).map { page ->
-            page to async(pageDispatcher) { withTimeout(45_000) { transactions(startDate, endDate, page, pageSize) } }
+            page to async(pageDispatcher) { gate.withPermit { withTimeout(45_000) { transactions(startDate, endDate, page, pageSize) } } }
         }
         for ((page, deferred) in pages) {
             val (pageTotal, batch) = try {
@@ -115,12 +122,15 @@ suspend fun CampusCardSource.transactionsUntilKnown(
     isKnown: (Transaction) -> Boolean,
 ): List<Transaction> {
     val records = mutableListOf<Transaction>()
+    val seenPages = mutableSetOf<String>()
     for (page in 1..maxPages) {
         val (total, batch) = transactions(startDate, endDate, page, pageSize)
+        if (batch.isEmpty() && records.size < total) throw RuntimeException("查询校园卡流水返回了残缺流水数据")
+        if (batch.isNotEmpty() && !seenPages.add(pageSignature(batch))) throw RuntimeException("查询校园卡流水返回了重复分页数据")
         records += batch
-        if (batch.any(isKnown) || batch.size < pageSize || records.size >= total) break
+        if (batch.any(isKnown) || records.size >= total) return records
     }
-    return records
+    throw RuntimeException("校园卡流水较多，尚未拉取完整，请缩小日期范围后重试")
 }
 
 private fun pageSignature(batch: List<Transaction>): String = batch.joinToString("\n") { it.uniqueKey() }

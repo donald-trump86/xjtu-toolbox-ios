@@ -733,7 +733,7 @@ private class OaNoticeCrawler(
         val title = a.attr("title").ifBlank { a.text() }.trim()
         if (title.length < 4) return null
         val id = DETAIL_ID_RE.find(a.attr("onclick"))?.groupValues?.get(1) ?: return null
-        val link = "$DETAIL_URL?processInsId=${URLEncoder.encode(id, StandardCharsets.UTF_8)}"
+        val link = "$DETAIL_URL?processInsId=${URLEncoder.encode(id, "UTF-8")}"
         val meta = a.closest("tr")
             ?.selectFirst("td.timedate1")
             ?.text()
@@ -798,7 +798,7 @@ internal object SiteSearch {
     fun searchVsb(client: OkHttpClient, source: NotificationSource, action: String, keyword: String, page: Int): VsbResult {
         val origin = originOf(source.baseUrl) ?: return VsbResult(NotificationPage(emptyList(), false), 0)
         val key = java.util.Base64.getEncoder().encodeToString(keyword.toByteArray(StandardCharsets.UTF_8))
-        val url = "$origin/$action&searchScope=0&currentnum=$page&newskeycode2=${URLEncoder.encode(key, StandardCharsets.UTF_8)}"
+        val url = "$origin/$action&searchScope=0&currentnum=$page&newskeycode2=${URLEncoder.encode(key, "UTF-8")}"
         return parseVsb(fetchDocumentWithChallenge(client, url), source, page)
     }
 
@@ -1019,7 +1019,25 @@ class NotificationApi(
         pages: Int = 2,
     ): MergedNotificationPage = coroutineScope {
         val results = sources.map { source ->
-            async(Dispatchers.IO) { source to runCatching { searchSource(source, keyword, pages) } }
+            async(Dispatchers.IO) {
+                val domain = runCatching { URI(source.baseUrl).host }.getOrNull()
+                fun fetch(): List<Notification> {
+                    val items = searchSource(source, keyword, pages)
+                    if (items.isEmpty() && domain != null && isDomainFailed(domain)) {
+                        throw java.io.IOException("${source.displayName}暂时连接失败")
+                    }
+                    return items
+                }
+                var result = runCatching { fetch() }
+                if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw result.exceptionOrNull()!!
+                if (result.isFailure) {
+                    kotlinx.coroutines.delay(1_200)
+                    if (domain != null) failedDomains.remove(domain)
+                    result = runCatching { fetch() }
+                    if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw result.exceptionOrNull()!!
+                }
+                source to result
+            }
         }.awaitAll()
         val skipped = results.filter { it.second.isFailure }.map { it.first }.toSet()
         val items = results.flatMap { it.second.getOrDefault(emptyList()) }

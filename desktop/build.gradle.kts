@@ -157,6 +157,21 @@ tasks.register<JavaExec>("renderHomePreview") {
     args = listOf(layout.buildDirectory.dir("home-preview").get().asFile.absolutePath)
 }
 
+tasks.register<JavaExec>("renderInterfaceRefinements") {
+    group = "verification"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderInterfaceRefinementsKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("interface-preview").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("renderCampusExperience") {
+    group = "verification"
+    description = "Render offline previews of the meal report and notification filters"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderCampusExperienceKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("campus-experience-preview").get().asFile.absolutePath)
+}
+
 /** `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 app-image（免安装目录）打成 `tar.gz`。 */
 tasks.register<org.gradle.api.tasks.bundling.Tar>("packageTarGz") {
     group = "distribution"

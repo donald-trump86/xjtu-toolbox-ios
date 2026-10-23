@@ -88,8 +88,6 @@ import com.xjtu.toolbox.desktop.jiaocai1.jiaocai1CacheRoot
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
-import com.xjtu.toolbox.dormpower.DormPowerApi
-import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.desktop.lms.DesktopLmsSaver
@@ -291,7 +289,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Coupon to "加餐券",
 
     AppRoute.DownloadManager to "下载管理",
-    AppRoute.DormPower to "宿舍电费",
 
     AppRoute.Attendance to "考勤",
     // `Lms` 是带 `courseId` 的 data class（其余多数是 data object）⇒ 这一栏要用**默认实例**
@@ -629,13 +626,6 @@ private fun DesktopPage(
             )
         }
 
-        AppRoute.DormPower -> DesktopSiteGate(auth, DesktopAuth.SSN_SITE_KEY, "宿舍电费") { site ->
-            DormPowerScreen(
-                source = remember(site) { DormPowerApi(site) },
-                onBack = back,
-                browser = { url -> DesktopPayPage(url) },
-            )
-        }
 
         // 考勤：有自己的独立登录入口，会话进门时才建。请假附件走系统文件对话框
         // （`DesktopFileDialogs.pickEvidenceFiles`，与 `:app` 的 SAF 那一格同语义：取消 = 空表）。
@@ -686,7 +676,6 @@ private fun DesktopPage(
 
         // 社区：上游是 GitHub，不套 `DesktopSiteGate`；登录态存储名与键不能改。
         AppRoute.Community -> CommunityScreen(
-            imageStorage = remember { com.xjtu.toolbox.community.GithubImageStorage({ SecureGithubSession.get().login.value }) },
             session = remember { SecureGithubSession.get() },
             deviceAuth = remember {
                 GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
@@ -1084,26 +1073,4 @@ private fun DesktopMfaDialog(auth: DesktopAuth) {
         onSubmit = { code -> if (!request.submit(code)) error = "提交失败" },
         onCancel = { request.cancel() },
     )
-}
-
-
-/** 宿舍电费的「浏览器」槽位（桌面端）—— 见 `DesktopPage` 里那条 `AppRoute.DormPower` 分支的 KDoc。 */
-@Composable
-private fun DesktopPayPage(url: String?) {
-    LaunchedEffect(url) { if (url != null) openInBrowser(url) }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        if (url == null) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                CircularProgressIndicator()
-                Text("正在准备缴费页入口…", color = MiuixTheme.colorScheme.onBackgroundVariant, fontSize = 13.sp)
-            }
-        } else {
-            Text(
-                "缴费页已交给系统浏览器打开\n（绑定、查询、充值都在那一页里）",
-                color = MiuixTheme.colorScheme.onBackgroundVariant,
-                fontSize = 13.sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-        }
-    }
 }

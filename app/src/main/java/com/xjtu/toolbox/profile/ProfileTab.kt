@@ -18,7 +18,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +34,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -55,6 +53,7 @@ import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.pressHighlight
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.util.toDialableTel
@@ -156,7 +155,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
  * 时才画成可点的蓝色；解析不出来的（「见年级群」这类）保持普通文字，免得给出一个
  * 点了也拨不出去的假链接。
  *
- * 行高给到 48dp：号码是 footnote1，字形的触控区只有十几 dp 高，长按基本按不中。
+ * 紧凑行高配号码周围的点击留白，避免两行联系人比上面的学籍信息高出一截。
  * 姓名加 weight 配省略号收尾，否则长名字会把号码顶出屏幕，能拨也点不着。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -169,7 +168,7 @@ private fun MentorLine(label: String, name: String, phone: String) {
     val number = remember(phone) { phone.toDialableTel() }
 
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        Modifier.fillMaxWidth().heightIn(min = 32.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -221,8 +220,7 @@ private fun MentorLine(label: String, name: String, phone: String) {
                             }
                         },
                     )
-                    // 字形本身只有十几 dp 高，靠这圈 padding 把触控区撑到 48dp
-                    .padding(horizontal = 8.dp, vertical = 14.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             )
         } else if (phone.isNotBlank()) {
             // 解析不出号码（「见年级群」这类）：原文照常显示，只是不画成可点的蓝色。
@@ -251,20 +249,16 @@ private fun InfoLine(label: String, value: String) {
     }
 }
 
-/** 按下时压一层淡暗色。列表行用它，比整行缩放更安静。 */
+/** 列表行的点击：按压反馈用共享的 [pressHighlight]。 */
 @Composable
 private fun Modifier.pressOverlay(
     enabled: Boolean = true,
     onClick: () -> Unit
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
     return this
         .clickable(interactionSource = interactionSource, indication = null, enabled = enabled, onClick = onClick)
-        .drawWithContent {
-            drawContent()
-            if (isPressed) drawRect(color = Color.Black.copy(alpha = 0.06f))
-        }
+        .pressHighlight(interactionSource)
 }
 
 /**

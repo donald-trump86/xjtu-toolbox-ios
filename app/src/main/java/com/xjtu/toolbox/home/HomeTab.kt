@@ -51,7 +51,6 @@ internal fun HomeTab(
     scrollBehavior: ScrollBehavior? = null,
     /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
-    homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
     bulletins: List<Bulletin> = emptyList(),
     onBulletinTap: (Bulletin) -> Unit = {},
@@ -63,7 +62,6 @@ internal fun HomeTab(
     val home = rememberAppHome(
         loginState = loginState,
         isRestoring = isRestoring,
-        theme = homeTheme,
         showQuickActions = showQuickActions,
         bulletinItems = bulletins,
         onNavigate = onNavigate,

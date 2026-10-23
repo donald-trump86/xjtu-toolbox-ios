@@ -6,17 +6,22 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.EventAvailable
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.xjtu.toolbox.inbox.InboxItem
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.TermWeeks
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.XjtuTime
 import com.xjtu.toolbox.schedule.civilFromEpochDay
+import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.todayOnCampus
+import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
+import kotlinx.datetime.toLocalDateTime
 
 /** 首页 Hero 里那两项本地推算：「第 N 周」与「下一项安排」。 */
 object HomeHero {
@@ -25,8 +30,11 @@ object HomeHero {
     private const val WEEK_MIN = 1
     private const val WEEK_MAX = 25
 
-    /** 「接下来两周都没课」那个窗口：从今天起算 15 天（含今天）。 */
+    /** 「接下来两周没有安排」那个窗口：从今天起算 15 天（含今天）。 */
     const val LOOKAHEAD_DAYS = 15
+
+    /** 课表和自建日程两周内都空着时「下一项」那句，三端共用；首页据此知道这一格可以让给待办。 */
+    const val NOTHING_TITLE = "接下来两周没有安排"
 
     /** 没登录时 Hero 左下角那个图标。 */
     val LOGIN_ICON: ImageVector get() = Icons.AutoMirrored.Filled.Login
@@ -37,8 +45,11 @@ object HomeHero {
     /** 「课表还没同步」。 */
     val MISSING_ICON: ImageVector get() = Icons.Default.CloudOff
 
-    /** 「接下来两周都没课」。 */
+    /** 「接下来两周没有安排」。 */
     val EMPTY_ICON: ImageVector get() = Icons.Default.EventAvailable
+
+    /** 待办顶上「下一项」时的图标。 */
+    private val DUE_ICON: ImageVector get() = Icons.Default.TaskAlt
 
     /** 考试倒计时那一格用的图标（与 `HomeIcons.of(AppRoute.SchoolCalendar)` 同一个）。 */
     val EXAM_ICON: ImageVector get() = Icons.AutoMirrored.Filled.EventNote
@@ -100,6 +111,30 @@ object HomeHero {
             }
         }
         return null
+    }
+
+    /**
+     * 待办 [due] 的截止比 [nextUp] 的开始更早（或 [nextUp] 是 [NOTHING_TITLE]）时换成这条待办，否则 null。
+     * 登录、同步这类提示不让；只看 [LOOKAHEAD_DAYS] 之内的截止。
+     */
+    fun dueLead(nextUp: HomeNextUp?, due: InboxItem?, now: LocalDateTime = nowOnCampus()): HomeNextUp? {
+        if (nextUp == null || due == null) return null
+        val at = Instant.fromEpochMilliseconds(due.expiresAt).toLocalDateTime(CampusTimeZone)
+        val minutesUntil = at.minutesFromEpoch() - now.minutesFromEpoch()
+        if (minutesUntil <= 0 || minutesUntil > LOOKAHEAD_DAYS * 24L * 60L) return null
+        val earlier = nextUp.title == NOTHING_TITLE || nextUp.startAt?.let { it > at } == true
+        if (!earlier) return null
+        val dayLabel = dateLabel(at.date, now.date)
+        return HomeNextUp(
+            icon = DUE_ICON,
+            title = due.title,
+            timeLabel = clock(at.hour * 60 + at.minute),
+            timeCaption = if (dayLabel == "今天") "截止" else "$dayLabel 截止",
+            eta = eta(minutesUntil),
+            detail = due.source.takeIf { it.isNotBlank() },
+            startAt = at,
+            route = AppRoute.Inbox,
+        )
     }
 
     /** 自建日程给的是分钟；教务课程按作息表换算（见 [XjtuTime.getClassTime]）。 */

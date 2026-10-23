@@ -7,6 +7,8 @@ import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -35,6 +37,8 @@ class SseAgentTransportJvmTest {
     /** (HTTP 码, 响应体)。每个用例自己换。 */
     @Volatile
     private var response: Pair<Int, String> = 200 to ""
+    private val queuedResponses = ConcurrentLinkedQueue<Pair<Int, String>>()
+    private val requestCount = AtomicInteger()
 
     @BeforeTest
     fun setUp() {
@@ -50,7 +54,8 @@ class SseAgentTransportJvmTest {
             acceptHeader.set(exchange.requestHeaders.getFirst("Accept"))
             contentTypeHeader.set(exchange.requestHeaders.getFirst("Content-Type"))
             postedBody.set(String(exchange.requestBody.readBytes(), StandardCharsets.UTF_8))
-            val (code, body) = response
+            requestCount.incrementAndGet()
+            val (code, body) = queuedResponses.poll() ?: response
             val bytes = body.toByteArray(StandardCharsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "text/event-stream")
             exchange.sendResponseHeaders(code, bytes.size.toLong())
@@ -161,6 +166,27 @@ class SseAgentTransportJvmTest {
         assertEquals(listOf("能用的那一片"), deltas)
         assertTrue(result.toolCalls.isEmpty())
         assertEquals("stop", result.finishReason)
+    }
+
+    @Test
+    fun unfinishedToolFragmentsReconnectWithoutExecutingPartialCalls() = runBlocking {
+        queuedResponses += 200 to """data: {"choices":[{"delta":{"reasoning_content":"","tool_calls":[{"index":0,"id":"partial","function":{"name":"get_grades","arguments":"{"}}]}}]}"""
+        response = 200 to SSE_FULL
+        val result = SseAgentTransport().stream(config(), JsonObject(emptyMap()), {}, {})
+        assertEquals(2, requestCount.get())
+        assertEquals(1, result.toolCalls.size)
+        assertEquals("call_1", result.toolCalls.single().id)
+    }
+
+    @Test
+    fun truncatedAnswerDoesNotBecomeSuccessfulOrReplayVisibleText() = runBlocking {
+        response = 200 to """data: {"choices":[{"delta":{"content":"partial"}}]}"""
+        val deltas = mutableListOf<String>()
+        assertFailsWith<java.io.IOException> {
+            SseAgentTransport().stream(config(), JsonObject(emptyMap()), { deltas += it }, {})
+        }
+        assertEquals(listOf("partial"), deltas)
+        assertEquals(1, requestCount.get())
     }
 
     private companion object {

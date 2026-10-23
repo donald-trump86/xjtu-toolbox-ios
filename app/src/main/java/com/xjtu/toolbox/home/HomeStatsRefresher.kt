@@ -96,12 +96,12 @@ object HomeStatsRefresher {
     /**
      * 一轮里的先后：整轮串行，排前面的先出结果。
      * 首页最常看的（成绩、课程、图书馆座位、校园卡）在前；不常看或经常连不上的
-     * （刷卡记录、宿舍电费）靠后；加餐券最后。不在表里的排最末。
+     * （刷卡记录）靠后；加餐券最后。不在表里的排最末。
      */
     private val runOrder: List<AppRoute> = listOf(
         AppRoute.JwappScore, AppRoute.Lms(), AppRoute.Library, AppRoute.CampusCard,
         AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification,
-        AppRoute.Iclassface, AppRoute.DormPower, AppRoute.Coupon,
+        AppRoute.Iclassface, AppRoute.Coupon,
     )
 
     private val sources: List<Source> = listOf(
@@ -185,12 +185,6 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
-        // 宿舍电费：3 小时一次。电用完就断电，低电要赶在这之前说到；
-        // 没进过宿舍电费页的账号不碰这个系统（见 refreshDue 里的闸门）。
-        Source(AppRoute.DormPower, 3 * 60 * 60 * 1000L, LoginType.DORM_POWER) { ctx, site ->
-            site ?: return@Source null
-            withContext(Dispatchers.IO) { dormPowerStatus(ctx, site) }
-        },
 
         // 考勤：两天一次。本研统一。
         Source(AppRoute.Attendance, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
@@ -419,8 +413,6 @@ object HomeStatsRefresher {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
-                // 没进过宿舍电费页就不去登录那个系统：绑宿舍在页面里，之后这里才有得查。
-                if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.isUsed()) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
                 val ttl = s.ttlNow()
@@ -500,19 +492,6 @@ object HomeStatsRefresher {
         }
     }
 
-    /** 宿舍电量：首页显示最低的那间，低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时写提醒信号。 */
-    private suspend fun dormPowerStatus(ctx: Context, site: SiteSession): HomeStat? {
-        val readings = com.xjtu.toolbox.dormpower.DormPowerStore.refresh(com.xjtu.toolbox.dormpower.DormPowerApi(site))
-        val lowest = readings.filter { it.kwh != null }.minByOrNull { it.kwh ?: Double.MAX_VALUE } ?: return null
-        val low = com.xjtu.toolbox.dormpower.DormPowerStore.lowest(readings)
-        // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
-        if (roundIsCurrent()) HomeSignals.dormPowerAlert = low?.let { "宿舍电量只剩 ${"%.1f".format(it.kwh)} 度了，记得充" }
-        Log.d(TAG, "dorm_power: ${readings.size} 间，最低 ${lowest.kwh} 度")
-        return HomeStat(
-            "%.0f 度".format(lowest.kwh),
-            if (readings.size > 1) "${readings.size} 间宿舍中最低" else "宿舍剩余电量",
-        )
-    }
 
     /**
      * 本周出勤率。直接用考勤系统自己的「本周考勤统计」接口，不自己按日期聚合——

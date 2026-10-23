@@ -74,6 +74,38 @@ class DesktopAgentJvmTest {
     }
 
     @Test
+    fun `生成中插话保留部分正文并按顺序续聊`() {
+        val requests = java.util.concurrent.CopyOnWriteArrayList<kotlinx.serialization.json.JsonObject>()
+        val transport = object : com.xjtu.toolbox.agent.AgentTransport {
+            override suspend fun stream(config: AgentConfig, reqBody: kotlinx.serialization.json.JsonObject,
+                onDelta: suspend (String) -> Unit, onReasoningDelta: suspend (String) -> Unit): com.xjtu.toolbox.agent.AgentStreamResult {
+                requests += reqBody
+                if (requests.size == 1) {
+                    onReasoningDelta("未完成的思考")
+                    onDelta("已经生成的半段正文")
+                    kotlinx.coroutines.awaitCancellation()
+                }
+                onDelta("接着新问题回答")
+                return com.xjtu.toolbox.agent.AgentStreamResult("接着新问题回答", "", emptyList(), "stop", null)
+            }
+        }
+        val host = fixtureAgentHost(DesktopAuth(), transport)
+        val vm = AgentViewModel(host)
+        vm.bind(host.sessions())
+        val config = AgentConfig(apiKey = "fixture-key")
+        vm.sendMessage("第一个问题", config)
+        waitFor("第一轮正文") { vm.messages.any { it.content.contains("半段正文") } }
+        vm.sendMessage("插话的新问题", config)
+        waitFor("插话完成") { !vm.isLoading && vm.messages.any { it.content == "接着新问题回答" } }
+        val sent = requests[1]["messages"]!!.toString()
+        assertTrue(sent.contains("已经生成的半段正文"))
+        assertTrue(sent.contains("[用户打断]"))
+        assertTrue(sent.contains("插话的新问题"))
+        assertFalse(sent.contains("未完成的思考"))
+        assertEquals(listOf("第一个问题", "插话的新问题"), vm.messages.filter { it.role == "user" }.map { it.content })
+    }
+
+    @Test
     fun `夹具传输端到端：发一条、流式回一条、会话与配置都落盘`() {
         val transport = FixtureAgentTransport()
         val fixtureHost = fixtureAgentHost(DesktopAuth(), transport)

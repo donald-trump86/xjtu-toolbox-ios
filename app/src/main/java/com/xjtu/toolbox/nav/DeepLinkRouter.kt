@@ -2,29 +2,40 @@ package com.xjtu.toolbox.nav
 
 import android.content.Intent
 import android.net.Uri
+import com.xjtu.toolbox.agent.AgentArticleLink
+import com.xjtu.toolbox.agent.AgentVision
+import androidx.core.content.IntentCompat
 
-/**
- * App Links / 深链路由。
- *
- * Scheme: `xjtu://`
- * 已支持的 host：
- * - agent / schedule / empty_room / campus_card / notification / score / grade / course
- *
- * `xjtu://agent?q=xxx` 中的 q 解析成 [DeepLinkTarget.prompt]，填进屁岱的输入框，由用户自己决定发不发。
- * 其余 host 暂不消费 path（`grade/{term}` / `course/{courseId}` 仅 host 命中）。
- *
- * 失败（host 未知、scheme 不匹配）→ null，由调用方降级到主屏。
- */
+/** xjtu 深链与“用屁岱阅读”入口。 */
 object DeepLinkRouter {
     private const val SCHEME = "xjtu"
+    const val PIDAI_LINK_ALIAS = "com.xjtu.toolbox.agent.ReadWithPidai"
 
     data class DeepLinkTarget(
         val route: AppRoute,
         /** 额外的 prompt，agent 场景会用到。 */
         val prompt: String? = null,
+        val autoSend: Boolean = false,
+        val imageUris: List<String> = emptyList(),
+        val imageCount: Int = imageUris.size,
     )
 
     fun resolve(intent: Intent): DeepLinkTarget? {
+        if (intent.component?.className == PIDAI_LINK_ALIAS) {
+            if (intent.type?.startsWith("image/", ignoreCase = true) == true) {
+                val streams = when (intent.action) {
+                    Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+                    Intent.ACTION_SEND_MULTIPLE -> IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+                    else -> emptyList()
+                }
+                val clips = intent.clipData?.let { data -> (0 until data.itemCount).mapNotNull { data.getItemAt(it).uri } }.orEmpty()
+                return imageTarget(intent.component?.className, intent.action, intent.type,
+                    listOfNotNull(intent.dataString) + (streams + clips).map { it.toString() })
+            }
+            val item = intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+            return articleTarget(intent.component?.className, intent.action, intent.dataString,
+                listOfNotNull(intent.getCharSequenceExtra(Intent.EXTRA_TEXT), item?.text, item?.uri?.toString()))
+        }
         val uri: Uri = intent.data ?: return null
         if (uri.scheme != SCHEME) return null
         return when (uri.host) {
@@ -41,5 +52,25 @@ object DeepLinkRouter {
             "score", "grade" -> DeepLinkTarget(AppRoute.JwappScore)
             else -> null
         }
+    }
+
+    internal fun articleTarget(component: String?, action: String?, data: String?, texts: List<CharSequence> = emptyList()): DeepLinkTarget? {
+        if (component != PIDAI_LINK_ALIAS) return null
+        val url = when (action) {
+            Intent.ACTION_VIEW -> AgentArticleLink.fromUrl(data)
+            Intent.ACTION_SEND -> texts.firstNotNullOfOrNull(AgentArticleLink::fromText)
+            else -> null
+        } ?: return null
+        return DeepLinkTarget(AppRoute.Agent, AgentArticleLink.prompt(url), autoSend = true)
+    }
+
+    internal fun imageTarget(component: String?, action: String?, mime: String?, uris: List<String>): DeepLinkTarget? {
+        if (component != PIDAI_LINK_ALIAS || mime?.startsWith("image/", ignoreCase = true) != true ||
+            action !in setOf(Intent.ACTION_VIEW, Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) return null
+        val all = uris.distinct().filter { it.startsWith("content://") || it.startsWith("file://") }
+        val images = all.take(AgentVision.MAX_IMAGES_PER_MESSAGE)
+        if (images.isEmpty()) return null
+        return DeepLinkTarget(AppRoute.Agent, "请看看${if (images.size == 1) "这张图片" else "这些图片"}，概括主要内容。",
+            autoSend = true, imageUris = images, imageCount = all.size)
     }
 }

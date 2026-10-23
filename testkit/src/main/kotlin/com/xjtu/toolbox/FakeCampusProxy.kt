@@ -5,7 +5,6 @@ import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.coupon.CouponFakeUpstream
 import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
 import com.xjtu.toolbox.media.DownloadFakeUpstream
-import com.xjtu.toolbox.dormpower.DormPowerFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
@@ -58,8 +57,6 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
     /** 电子凭证：成绩单所在的 `dzpz.xjtu.edu.cn`（https）。 */
     val dzpz: DzpzFakeUpstream = DzpzFakeUpstream()
 
-    /** 宿舍电费：业务在 `ssn.xjtu.edu.cn/cems`，开放平台那一跳`org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1759` 也归它（登录链的一部分，见 KDoc）。 */
-    val dormPower: DormPowerFakeUpstream = DormPowerFakeUpstream()
 
 
     /** 考勤：本科生业务站 `bk-kq.xjtu.edu.cn/sa`（https）。 */
@@ -121,12 +118,10 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
                         } else {
                             coupon.handleOrg(exchange)
                         }
-                    exchange.requestURI.query?.contains("appId=1759") == true -> dormPower.handleOauth(exchange)
                     exchange.requestURI.query?.contains("appId=${JwappFakeUpstream.APP_ID}") == true -> jwapp.handleOauth(exchange)
                     else -> venue.handleOauth(exchange)
                 }
             CouponFakeUpstream.HOST -> coupon.handleBusiness(exchange)
-            DormPowerFakeUpstream.HOST -> dormPower.handle(exchange)
             AttendanceFakeUpstream.HOST -> attendance.handle(exchange)
             LmsFakeUpstream.HOST -> lms.handle(exchange)
             JwappFakeUpstream.HOST -> jwapp.handle(exchange)
@@ -196,9 +191,7 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // `org.xjtu.edu.cn` 与场馆共用一枚 SAN，见 VenueFakeUpstream.OAUTH_HOST）。
             CouponFakeUpstream.HOST,
 
-            // 宿舍电费：`ssn.xjtu.edu.cn` 是 https（业务接口都是；缴费页入口是明文 http，不走隧道 ——
             // 与场馆同款，所以这里只有业务那半台占一枚 SAN）。
-            DormPowerFakeUpstream.HOST,
             // 考勤：`bk-kq.xjtu.edu.cn` 是 https（登录入口与业务接口都是；本科生直连业务站那条链）。
             AttendanceFakeUpstream.HOST,
             LmsFakeUpstream.HOST,
@@ -213,4 +206,3 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
         ) + NotificationFakeUpstream.HOSTS
     }
 }
-

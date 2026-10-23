@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.venue
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.CalendarToday
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -28,12 +31,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.FullPageState
-import com.xjtu.toolbox.ui.components.LoadingState
-import top.yukonga.miuix.kmp.basic.Button
+import com.xjtu.toolbox.ui.components.SkeletonList
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -86,7 +89,7 @@ fun VenueOrdersContent(
         modifier = modifier.fillMaxSize(),
     ) {
     when {
-        isLoading && orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载订单...", modifier = Modifier.fillMaxSize()) }
+        isLoading && orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { SkeletonList(Modifier.fillMaxSize(), rowHeight = 88.dp) }
 
         error != null && orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
 
@@ -182,10 +185,11 @@ private fun OrderCard(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onDetail),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(onClick = onDetail),
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = AppCardColor),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -279,22 +283,35 @@ private fun OrderCard(
                 )
             }
 
-            Spacer(Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(text = "详情", onClick = onDetail)
-                if (canPay && order.canPay) {
-                    Spacer(Modifier.width(4.dp))
-                    Button(onClick = onPay) { Text("去支付") }
-                }
-                if (canCancel && order.canCancel) {
-                    Spacer(Modifier.width(4.dp))
-                    TextButton(text = "取消", onClick = onCancel)
+            // 整张卡点开就是详情，底下只放真正的操作
+            val pay = canPay && order.canPay
+            val cancel = canCancel && order.canCancel
+            if (pay || cancel) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    val cs = MiuixTheme.colorScheme
+                    if (cancel) OrderAction("取消订单", cs.error.copy(alpha = 0.10f), cs.error, onCancel)
+                    if (pay) OrderAction("去支付", cs.primary, cs.onPrimary, onPay)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun OrderAction(text: String, container: Color, content: Color, onClick: () -> Unit) {
+    Text(
+        text,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(container)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        style = MiuixTheme.textStyles.body2,
+        fontWeight = FontWeight.Medium,
+        color = content,
+    )
 }

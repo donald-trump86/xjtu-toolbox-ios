@@ -42,7 +42,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
@@ -155,7 +155,7 @@ fun IclassfaceScreen(
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         when {
-            loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) }
+            loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { SkeletonList(Modifier.fillMaxSize()) }
             error != null && records.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 ErrorState(
                     message = error!!,

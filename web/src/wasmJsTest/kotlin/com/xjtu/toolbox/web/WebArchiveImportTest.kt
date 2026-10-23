@@ -81,7 +81,7 @@ class WebArchiveImportTest {
                     mapOf(
                         "dark_mode" to StoreValue.S("dark"),
                         "show_quick_actions" to StoreValue.B(true),
-                        "home_theme" to StoreValue.S("cards"),
+                        "default_tab" to StoreValue.S("HOME"),
                     ),
                 ),
                 StoreSnapshot(
@@ -97,7 +97,7 @@ class WebArchiveImportTest {
             val settings = SettingsStore(keyValueStore(SettingsStore.APP_SETTINGS_FILE))
             assertEquals("dark", settings.darkMode)
             assertTrue(settings.showQuickActions)
-            assertEquals("cards", settings.homeTheme)
+            assertEquals("HOME", settings.defaultTab)
             val cache = KeyValueScheduleCacheStore(keyValueStore("schedule_cache${ArchiveFixture.SUFFIX}"))
             assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache))
         } finally {
@@ -117,14 +117,14 @@ class WebArchiveImportTest {
                 archiveOf(
                     StoreSnapshot(
                         "app_settings",
-                        mapOf("dark_mode" to StoreValue.S("dark"), "home_theme" to StoreValue.S("list")),
+                        mapOf("dark_mode" to StoreValue.S("dark"), "default_tab" to StoreValue.S("HOME")),
                     ),
                 ),
             )
 
             // 两侧都有的键缺 `at` ⇒ 本端胜；只有档案有的键 ⇒ 写进来
             assertEquals(ImportResult.Ok(keysWritten = 1, keysKept = 1, filesWritten = 0), result)
-            assertEquals("list", settings.homeTheme)
+            assertEquals("HOME", settings.defaultTab)
             assertEquals("light", settings.darkMode)
         } finally {
             cleanup()

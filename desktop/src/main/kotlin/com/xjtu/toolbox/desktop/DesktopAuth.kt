@@ -22,7 +22,6 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.VenueSession
 import com.xjtu.toolbox.auth.YwtbSession
-import com.xjtu.toolbox.auth.SsnSession
 import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.JwappSession
@@ -59,7 +58,6 @@ class DesktopAuth(
         register(CouponSession())
         register(DzpzSession())
 
-        register(SsnSession())
 
         // 考勤会话有自己的独立登录入口（`AttendanceLogin`），登录页只尽力预热。
         register(AttendanceSession())
@@ -303,8 +301,6 @@ class DesktopAuth(
         const val DZPZ_SITE_KEY = DzpzSession.SITE_KEY
 
 
-        /** 宿舍电费（`ssn`）。缴费页那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
-        const val SSN_SITE_KEY = SsnSession.SITE_KEY
 
 
         /** 考勤（`new_attendance`）。考勤那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
@@ -334,7 +330,6 @@ class DesktopAuth(
             DZPZ_SITE_KEY,
             COUPON_SITE_KEY,
 
-            SSN_SITE_KEY,
 
             ATTENDANCE_SITE_KEY,
 

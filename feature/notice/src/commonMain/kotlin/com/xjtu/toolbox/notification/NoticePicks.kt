@@ -1,15 +1,10 @@
 package com.xjtu.toolbox.notification
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -20,14 +15,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
 import com.xjtu.toolbox.platform.keyValueStore
@@ -60,6 +53,7 @@ internal val NOTICE_PICKS = InsightSpec(
 {"summary":"不超过 30 字的总括","picks":[{"title":"原标题","source":"来源名","date":"yyyy-MM-dd","link":"原链接","why":"不超过 25 字：为什么跟他有关","due":"报名或截止时间 yyyy-MM-dd 或 yyyy-MM-dd HH:mm，没有就 null","level":3}]}
 level：3 必须处理，2 值得一看，1 顺便知道。没有值得看的就 picks 为空，summary 说一声。
     """.trimIndent(),
+    card = PidaiCard.NOTICE,
 )
 
 /** 精选的范围设置：按账号记在本机。 */
@@ -152,58 +146,24 @@ private fun PickRow(pick: JsonObject, onOpen: (String) -> Unit) {
     val link = pick["link"].safeStringOrNull().orEmpty()
     val due = pick["due"].safeStringOrNull()?.takeIf { it.isNotBlank() && it != "null" }
     val level = pick["level"].safeStringOrNull()?.toIntOrNull() ?: 1
-    val color = when (level) {
-        3 -> MiuixTheme.colorScheme.error
-        2 -> MiuixTheme.colorScheme.primary
-        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-    }
     var added by remember(title) { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(AppInsetColor)
-            .clickable(enabled = link.startsWith("http")) { onOpen(link) }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(verticalAlignment = Alignment.Top) {
-            Box(Modifier.padding(top = 6.dp).size(7.dp).clip(CircleShape).background(color))
-            Text(
-                title,
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 8.dp).weight(1f),
+    val parsed = due?.let { SelfTodoRules.parseDue(it) }
+    com.xjtu.toolbox.ui.components.NoticePickItem(
+        title = title,
+        metadata = listOfNotNull(pick["source"].safeStringOrNull(), pick["date"].safeStringOrNull(), due?.let { "截止 $it" })
+            .filter { it.isNotBlank() }.joinToString(" · "),
+        why = pick["why"].safeStringOrNull().orEmpty(), level = level,
+        enabled = link.startsWith("https://") || link.startsWith("http://"), onOpen = { onOpen(link) },
+        trailing = if (parsed != null) ({
+            PidaiChip(
+                if (added) "已记待办" else "记待办",
+                icon = if (added) Icons.Filled.Check else Icons.AutoMirrored.Filled.EventNote,
+                enabled = !added,
+                onClick = {
+                    added = SelfTodoStore.create(title = title, content = link, dueDate = parsed.first,
+                        source = "agent", allDay = parsed.second, remind = true) != null
+                },
             )
-        }
-        pick["why"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MiuixTheme.textStyles.footnote1, color = color, modifier = Modifier.padding(start = 15.dp))
-        }
-        Row(Modifier.padding(start = 15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                listOfNotNull(pick["source"].safeStringOrNull(), pick["date"].safeStringOrNull(), due?.let { "截止 $it" })
-                    .filter { it.isNotBlank() }.joinToString(" · "),
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.weight(1f),
-            )
-            val parsed = due?.let { SelfTodoRules.parseDue(it) }
-            if (parsed != null) {
-                PidaiChip(
-                    if (added) "已记待办" else "记待办",
-                    icon = if (added) Icons.Filled.Check else Icons.AutoMirrored.Filled.EventNote,
-                    enabled = !added,
-                    onClick = {
-                        added = SelfTodoStore.create(
-                            title = title,
-                            content = link,
-                            dueDate = parsed.first,
-                            source = "agent",
-                            allDay = parsed.second,
-                            remind = true,
-                        ) != null
-                    },
-                )
-            }
-        }
-    }
+        }) else null,
+    )
 }

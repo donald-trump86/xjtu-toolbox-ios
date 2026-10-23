@@ -57,7 +57,7 @@ class CampusFacultyApi(
     /** 见类 KDoc 第 1 条：campus-api 不解析那四张 id 表。 */
     override suspend fun filters(): FacultyFilters = FacultyFilters()
 
-    /** 见类 KDoc 第 2 条：不做主页正文解析，一律降级成「在浏览器中打开」。 */
+    /** 见类 KDoc 第 2 条：不做主页正文解析，一律降级成「查看主页原网页」。 */
     override suspend fun homepage(member: FacultyMember): HomepageResult =
         HomepageResult.External(member.homepageUrl)
 

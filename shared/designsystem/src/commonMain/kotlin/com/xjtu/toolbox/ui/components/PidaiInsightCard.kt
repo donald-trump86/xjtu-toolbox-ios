@@ -2,12 +2,6 @@ package com.xjtu.toolbox.ui.components
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -17,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -37,17 +30,22 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -59,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.InsightOutcome
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCards
 import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -131,9 +130,13 @@ fun rememberInsight(spec: InsightSpec, input: String?, auto: Boolean = true): In
     val scope = rememberCoroutineScope()
     val state = remember(spec.id) { InsightState(spec, scope) }
     state.spec = spec
-    LaunchedEffect(spec.id, input) {
+    val off by PidaiCards.off.collectAsState()
+    val enabled = spec.card !in off
+    LaunchedEffect(spec.id, input, enabled) {
         state.input = input
-        if (input == null) return@LaunchedEffect
+        // 设置里关掉的卡：不读缓存也不调模型，页面上借用它结果的地方（图书馆平面图标座）一并清空
+        if (!enabled) state.outcome = null
+        if (input == null || !enabled) return@LaunchedEffect
         val hit = AgentInsightHub.insights.cached(spec, input)
         state.outcome = hit
         val fresh = hit != null && Clock.System.now().toEpochMilliseconds() - hit.at < spec.ttlMs
@@ -164,8 +167,11 @@ fun PidaiInsightCard(
     content: @Composable ColumnScope.(JsonObject) -> Unit,
 ) {
     val insights = AgentInsightHub.insights
-    if (!insights.available) return
+    val off by PidaiCards.off.collectAsState()
+    if (!insights.available || state.spec.card in off) return
     val ok = state.outcome as? InsightOutcome.Ok
+    val visibilityStore = remember { com.xjtu.toolbox.platform.keyValueStore("pidai_card_visibility") }
+    var collapsed by rememberSaveable(state.spec.id) { mutableStateOf(visibilityStore.getBoolean(state.spec.id, false)) }
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = AppCardColor),
@@ -176,7 +182,10 @@ fun PidaiInsightCard(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PidaiBadge(thinking = state.loading)
-                Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                Column(Modifier.padding(start = 10.dp).weight(1f).clickable {
+                    collapsed = !collapsed
+                    visibilityStore.putBoolean(state.spec.id, collapsed)
+                }) {
                     Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
                     val status = when {
                         state.loading -> state.progress
@@ -204,52 +213,67 @@ fun PidaiInsightCard(
                             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
-            }
-            controls?.invoke(this)
-            when (val o = state.outcome) {
-                is InsightOutcome.Ok -> {
-                    Column(Modifier.alpha(if (state.loading) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        content(o.json)
-                    }
-                    if (askPrompt != null && !state.loading) {
-                        PidaiChip("接着问屁岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
-                            insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o.json))
-                        })
-                    }
-                }
-                InsightOutcome.Unavailable -> InsightHint("在屁岱页配好 API Key 后，这里由屁岱帮你挑重点。")
-                is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
-                null -> if (!state.loading) {
-                    if (idleHint.isNotBlank()) InsightHint(idleHint)
-                    if (idleAction != null) PidaiChip(idleAction, icon = Icons.Filled.AutoAwesome, emphasized = true, onClick = { state.refresh(force = false) })
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).clickable {
+                        collapsed = !collapsed
+                        visibilityStore.putBoolean(state.spec.id, collapsed)
+                    },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                        contentDescription = if (collapsed) "展开精选卡片" else "折叠精选卡片",
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                 }
             }
-            if (state.loading && ok == null) InsightShimmer()
+            if (!collapsed) {
+                controls?.invoke(this)
+                when (val o = state.outcome) {
+                    is InsightOutcome.Ok -> {
+                        Column(Modifier.alpha(if (state.loading) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            content(o.json)
+                        }
+                        if (askPrompt != null && !state.loading) {
+                            PidaiChip("接着问屁岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
+                                insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o))
+                            })
+                        }
+                    }
+                    InsightOutcome.Unavailable -> InsightHint("在屁岱页配好 API Key 后，这里由屁岱帮你挑重点。")
+                    is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
+                    null -> if (!state.loading) {
+                        if (idleHint.isNotBlank()) InsightHint(idleHint)
+                        if (idleAction != null) PidaiChip(idleAction, icon = Icons.Filled.AutoAwesome, emphasized = true, onClick = { state.refresh(force = false) })
+                    }
+                }
+                if (state.loading && ok == null) InsightShimmer()
+            }
         }
     }
 }
 
-/** 带进对话的快照：这张卡看了什么、给了什么，屁岱接着聊时不丢上下文。 */
-private fun insightSnapshot(title: String, input: String?, json: JsonObject): String = buildString {
-    append("用户从「$title」卡片点进来，下面是这张卡交给你的数据和你当时给出的结果。\n")
+/** 带进对话的快照：这张卡看了什么、查到了什么、给了什么，屁岱接着聊时直接用，不用再查。 */
+private fun insightSnapshot(title: String, input: String?, ok: InsightOutcome.Ok): String = buildString {
+    val minutes = ((kotlin.time.Clock.System.now().toEpochMilliseconds() - ok.at) / 60_000).coerceAtLeast(0)
+    append("用户从「$title」卡片点进来。下面是这张卡的数据、你当时查到的工具结果和给出的结果，")
+    append(if (minutes < 1) "刚生成。" else "约 $minutes 分钟前生成。")
+    append("这些足够回答时直接用，不要重复调用同样的工具；用户要最新情况或这里没有的信息时再查。\n")
     if (!input.isNullOrBlank()) append("【卡片数据】\n").append(input.trim()).append('\n')
-    append("【你给出的结果】\n").append(json.toString())
+    if (ok.toolLog.isNotBlank()) append("【当时的工具结果】\n").append(ok.toolLog.trim()).append('\n')
+    append("【你给出的结果】\n").append(ok.json.toString())
 }
 
 /** 屁岱的小徽标：主色渐变圆 + 星光；思考时慢慢呼吸。 */
 @Composable
 fun PidaiBadge(thinking: Boolean = false, size: androidx.compose.ui.unit.Dp = 30.dp) {
     val primary = MiuixTheme.colorScheme.primary
-    val pulse = if (thinking) {
-        val t by rememberInfiniteTransition(label = "badge").animateFloat(
-            0.55f, 1f, infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "badgePulse",
-        )
-        t
-    } else 1f
+    val phase = if (thinking) rememberLoopPhase() else null
     Box(
-        Modifier.size(size).clip(CircleShape)
-            .background(Brush.linearGradient(listOf(primary, primary.copy(alpha = 0.55f))))
-            .alpha(pulse),
+        Modifier.size(size)
+            .graphicsLayer { alpha = phase?.let { breath(it.value, low = 0.55f) } ?: 1f }
+            .clip(CircleShape)
+            .background(Brush.linearGradient(listOf(primary, primary.copy(alpha = 0.55f)))),
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(size * 0.55f))
@@ -345,28 +369,12 @@ private fun InsightHint(text: String) {
     Text(text, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
 }
 
-/** 加载骨架：三行，一道微光从左往右扫过。 */
+/** 加载骨架：三行长短不一的 [SkeletonBlock]。 */
 @Composable
 private fun InsightShimmer() {
-    val shift by rememberInfiniteTransition(label = "shimmer").animateFloat(
-        -1f, 2f, infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "shimmerX",
-    )
-    val base = AppInsetColor
-    val glow = MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(1f, 0.86f, 0.62f).forEach { w ->
-            BoxWithConstraints(Modifier.fillMaxWidth(w).height(14.dp).clip(RoundedCornerShape(7.dp)).background(base)) {
-                val width = constraints.maxWidth.toFloat()
-                Box(
-                    Modifier.matchParentSize().background(
-                        Brush.horizontalGradient(
-                            listOf(Color.Transparent, glow, Color.Transparent),
-                            startX = width * (shift - 0.5f),
-                            endX = width * (shift + 0.5f),
-                        ),
-                    ),
-                )
-            }
+            SkeletonBlock(Modifier.fillMaxWidth(w).height(14.dp), cornerRadius = 7.dp)
         }
     }
 }

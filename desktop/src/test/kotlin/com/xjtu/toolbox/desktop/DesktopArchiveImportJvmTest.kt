@@ -68,7 +68,7 @@ class DesktopArchiveImportJvmTest {
             listOf(
                 StoreSnapshot(
                     "app_settings",
-                    mapOf("dark_mode" to StoreValue.S("dark"), "home_theme" to StoreValue.S("cards")),
+                    mapOf("dark_mode" to StoreValue.S("dark"), "default_tab" to StoreValue.S("HOME")),
                 ),
             ),
         )
@@ -78,7 +78,7 @@ class DesktopArchiveImportJvmTest {
         assertTrue(outcome is DesktopImportOutcome.Imported, "$outcome")
         val settings = SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE))
         assertEquals("dark", settings.darkMode)
-        assertEquals("cards", settings.homeTheme)
+        assertEquals("HOME", settings.defaultTab)
         assertEquals("dark", props(root, SettingsStore.APP_SETTINGS_FILE).getProperty("dark_mode"))
         wipeSecureStore(SettingsStore.APP_SETTINGS_FILE)
     }
@@ -221,7 +221,7 @@ class DesktopArchiveImportJvmTest {
     @Test
     fun `已导入标记写在档案落地目录里 身份一致则再导一次只跳过`() = withRoot { root ->
         wipeSecureStore("app_settings")
-        val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("cards")))))
+        val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME")))))
         val dir = dropArchiveDir(root, entries)
 
         val first = DesktopArchiveImport.run(dir, DesktopArchiveIo.read(dir))
@@ -235,11 +235,11 @@ class DesktopArchiveImportJvmTest {
         assertFalse(DesktopArchiveIo.read(dir).containsKey(DesktopArchiveImport.MARKER_NAME))
 
         // 端内先改掉，再导一次同一份档案 ⇒ 跳过（不重写）
-        SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).homeTheme = "grid"
+        SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).defaultTab = "PROFILE"
         val second = DesktopArchiveImport.run(dir, DesktopArchiveIo.read(dir))
 
         assertTrue(second is DesktopImportOutcome.AlreadyImported, "$second")
-        assertEquals("grid", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).homeTheme)
+        assertEquals("PROFILE", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).defaultTab)
 
         // 扫数据根时，只剩标记的目录不算「一份待导入的档案」
         assertEquals(listOf(dir), DesktopArchiveHost.pendingArchives())
@@ -328,7 +328,7 @@ class DesktopArchiveImportJvmTest {
     @Test
     fun `zip 形态的标记写在 zip 旁边`() = withRoot { root ->
         wipeSecureStore("app_settings")
-        val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("list")))))
+        val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME")))))
         val zip = File(root, DesktopArchiveHost.ARCHIVE_ZIP_NAME)
         DesktopArchiveIo.writeFile(zip, DesktopArchiveIo.zip(entries))
 
@@ -336,7 +336,7 @@ class DesktopArchiveImportJvmTest {
 
         assertTrue(outcome is DesktopImportOutcome.Imported, "$outcome")
         assertTrue(File(root, "${DesktopArchiveHost.ARCHIVE_ZIP_NAME}.imported").isFile)
-        assertEquals("list", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).homeTheme)
+        assertEquals("HOME", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).defaultTab)
         wipeSecureStore(SettingsStore.APP_SETTINGS_FILE)
     }
 
@@ -347,13 +347,13 @@ class DesktopArchiveImportJvmTest {
         wipeSecureStore("app_settings")
         assertEquals("数据根下没有待导入的档案", importStatusText())
 
-        val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("list")))))
+        val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME")))))
         dropArchiveDir(root, entries)
 
         val pending = DesktopArchiveHost.maybeImportPendingArchive()
         assertTrue(pending?.outcome is DesktopImportOutcome.Imported, "${pending?.outcome}")
         assertTrue(pending?.check is com.xjtu.toolbox.desktop.archive.ArchiveCheck.Ok)
-        assertEquals("list", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).homeTheme)
+        assertEquals("HOME", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).defaultTab)
 
         val text = importStatusText()
         assertTrue(text.startsWith("发现待导入档案 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)

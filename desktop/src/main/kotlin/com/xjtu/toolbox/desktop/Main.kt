@@ -64,7 +64,7 @@ fun main() {
         lock.release()
     }
 }
-/** 用系统浏览器打开外链（教师检索那一屏的「在浏览器中打开主页」用它）。 */
+/** 用系统浏览器打开外链（教师检索那一屏的「查看主页原网页」用它）。 */
 internal fun openInBrowser(url: String) {
     runCatching {
         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {

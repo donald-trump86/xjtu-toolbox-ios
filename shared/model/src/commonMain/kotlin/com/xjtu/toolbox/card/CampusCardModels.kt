@@ -117,4 +117,6 @@ data class CampusCardSnapshot(
     val rangeStart: String = "",
     val rangeEnd: String = "",
     val savedAt: Long = 0L,
+    /** 旧版本可能缓存截断流水，缺少标记时必须完整重新拉取。 */
+    val transactionsComplete: Boolean = false,
 )

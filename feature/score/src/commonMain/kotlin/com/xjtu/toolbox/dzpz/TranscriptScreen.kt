@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -24,8 +25,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.components.DrawCheckmark
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.SuccessGreen
+import com.xjtu.toolbox.ui.components.breath
+import com.xjtu.toolbox.ui.components.rememberLoopPhase
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -34,7 +39,7 @@ import com.xjtu.toolbox.nav.AppRoute
 /**
  * 电子成绩单下载页面
  *
- * 流程：加载表单 → 一键申请（类型沿用学校表单的第一项，不让用户选） → 自动提交 → 下载 PDF
+ * 流程：加载表单 → 选择学校提供的类型 → 一键申请 → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
  *
  * ## 两端各一份取数，屏自己不区分（2026-10-22 批6 改写）
@@ -113,17 +118,23 @@ fun TranscriptScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // ── 用户信息卡 ──
                     item {
-                        InfoCard(
-                            title = "申请信息",
-                            items = listOfNotNull(
-                                ctx.typeOptions.firstOrNull()?.let { "成绩单类型" to it.name },
-                                "申请日期" to ctx.defaultDate,
-                                "所属单位" to "西安交通大学",
-                                "份数" to "1"
-                            )
-                        )
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("成绩单类型", fontWeight = FontWeight.SemiBold)
+                                ctx.typeOptions.filterNot { it.cancelled }.forEach { option ->
+                                    Row(
+                                        Modifier.fillMaxWidth().clickable(enabled = vm.workflowState != WorkflowState.RUNNING) { vm.selectType(option.value) }.padding(vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        RadioButton(selected = option.value == vm.selectedType, onClick = { vm.selectType(option.value) }, enabled = vm.workflowState != WorkflowState.RUNNING)
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(option.name, modifier = Modifier.weight(1f))
+                                    }
+                                }
+                                if (ctx.typeOptions.none { !it.cancelled }) Text("学校暂未提供可申请的类型")
+                            }
+                        }
                     }
 
                     // ── 工作流状态 ──
@@ -133,7 +144,7 @@ fun TranscriptScreen(
                                 state = vm.workflowState,
                                 progress = vm.workflowProgress,
                                 onStart = vm::start,
-                                enabled = vm.workflowState != WorkflowState.RUNNING,
+                                enabled = vm.workflowState != WorkflowState.RUNNING && vm.selectedType != null,
                             )
                         } else {
                             TranscriptWorkflowGapCard()
@@ -170,50 +181,6 @@ enum class WorkflowState {
     ERROR       // 失败
 }
 
-// ══════════════════════════════════════
-//  信息卡片
-// ══════════════════════════════════════
-
-@Composable
-private fun InfoCard(
-    title: String,
-    items: List<Pair<String, String>>
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.height(10.dp))
-            items.forEach { (label, value) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        label,
-                        fontSize = 14.sp,
-                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                    Text(
-                        value,
-                        fontSize = 14.sp,
-                        color = MiuixTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-    }
-}
-
 /** serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约§5.5 只端了七步里的第一步，第 2~7 步没有端点——这里把哪几步没有、为什么没有写在屏幕上，而不是画一个点了会失败的按钮。 */
 @Composable
 private fun TranscriptWorkflowGapCard() {
@@ -223,17 +190,14 @@ private fun TranscriptWorkflowGapCard() {
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
-                "出 PDF 那半条链没有端点",
+                "暂不支持申请成绩单",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MiuixTheme.colorScheme.onSurface
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "这一端只拿得到「选类型」这一步（服务端契约 §5.5 的 GET /api/dzpz/transcript）。" +
-                    "后面那六步（学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF）" +
-                    "刻意不投影：第二步的返回值里有学号，其余是写路径 ⇒ 这里不出现「一键申请成绩单」。" +
-                    "要出 PDF 请在 App 或桌面端申请。",
+                "请使用 App 或桌面版申请。",
                 fontSize = 13.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
@@ -286,21 +250,11 @@ private fun WorkflowProgressCard(
                     )
                     Spacer(Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                        // 拿 State 本身，只在 graphicsLayer 里读：闪烁时不每帧重组
-                        val alpha = infiniteTransition.animateFloat(
-                            initialValue = 0.4f,
-                            targetValue = 1f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(800),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "pulseAlpha"
-                        )
+                        val phase = rememberLoopPhase()
                         Icon(
                             Icons.Default.HourglassTop,
                             contentDescription = null,
-                            modifier = Modifier.size(20.dp).graphicsLayer { this.alpha = alpha.value },
+                            modifier = Modifier.size(20.dp).graphicsLayer { alpha = breath(phase.value, low = 0.4f) },
                             tint = MiuixTheme.colorScheme.primary
                         )
                         Spacer(Modifier.width(8.dp))
@@ -313,18 +267,13 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(8.dp))
                 }
                 WorkflowState.SUCCESS -> {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = Color(0xFF4CAF50)
-                    )
+                    DrawCheckmark(size = 56.dp)
                     Spacer(Modifier.height(8.dp))
                     Text(
                         progress,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFF4CAF50)
+                        color = SuccessGreen
                     )
                 }
                 WorkflowState.ERROR -> {

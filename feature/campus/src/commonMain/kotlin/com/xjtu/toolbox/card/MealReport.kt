@@ -33,6 +33,8 @@ data class MealReport(
     val drinks: Int,
     /** 单笔最贵的一顿。 */
     val priciest: Transaction?,
+    val hourlyCounts: List<Int> = emptyList(),
+    val favoriteMerchants: List<Pair<String, Int>> = emptyList(),
 ) {
     val avgMeal: Double get() = if (meals == 0) 0.0 else mealSpend / meals
     val mealShare: Double get() = if (totalSpend <= 0.0) 0.0 else mealSpend / totalSpend
@@ -90,6 +92,10 @@ data class MealReport(
                 lateNights = clocked.count { it.second >= 21 * 60 },
                 drinks = meals.count { tx -> DRINK_KEYS.any { tx.displayMerchant.contains(it) } },
                 priciest = meals.minByOrNull { it.amount },
+                hourlyCounts = (0..23).map { hour -> meals.count { it.time.substringAfter(' ', "").take(2).toIntOrNull() == hour } },
+                favoriteMerchants = meals.map { it.displayMerchant }.filter { it.isNotBlank() && it != "未知商户" }
+                    .groupingBy { it }.eachCount().entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+                    .take(3).map { it.key to it.value },
             )
         }
     }

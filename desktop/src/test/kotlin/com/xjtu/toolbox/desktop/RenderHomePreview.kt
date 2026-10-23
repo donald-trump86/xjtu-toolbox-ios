@@ -47,11 +47,11 @@ import top.yukonga.miuix.kmp.basic.Icon
 @OptIn(ExperimentalComposeUiApi::class)
 fun main(args: Array<String>) {
     val output = File(args.firstOrNull() ?: "build/home-preview").apply { mkdirs() }
+    System.setProperty("xjtu.toolbox.keyValueRoot", File(output, "preferences").absolutePath)
     var opened: AppRoute? = null
     val fixture = object : HomeHost {
         override val honoredCards = HomeCard.entries.toSet()
         override val audience = AccountType.UNDERGRADUATE
-        override val homeTheme = SettingsStore.THEME_CARD
         override val greetingName = ""
         override val dateLabel = "10月21日 · 周三"
         override val weekNumber = 8
@@ -158,8 +158,30 @@ fun main(args: Array<String>) {
                         .any { it.text == service.title } } != null) { "Missing service: ${service.title}" }
                 }
             }
-            scene.close()
         }
+        if (spec.name in setOf("home-mobile.png", "home-compact.png", "home-dark.png", "home-wide.png")) {
+            SwingUtilities.invokeAndWait {
+                val root = scene.semanticsOwners.first().rootSemanticsNode
+                val hero = requireNotNull(find(root) {
+                    it.config.getOrNull(SemanticsActions.OnLongClick)?.label == "设置卡片外观"
+                }) { "Hero appearance long press missing" }
+                hero.config.getOrNull(SemanticsActions.OnLongClick)!!.action!!.invoke()
+                check(opened == AppRoute.CampusCard) { "Long press must not navigate" }
+            }
+            repeat(8) { frame ->
+                Thread.sleep(100)
+                SwingUtilities.invokeAndWait { scene.render(3_000_000_000L + frame * 100_000_000L) }
+            }
+            SwingUtilities.invokeAndWait {
+                check(scene.semanticsOwners.any { owner -> find(owner.rootSemanticsNode) { node ->
+                    node.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text == "首页卡片外观" }
+                } != null }) { "Appearance dialog did not open" }
+                File(output, spec.name.replace("home-", "hero-settings-")).writeBytes(
+                    requireNotNull(scene.render(4_000_000_000L).encodeToData()).bytes,
+                )
+            }
+        }
+        SwingUtilities.invokeAndWait { scene.close() }
         println("Rendered ${File(output, spec.name).absolutePath}")
     }
     exitProcess(0)

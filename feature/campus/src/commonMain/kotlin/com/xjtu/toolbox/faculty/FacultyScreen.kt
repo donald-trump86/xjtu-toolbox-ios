@@ -76,7 +76,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 数据分层原则（跟 [FacultyApi] 一致，UI 上不要打破）：
  * - 列表与名片的所有字段来自检索接口的 JSON，全校都有；
  * - 个人主页补充基本信息，并把简介、研究方向、招生等栏目的正文直接排进详情，其余栏目做成跳转胶囊；
- * - 主页打不开、站外地址时给「在浏览器中打开」，让用户看学校的原样页面。
+ * - 主页打不开、站外地址时给「查看主页原网页」，让用户看学校的原样页面。
  *
  * @param onOpenUrl 交给上层路由到内置浏览器（Routes.BROWSER）
  */
@@ -601,7 +601,7 @@ private fun FacultyDetailBody(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "在浏览器中打开个人主页",
+                            "查看主页原网页",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.primary,
                         )

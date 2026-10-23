@@ -195,7 +195,7 @@ class DesktopArchiveJvmTest {
     @Test
     fun `导出到目录与 zip 两份产物都能原样读回`() = withRoot { root ->
         val store = keyValueStore("s5_io_plain")
-        store.putString("home_theme", "cards")
+        store.putString("default_tab", "HOME")
         val suffix = AccountContext.suffixFor(STUDENT_ID)
         wipeSecureStore(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix)
         val cache = KeyValueScheduleCacheStore(

@@ -210,7 +210,8 @@ fun JwappScoreScreen(
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = {
+                    // 放在底栏上时没有上一级，只在选课模式下留「关闭」
+                    if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) IconButton(onClick = {
                         if (gpaSelectMode) { gpaSelectMode = false; selectedCourseIds = emptySet() }
                         else onBack()
                     }) {
@@ -324,7 +325,7 @@ fun JwappScoreScreen(
                     // 紧跟 GPA 卡：放在长长的成绩列表后面就没人找得到了
                     onOpenTranscript?.let { open ->
                         fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry(
-                            androidx.compose.material.icons.Icons.Default.Description, com.xjtu.toolbox.ui.theme.legacyColor(com.xjtu.toolbox.nav.AppRoute.Transcript.id),
+                            androidx.compose.material.icons.Icons.Default.Description, com.xjtu.toolbox.ui.theme.serviceColor(com.xjtu.toolbox.nav.AppRoute.Transcript.id),
                             "电子成绩单", "生成官方成绩单 PDF，可下载分享", onClick = open,
                         ) }
                     }

@@ -21,8 +21,8 @@ class AppearanceSettings private constructor(context: Context) {
     val customColorHex: StateFlow<String> = _customColorHex.asStateFlow()
     private val _dynamicColor = MutableStateFlow(store.dynamicColor)
     private val _navBarStyle = MutableStateFlow(store.navBarStyle)
-    private val _homeTheme = MutableStateFlow(store.homeTheme)
     private val _showQuickActions = MutableStateFlow(store.showQuickActions)
+    private val _bottomTabs = MutableStateFlow(store.bottomTabs)
 
     /** "system" / "light" / "dark"，见 [CredentialStore.DARK_MODE_SYSTEM] 等。 */
     val darkMode: StateFlow<String> = _darkMode.asStateFlow()
@@ -30,8 +30,10 @@ class AppearanceSettings private constructor(context: Context) {
 
     /** [CredentialStore.NAV_STYLE_FLOATING]（玻璃）或 [CredentialStore.NAV_STYLE_CLASSIC]。 */
     val navBarStyle: StateFlow<String> = _navBarStyle.asStateFlow()
-    val homeTheme: StateFlow<String> = _homeTheme.asStateFlow()
     val showQuickActions: StateFlow<Boolean> = _showQuickActions.asStateFlow()
+
+    /** 底栏从左到右的格子 id，见 [CredentialStore.bottomTabs]。 */
+    val bottomTabs: StateFlow<List<String>> = _bottomTabs.asStateFlow()
 
     // 这个字段只写不读，R8 会把它删掉，监听器随后被回收，设置改了界面不跟（debug 包不混淆所以没事）
     @field:androidx.annotation.Keep
@@ -40,8 +42,8 @@ class AppearanceSettings private constructor(context: Context) {
         _dynamicColor.value = store.dynamicColor
         _customColorHex.value = store.customColorHex
         _navBarStyle.value = store.navBarStyle
-        _homeTheme.value = store.homeTheme
         _showQuickActions.value = store.showQuickActions
+        _bottomTabs.value = store.bottomTabs
     }
 
     init {

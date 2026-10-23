@@ -152,6 +152,9 @@ private class AppSettingsHost(
 
     /** 打开外链。 */
     override val onOpenUrl: (String) -> Unit = { openUri(it) }
+
+    override val serviceIcon: (com.xjtu.toolbox.nav.AppRoute) -> androidx.compose.ui.graphics.vector.ImageVector =
+        com.xjtu.toolbox.home.HomeIcons::of
 }
 
 @Composable
@@ -535,7 +538,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         OverlayDialog(
             show = showClearCacheDialog,
             title = "清除缓存",
-            summary = "将清除约 $cacheSizeText 的课表、成绩等缓存，打开对应页面会重新加载，桌面小组件会暂时为空。登录、下载的文件和更新包不受影响。",
+            summary = "将清除约 $cacheSizeText 的课表、成绩等缓存，打开时重新加载；登录和下载文件不受影响。",
             onDismissRequest = { showClearCacheDialog = false }
         ) {
             Row(Modifier.fillMaxWidth()) {

@@ -22,7 +22,17 @@ class CampusMapTest {
         assertEquals("中心二楼", CampusMaps.find("中2-2314")?.second?.name)
         assertEquals("兴庆校区", CampusMaps.find("梧桐苑")?.first?.campus)
         assertEquals("创新港校区", CampusMaps.find("和鸣苑")?.first?.campus)
-        assertNull(CampusMaps.find("1号巨构"))
+        assertEquals("敏行楼", CampusMaps.find("1号巨构-2301")?.second?.name)
+        assertEquals("外国语学院", CampusMaps.find("外文楼A-101")?.second?.name)
+        assertEquals("一附院科教楼", CampusMaps.find("一附院科教楼", "雁塔校区")?.second?.name)
+        assertEquals("高等工程教育博物馆", CampusMaps.find("工程博物馆-创新港")?.second?.name)
+        assertNull(CampusMaps.find("9号巨构"))
+    }
+
+    @Test
+    fun `同一个楼名在不同校区指不同的地方`() {
+        assertEquals("钱学森图书馆", CampusMaps.find("图书馆")?.second?.name)
+        assertEquals("创新港图书资料中心", CampusMaps.find("图书馆", "创新港校区")?.second?.name)
     }
 
     @Test

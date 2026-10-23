@@ -188,7 +188,7 @@ abstract class SiteSession(
                         // 探活途中换了绑：结论属于另一边，这边下次再确认
                         if (rebound()) return
                         lastValidatedAt = elapsedRealtimeMs()
-                        // 真探过才给快照续期（顺带存下探活刷新的本地令牌，如电费 cid）；
+                        // 真探过才给快照续期（同时保存探活时刷新的令牌）；
                         // 没探活的只在登录时存，年龄上限对它们就是会话年龄
                         if (valid == true) saveSnapshot(bound)
                         return

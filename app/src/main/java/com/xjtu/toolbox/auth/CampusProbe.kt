@@ -149,7 +149,7 @@ object CampusProbe {
         while (true) {
             val signal = if (server == Server.OFF) {
                 withTimeoutOrNull((graceUntil - System.currentTimeMillis()).coerceAtLeast(1)) { signals.receive() }
-                    ?: return Verdict(false, strong = true, why = "服务器判定校外")
+                    ?: return Verdict(false, strong = true, why = "服务器判定非校园网")
             } else {
                 signals.receive()
             }
@@ -163,7 +163,7 @@ object CampusProbe {
             }
             if (failed == probeCount && server != null) {
                 return when (server) {
-                    Server.OFF -> Verdict(false, strong = true, why = "服务器判定校外，探针也连不上")
+                    Server.OFF -> Verdict(false, strong = true, why = "服务器判定非校园网，探针也连不上")
                     Server.UNREACHABLE -> Verdict(false, strong = false, offline = true, why = "公网内网都不通")
                     else -> Verdict(false, strong = false, why = "内网探针全连不上")
                 }

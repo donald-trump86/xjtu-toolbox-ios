@@ -16,7 +16,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/** serve 契约 §5.5（成绩单 / 考勤 / 加餐券 / 宿舍电费）的客户端那一侧。 */
 class ServeReadonlyFourDomainsApiTest {
 
     /** 一个只按路径答夹具的 MockEngine（与 `ServeModeApiTest` 同一套写法）。 */
@@ -353,45 +352,6 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("""{"showCardId":"C1"}""", activateBodies.single(), "body 只有契约那一格")
     }
 
-    /** 宿舍电费：`rooms` 的空 id 行不列。 */
-    @Test
-    fun serveDormPowerDistinguishesMissingKwhFromNoMeter() = runTest {
-        val roomsBody = """
-            {"code":0,"data":{"rooms":[{"id":"R1","name":"和园/A01幢/1单元/101"},
-              {"id":"","name":"上游缺 roomId 的那一行"}]}}
-        """.trimIndent()
-        val readingBody = """{"code":0,"data":{"roomId":"R1","kwh":null}}"""
-        val calls = mutableListOf<Map<String, String>>()
-        val engine = MockEngine { request ->
-            calls += request.url.parameters.names().associateWith { request.url.parameters[it].orEmpty() }
-            val body = when {
-                request.url.encodedPath.endsWith("/api/dorm/rooms") -> roomsBody
-                request.url.encodedPath.endsWith("/api/dorm/reading") -> readingBody
-                else -> error("没有为 ${request.url.encodedPath} 准备响应")
-            }
-            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
-        }
-        val api = CampusDormPowerApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
-
-        val rooms = api.rooms()
-        assertEquals(listOf("R1"), rooms.map { it.id }, "空 id 的行不列（与 :data 丢掉它同一个口径）")
-        assertEquals("和园/A01幢/1单元/101", rooms.single().name)
-        // `kwh: null` = 上游明确说这间房没有表（不是 0，也不是「查不到」）
-        assertNull(api.kwh("R1"))
-        assertEquals("R1", calls[1]["roomId"])
-
-        // 字段缺失 = 这个端点没按契约答 ⇒ 抛错（不拿 null 冒充「没有表」）
-        val missing = CampusDormPowerApi(
-            createToolboxClient(engine = engineFor("/api/dorm/reading" to """{"code":0,"data":{"roomId":"R1"}}""")),
-            "",
-            ApiMode.SERVE,
-        )
-        assertFailsWith<IllegalStateException> { missing.kwh("R1") }
-
-        // 缴费页入口不端（它是宿主的活：OAuth + 「进过这一页」那个标记）
-        val payUrl = assertFailsWith<UnsupportedOperationException> { api.freshPayUrl() }
-        assertTrue(payUrl.message?.contains("§5.5") == true, "理由要写在错误里，实际：${payUrl.message}")
-    }
 
     /** 这四个域在 campus-api 里没有端点（它们是 `:app` / 桌面直接走 `:data` 的 okhttp 抓的）。 */
     @Test
@@ -406,9 +366,6 @@ class ServeReadonlyFourDomainsApiTest {
         }
         assertFailsWith<UnsupportedOperationException> {
             CampusCouponApi(createToolboxClient(engine = engine), "").queryCoupons(CouponFilter.USABLE, 1, 20)
-        }
-        assertFailsWith<UnsupportedOperationException> {
-            CampusDormPowerApi(createToolboxClient(engine = engine), "").rooms()
         }
     }
 }

@@ -3,7 +3,6 @@ package com.xjtu.toolbox.schedule
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.GapNote
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -89,13 +88,9 @@ fun TodayTimeline(
     upcoming: List<UpcomingItem> = emptyList(),
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
-    /**
-     * 补在「接下来」底下的一句：本端没接作业截止那一档（见 `ScheduleHost.gapNotes`）。
-     *
-     * null（默认）= 不画。没接这一档的端，`upcoming` 里永远没有作业，不交代一句
-     * 就会被读成「这几天真没作业」。
-     */
     dueHomeworkGap: String? = null,
+    /** 屁岱排日程卡里的安排写进日程（见 [DayPlanCard]）。 */
+    onAddPlan: ((LocalDate, List<PlanItem>) -> Unit)? = null,
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
@@ -177,7 +172,7 @@ fun TodayTimeline(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item(key = "day_plan") { DayPlanCard(planSnapshot, today) }
+            item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
             item(key = "empty") { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
         }
         return
@@ -209,7 +204,7 @@ fun TodayTimeline(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today) }
+        if (showPlan) item(key = "day_plan") { DayPlanCard(planSnapshot, today, onAdd = onAddPlan) }
         if (entries.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。
@@ -261,7 +256,7 @@ private fun NoCourseTodayCard() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "今天没课，后面几天的在下面",
+                "今天暂无安排，下面还有近期提醒",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
@@ -318,10 +313,7 @@ private fun TimelineRow(
             onClick = { e.course?.let(onCourseClick) },
         ) {
             // 正在上的课：卡底从左到右铺一层更深的颜色表示已上的部分，进场时长出来
-            val grown = remember { androidx.compose.animation.core.Animatable(0f) }
-            LaunchedEffect(progress) {
-                grown.animateTo(progress ?: 0f, androidx.compose.animation.core.tween(700))
-            }
+            val grown = com.xjtu.toolbox.ui.components.rememberRollingValue((progress ?: 0f).toDouble(), 700)
             Column(
                 Modifier
                     .fillMaxWidth()

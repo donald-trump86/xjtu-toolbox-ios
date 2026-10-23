@@ -112,6 +112,7 @@ class CampusCardNetApi(
             rangeStart = from.toString(),
             rangeEnd = to.toString(),
             savedAt = Clock.System.now().toEpochMilliseconds(),
+            transactionsComplete = true,
         )
     }
 

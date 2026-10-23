@@ -28,6 +28,29 @@ import kotlinx.coroutines.runBlocking
 /** 空闲教室取数的字段级口径：三档（CDN / 直查教务 / 实时状态）对着 `:testkit` 的夹具逐字段读。 */
 class EmptyRoomApiJvmTest {
 
+    @Test fun `CDN 缺失自动直连教务并返回真实节次`() = withJwxtLogin { site, fake ->
+        val result = runBlocking {
+            queryRoomTimetable(LIVE_CAMPUS, setOf(BUILDING_A), NO_DATA_DATE, EmptyRoomApi()) {
+                EmptyRoomDirectQuery(site.client)
+            }
+        }
+        assertTrue(result.direct)
+        assertEquals(NO_DATA_DATE, fake.emptyRoom.lastCdnDate)
+        assertEquals(12, fake.jwxt.emptyRoomQueryCalls.get())
+        assertEquals(List(11) { 0 }, result.rooms.first { it.name == JwxtFakeUpstream.EMPTY_ROOM_A102 }.status)
+    }
+
+    @Test fun `CDN 可用不登录教务`() = withFakeCdn { fake ->
+        val result = runBlocking {
+            queryRoomTimetable(LIVE_CAMPUS, setOf(BUILDING_A), DATE, EmptyRoomApi()) {
+                error("不应登录教务")
+            }
+        }
+        assertTrue(!result.direct)
+        assertTrue(result.rooms.isNotEmpty())
+        assertEquals(1, fake.emptyRoom.cdnCalls.get())
+    }
+
     /** CDN 那一档的假上游：**不需要任何会话**（这个接口是公开的预生成 JSON）。 */
     private fun withFakeCdn(block: (FakeCampusProxy) -> Unit) {
         val fake = FakeCampusProxy()
@@ -94,7 +117,7 @@ class EmptyRoomApiJvmTest {
             val missing = assertFailsWith<NoDataException> {
                 EmptyRoomApi().getEmptyRoomsMulti(LIVE_CAMPUS, setOf(BUILDING_A), NO_DATA_DATE)
             }
-            assertEquals("当天暂无空闲教室数据，请稍后再试", missing.message)
+            assertEquals("明天的数据一般中午过后才生成，可以晚点再看", missing.message)
 
             val unknownCampus = assertFailsWith<NoDataException> {
                 EmptyRoomApi().getEmptyRoomsMulti("曲江校区", setOf(BUILDING_A), DATE)

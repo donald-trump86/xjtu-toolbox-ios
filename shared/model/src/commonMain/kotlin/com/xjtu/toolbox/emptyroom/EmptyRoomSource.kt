@@ -3,7 +3,7 @@ package com.xjtu.toolbox.emptyroom
 /** 空闲教室的取数端口：屏与 ViewModel 都在 `:core`，三档数据源由各端自己实现。 */
 interface EmptyRoomSource {
 
-    /** 本端能提供的档位，也决定屏上「数据源」菜单列出哪几项。 */
+    /** 本端能提供的档位，也决定页面能选择哪些查询方式。 */
     val availableSources: List<RoomSource>
 
     /** 可查的日期档（今明两天）。 */

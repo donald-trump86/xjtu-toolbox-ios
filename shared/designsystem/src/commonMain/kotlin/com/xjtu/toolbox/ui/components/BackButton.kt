@@ -7,12 +7,14 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.LocalTabRoot
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 
-/** 顶栏左上角的返回按钮。 */
+/** 顶栏左上角的返回按钮。页面被放到底栏上时（[LocalTabRoot]）没有上一级，不画。 */
 @Composable
 fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    if (LocalTabRoot.current) return
     IconButton(onClick = onClick, modifier = modifier) {
         Icon(BackArrow, contentDescription = "返回")
     }

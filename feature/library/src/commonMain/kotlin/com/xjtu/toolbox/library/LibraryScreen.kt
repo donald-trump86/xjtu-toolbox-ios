@@ -55,6 +55,8 @@ import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -90,6 +92,7 @@ fun LibraryScreen(
 ) {
     val appAuthExpiry = LocalAuthExpiry.current
     val scope = rememberCoroutineScope()
+    val seatPlanUi = remember { SeatPlanUiState() }
     // 换会话 = 换 source ⇒ 换 ViewModel。
     val vm: LibraryViewModel = viewModel(key = "library-${source.hashCode()}") {
         LibraryViewModel(source)
@@ -120,6 +123,7 @@ fun LibraryScreen(
     var menuOpen by remember { mutableStateOf(false) }
     val campus = vm.campus
     val selectedArea = vm.floorAreas[vm.selectedAreaCode] ?: source.areaNameOf(vm.selectedAreaCode)
+    LaunchedEffect(vm.selectedAreaCode) { seatPlanUi.selected.value = null }
     // 屁岱荐座：候选按本地热力挑，图在真调模型时才裁
     var seatPrefs by remember { mutableStateOf(SeatPickPrefs.load()) }
     val seatPicksData = remember(vm.planLayout, vm.planImages, selectedArea, seatPrefs) {
@@ -136,6 +140,10 @@ fun LibraryScreen(
         seatPicksSpec { seatPicksData?.let { seatPicksImages(it.second, it.third) }.orEmpty() }
     }
     val seatPicks = com.xjtu.toolbox.ui.components.rememberInsight(seatPicksSpec, seatPicksData?.first, auto = false)
+    val pickedSeatIds = seatPickIds(seatPicks)
+    val seatPicksShown = com.xjtu.toolbox.agent.AgentInsightHub.insights.available &&
+        com.xjtu.toolbox.agent.PidaiCard.LIBRARY !in com.xjtu.toolbox.agent.PidaiCards.off.collectAsState().value
+    LaunchedEffect(pickedSeatIds) { seatPlanUi.heatOn.value = pickedSeatIds.isNotEmpty() }
     val floors = remember(campus) { campus.floorCodes.map { campus.floorLabel(it) } }
     // 只滤掉明确关闭（有统计且 total=0）的区域；统计没到或学校没给的照常列出
     val areaCodes = remember(vm.floorAreas, vm.areaStatsMap) {
@@ -564,6 +572,14 @@ fun LibraryScreen(
         // 以前加载时头部钉在顶上、有数据了再挪进网格：挪一次就换一个组合位置，
         // 三张卡的入场动画重播一遍，整页先跳一下再淡入一次——看着就是「加载动画很怪」。
         val wideLibrary = com.xjtu.toolbox.ui.isWideLayout()
+        SeatPlanFullscreenOverlay(
+            state = seatPlanUi, layout = vm.planLayout, images = vm.planImages,
+            areaName = selectedArea, freeText = if (totalCount > 0) "空闲 $availableCount / $totalCount" else null,
+            favorites = favorites, agentPicks = seatPickIds(seatPicks), canBook = source.canBook,
+            isBooking = vm.isBooking, loading = vm.planLoading, onBook = { bookSeat(it) },
+            onToggleFavorite = vm::toggleFavorite, landscapeLock = landscapeLock,
+            properties = fullscreenDialogProperties,
+        )
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
         Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         if (wideLibrary) {
@@ -666,7 +682,7 @@ fun LibraryScreen(
                     }
 
                     planMode -> {
-                      if (seatPicksData != null && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+                      if (seatPicksData != null && seatPicksShown) {
                         fullSpan("seat_picks") {
                             LibrarySeatPicksCard(
                                 state = seatPicks,
@@ -706,6 +722,8 @@ fun LibraryScreen(
                             landscapeLock = landscapeLock,
                             fullscreenDialogProperties = fullscreenDialogProperties,
                             agentPicks = seatPickIds(seatPicks),
+                            state = seatPlanUi,
+                            hostFullscreen = false,
                             modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp),
                         )
                       }
@@ -767,6 +785,7 @@ private fun ResultBanner(result: BookResult?, onDismiss: () -> Unit, modifier: M
                     color = if (r.success) MiuixTheme.colorScheme.secondaryContainer else MiuixTheme.colorScheme.errorContainer,
                     cornerRadius = 16.dp,
                 )
+                .clip(RoundedCornerShape(16.dp))
                 .clickable(onClick = onDismiss)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         )

@@ -27,6 +27,10 @@ data class FitnessLaunch(
     val referer: String,
 )
 
+/** 学校网关故障不表示登录失效，也不保存成服务永久关闭。 */
+class FitnessServiceUnavailableException(val statusCode: Int) :
+    java.io.IOException("学校体测服务暂不可用，请过段时间再试。"), com.xjtu.toolbox.error.UserFacingFailure
+
 /**
  * 体测 H5 v3 合同：回调参数在 URL hash 里，业务请求把字段 AES 加密后 POST 到 `/v3/api.php`。
  * 字段、密钥、签名与学校移动端页面一致。
@@ -186,7 +190,7 @@ object FitnessProtocol {
 
     /** 学校体测系统 5xx 时直说是学校的问题：错误页没有回调参数，不拦的话会误报成「回调缺少会话参数」。 */
     fun checkNotServerError(code: Int) {
-        if (code >= 500) throw java.io.IOException("学校体测系统出故障了（错误码 $code），不是账号或 App 的问题，请稍后再试")
+        if (code >= 500) throw FitnessServiceUnavailableException(code)
     }
 
     fun unwrapUserInfo(body: String): JsonObject? {

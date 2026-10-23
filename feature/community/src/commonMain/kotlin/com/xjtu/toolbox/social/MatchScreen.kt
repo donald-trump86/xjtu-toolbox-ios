@@ -200,11 +200,7 @@ fun MatchScreen(
                     color = glassBarColor(glass),
                     modifier = Modifier.glassTopBar(glass),
                     scrollBehavior = scrollBehavior,
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(MiuixIcons.Back, "返回")
-                        }
-                    },
+                    navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 )
             },
         ) { padding ->
@@ -258,8 +254,7 @@ fun MatchScreen(
                             item {
                                 SectionCard("读不到本地数据") {
                                     Text(
-                                        "$msg\n这个页面只读别的页面留下的缓存，不会自己联网。" +
-                                            "退出去重进一次；还是这样就是缓存坏了，去设置里清一次数据。",
+                                        "课表数据读取失败，请到日程页刷新后重试。",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.error,
                                     )
@@ -272,8 +267,7 @@ fun MatchScreen(
                             item {
                                 SectionCard("还没有可分享的数据") {
                                     Text(
-                                        "匹配靠的是你在别的页面留下的缓存：课表、考试、教材来自日程页，" +
-                                            "饭点和食堂来自校园卡页。先去转一圈，回来这里就有东西可对了。",
+                                        "先在日程页同步课表；要比较用餐习惯，也请刷新校园卡流水。",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
@@ -318,8 +312,7 @@ fun MatchScreen(
                                 item {
                                     SectionCard("匹配结果会出现在这里") {
                                         Text(
-                                            "把你的码给对方扫，或者在左边扫对方的码、粘贴对方的文字码，" +
-                                                "点「算一算」就能看到你们的课表重合、共同的老师和考试。",
+                                            "互扫或粘贴文字码，点「算一算」看课表重合、共同老师和考试。",
                                             style = MiuixTheme.textStyles.footnote1,
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
@@ -389,11 +382,7 @@ private fun MyCodeCard(
         value = QrState.Loading
         value = when {
             // 本端没有 zlib / Base64：说清缺了什么，不当成「出错了」。
-            !MatchProfile.codecAvailable -> QrState.Failed(
-                "这一端还没有分享码要用的压缩（zlib）与 Base64，生成不了码。" +
-                    "Android、桌面与浏览器三端都已经能用（见 :core 的 platform/Deflate.kt " +
-                    "与 platform/Base64Url.kt）。"
-            )
+            !MatchProfile.codecAvailable -> QrState.Failed("当前版本暂不支持生成分享码。")
 
             // 正常不会走到：encode 至少会带版本号。但空串喂给 zxing 是直接抛异常，
             // 与其让它炸在协程里变成永远的加载态，不如在这说清楚。
@@ -529,8 +518,7 @@ private fun TheirCodeCard(
             // 如实说明：这一端没有相机，也没有相册（桌面）。**不画**两颗点了只会失败的按钮，
             // 但也不能让人以为"这功能只能粘文字"是这个页面本来的样子。
             Text(
-                "这一端没有相机（也没有相册），扫不了码 —— 拿对方发来的那段文字码，粘到下面就行。" +
-                    "Android 上那两条路都在。",
+                "当前版本不支持扫码，请粘贴对方的文字码。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
@@ -1149,7 +1137,7 @@ private fun TagChip(label: String, accent: Boolean = false) {
             .padding(vertical = 3.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (accent) MiuixTheme.colorScheme.tertiaryContainer
+                if (accent) MiuixTheme.colorScheme.primaryContainer
                 else MiuixTheme.colorScheme.secondaryContainer
             )
             .padding(horizontal = 10.dp, vertical = 5.dp)
@@ -1157,7 +1145,7 @@ private fun TagChip(label: String, accent: Boolean = false) {
         Text(
             label,
             style = MiuixTheme.textStyles.footnote1,
-            color = if (accent) MiuixTheme.colorScheme.onTertiaryContainer
+            color = if (accent) MiuixTheme.colorScheme.onPrimaryContainer
             else MiuixTheme.colorScheme.onSecondaryContainer,
         )
     }

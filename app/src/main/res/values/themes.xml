@@ -11,6 +11,6 @@
     <style name="Theme.XJTUToolBox" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:windowBackground">#FFF5F5F5</item>
+        <item name="android:windowBackground">#FFF0F1F3</item>
     </style>
 </resources>

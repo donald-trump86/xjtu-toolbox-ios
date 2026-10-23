@@ -931,8 +931,10 @@ private fun DeleteConfirmDialog(
 private fun accountTitle(account: Account): String =
     account.nickname?.takeIf { it.isNotBlank() } ?: account.accountId
 
+@Composable
 private fun accountAccent(account: Account, isActive: Boolean): Color {
-    if (isActive) return Color(0xFF0A84FF)
+    // 当前账号跟主题色；其余账号按账号号轮一个固定色，好区分
+    if (isActive) return MiuixTheme.colorScheme.primary
     val palette = listOf(
         Color(0xFF0A84FF),
         Color(0xFF34C759),

@@ -11,12 +11,16 @@ class VenueSession : CasSiteSession(SITE_KEY, "场馆预订", mustUseWebVpn = fa
     /**
      * 会话失效时，场馆站会把请求带去**自己的**登录页（`/web/login/pre.html`，用户名密码表单），
      * 不是统一认证页，基类认不出来，订单页就会把登录页当数据解析，报错里显示出一整页文字。
+     * 下单接口则直接回 200 + `USERNOTLOGINYET`。
      */
     override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean =
-        super.isAuthFailureResponse(response, bodyPreview) || response.request.url.encodedPath.startsWith("/web/login/")
+        super.isAuthFailureResponse(response, bodyPreview) ||
+            response.request.url.encodedPath.startsWith("/web/login/") ||
+            bodyPreview?.contains(NOT_LOGGED_IN) == true
 
     companion object {
         /** 站点 key（与其余站点同一个写法，桌面端的 `DesktopAuth.VENUE_SITE_KEY` 就用它）。 */
         const val SITE_KEY = "venue"
+        const val NOT_LOGGED_IN = "USERNOTLOGINYET"
     }
 }

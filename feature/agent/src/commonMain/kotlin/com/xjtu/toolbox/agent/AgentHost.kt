@@ -47,6 +47,8 @@ interface AgentHost {
      * [AgentConfig.webSearchKey] 非空时各端再并上 `:data` 的 `DeepSeekWebTools`。
      */
     fun tools(config: AgentConfig): AgentTools = AgentTools.None
+    /** 用户正在对话中等待时，可由宿主提示短信验证；自动卡片仍使用 tools。 */
+    fun interactiveTools(config: AgentConfig): AgentTools = tools(config)
 
     val supportsMcp: Boolean get() = false
     fun mcpTools(config: AgentConfig, confirm: suspend (String, String, String) -> Boolean): AgentTools = AgentTools.None

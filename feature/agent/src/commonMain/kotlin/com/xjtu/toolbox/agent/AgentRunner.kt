@@ -101,6 +101,10 @@ class AgentRunner(
     /** 站点 -> 上次调用时刻，用于按站点限流。 */
     private val lastCallAt = mutableMapOf<String, Long>()
 
+    /** 模型用 [ToolShow] 点名展示的卡片，以及那几次调用的工具名（出页面入口用）。 */
+    val shownWidgets = mutableListOf<AgentWidget>()
+    val shownTools = mutableListOf<String>()
+
 
     /**
      * 执行一次用户消息的 agent 循环。
@@ -118,12 +122,24 @@ class AgentRunner(
         onReasoningDelta: suspend (String) -> Unit = {},
         onUsage: (Long) -> Unit = {}
     ): String {
-        val toolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
+        val baseToolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
+            .map { AgentWidgetPresentation.decorate(it.jsonObject) }
+        data class Snapshot(val tool: String, val widgets: List<AgentWidget>)
+        val snapshots = linkedMapOf<String, Snapshot>()
+        val displayedSnapshots = mutableMapOf<String, List<AgentWidget>>()
+        fun present(id: String, widgets: List<AgentWidget>) {
+            displayedSnapshots[id]?.let { old -> shownWidgets.removeAll { current -> old.any { it === current } } }
+            displayedSnapshots[id] = widgets
+            shownWidgets += widgets
+            snapshots[id]?.tool?.let { if (it !in shownTools) shownTools += it }
+        }
         var toolCallCount = 0
         val assembled = StringBuilder()
         var lengthContinues = 0
 
         while (true) {
+            val toolDefs = JsonArray(baseToolDefs + if (snapshots.isEmpty()) emptyList() else
+                listOf(AgentWidgetPresentation.toolDefinition(snapshots.keys)))
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
             val allowTools = toolCallCount < TOOL_CALL_FUSE && toolDefs.isNotEmpty()
             val reqBody = buildJsonObject {
@@ -148,14 +164,28 @@ class AgentRunner(
                 }
             }
 
-            val sr = transport.stream(config, reqBody, onDelta, onReasoningDelta)
+            val partialContent = StringBuilder()
+            val response = try {
+                transport.stream(config, reqBody, { fragment -> partialContent.append(fragment); onDelta(fragment) }, onReasoningDelta)
+            } catch (failure: Exception) {
+                val marker = if (failure is kotlinx.coroutines.CancellationException) "[用户打断]" else "[网络中断]"
+                // 当前这一段思考尚未完成，不伪造 reasoning_content；已提交的完整轮次原样保留。
+                messages.add(buildJsonObject {
+                    put("role", "assistant")
+                    put("content", partialContent.toString().trimEnd().let { if (it.isEmpty()) marker else "$it\n\n$marker" })
+                })
+                throw failure
+            }
+            val sr = if (response.finishReason == "aborted") AgentStreamResult(response.content, "", emptyList(), response.finishReason, response.totalTokens) else response
             sr.totalTokens?.let(onUsage)
 
             // 思考模式下更常见的是思维链先用完了输出上限（默认 64K），不一定是上下文满了
             if (sr.finishReason == "length" && sr.content.isBlank() && sr.toolCalls.isEmpty())
                 return "回复被截断：输出长度达到上限（思考过长或上下文已满）。可以把问题拆小、调低思考强度，或新开对话。"
-            if (sr.finishReason == "aborted" && sr.content.isBlank() && sr.toolCalls.isEmpty())
-                return "生成被服务端中断，请重试。"
+            if (sr.finishReason == "aborted" && sr.content.isBlank() && sr.toolCalls.isEmpty()) {
+                messages.add(buildJsonObject { put("role", "assistant"); put("content", "[网络中断]") })
+                return "[网络中断]"
+            }
             if (sr.finishReason == "content_filter" && sr.content.isBlank())
                 return "回复被内容过滤拦截。"
             if (sr.finishReason == "insufficient_system_resource" && sr.content.isBlank())
@@ -164,7 +194,7 @@ class AgentRunner(
             // 组装 assistant 消息写回历史（保持 OpenAI 结构，供续聊）
             val assistantMsg = buildJsonObject {
                 put("role", "assistant")
-                put("content", sr.content)
+                put("content", if (sr.finishReason == "aborted") sr.content + "\n\n[网络中断]" else sr.content)
                 if (sr.reasoningContent.isNotBlank()) {
                     put("reasoning_content", sr.reasoningContent)
                 }
@@ -201,14 +231,19 @@ class AgentRunner(
                 }
                 messages.add(assistantMsg)
                 // 只提示用户，不写进历史
-                if (sr.finishReason == "aborted") assembled.append("\n\n（生成被服务端中断，回答可能不完整）")
+                if (sr.finishReason == "aborted") assembled.append("\n\n[网络中断]")
                 return assembled.toString().ifBlank { "（无回复）" }
             }
 
             // 原子提交：先把所有 tool 结果算好，再「assistant(tool_calls) + 全部 tool」一起入历史。
             // 若中途被取消/抛会话失效，则什么都不写——历史不会留下"有 tool_calls 却没 tool 回应"的残体，
             val toolResults = ArrayList<JsonObject>(sr.toolCalls.size)
-            for (tc in sr.toolCalls) {
+            var activeCallIndex = 0
+            var executingCall = false
+            try {
+            for ((callIndex, tc) in sr.toolCalls.withIndex()) {
+                activeCallIndex = callIndex
+                executingCall = false
                 onToolCall(tc.name)
                 // 限流按**站点**算，不再全局一刀切。
                 // 原来是 `if (toolCallCount > 0) delay(1000L)`：不管这次打的是哪个系统都先等 1 秒。
@@ -223,12 +258,37 @@ class AgentRunner(
                     }
                     lastCallAt[site] = Clock.System.now().toEpochMilliseconds()
                 }
-                val toolResult = runCatching { tools.execute(tc.name, tc.arguments) }
-                val result: String
+                executingCall = true
+                val toolResult = runCatching {
+                    if (tc.name == AgentWidgetPresentation.TOOL) {
+                        val args = AppJson.parseToJsonElement(tc.arguments).jsonObject
+                        val id = args.argStr("result_id") ?: error("缺少 result_id")
+                        val snapshot = snapshots[id] ?: error("本轮不存在该结果，请先查询")
+                        val selected = AgentWidgetPresentation.apply(snapshot.widgets, AgentWidgetPresentation.options(tc.arguments))
+                        present(id, selected)
+                        AgentWidgetPresentation.receipt(selected)
+                    } else tools.execute(tc.name, tc.arguments)
+                }
+                // 这次调用顺手产出的卡片：模型点名 show 才留，否则丢掉
+                val made = if (tc.name == AgentWidgetPresentation.TOOL) emptyList() else tools.drainWidgets()
+                var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {
                     result = toolResult.getOrThrow() as String
                     toolErrorMsg = null
+                    if (made.isNotEmpty()) {
+                        snapshots[tc.id] = Snapshot(tc.name, made)
+                        result += "\ncard_result_id: ${tc.id}\ncard_rows (original, 1-based):\n" + AgentWidgetPresentation.catalog(made)
+                    }
+                    if (tc.name != AgentWidgetPresentation.TOOL && ToolShow.requested(tc.arguments)) {
+                        val presentation = runCatching { AgentWidgetPresentation.apply(made, AgentWidgetPresentation.options(tc.arguments)) }
+                        if (presentation.isSuccess) {
+                            if (made.isNotEmpty()) {
+                                present(tc.id, presentation.getOrThrow())
+                                result += "\n" + AgentWidgetPresentation.receipt(presentation.getOrThrow())
+                            } else if (tc.name !in shownTools) shownTools += tc.name
+                        } else result += "\ncard_error: ${presentation.exceptionOrNull()?.message}"
+                    }
                 } else {
                     val e = toolResult.exceptionOrNull()
                     // 用户点了停止：取消不是工具出错，不能记成一次失败塞进历史，原样往上抛
@@ -245,6 +305,23 @@ class AgentRunner(
                     put("tool_call_id", tc.id)
                     put("content", capToolResult(result, tc.name))
                 })
+            }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                val completedIds = toolResults.map { it["tool_call_id"]?.stringValue }.toSet()
+                for ((index, pending) in sr.toolCalls.withIndex()) {
+                    if (pending.id in completedIds) continue
+                    toolResults.add(buildJsonObject {
+                        put("role", "tool")
+                        put("tool_call_id", pending.id)
+                        put("content", if (index == activeCallIndex && executingCall)
+                            "status: interrupted; reason: user_interrupt; execution: unknown" else
+                            "status: not_started; reason: user_interrupt")
+                    })
+                }
+                messages.add(assistantMsg)
+                messages.addAll(toolResults)
+                messages.add(buildJsonObject { put("role", "assistant"); put("content", "[用户打断]") })
+                throw cancelled
             }
             remainingToolHint(toolCallCount)?.let { hint ->
                 val last = toolResults.lastOrNull() ?: return@let

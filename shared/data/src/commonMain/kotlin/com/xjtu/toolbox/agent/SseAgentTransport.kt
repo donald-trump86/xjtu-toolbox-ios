@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -44,6 +45,29 @@ class SseAgentTransport : AgentTransport {
         reqBody: JsonObject,
         onDelta: suspend (String) -> Unit,
         onReasoningDelta: suspend (String) -> Unit,
+    ): AgentStreamResult {
+        var emitted = false
+        for (attempt in 0..2) {
+            try {
+                return streamOnce(config, reqBody,
+                    onDelta = { if (it.isNotEmpty()) emitted = true; onDelta(it) },
+                    onReasoningDelta = { if (it.isNotEmpty()) emitted = true; onReasoningDelta(it) },
+                )
+            } catch (e: java.io.IOException) {
+                currentCoroutineContext().ensureActive()
+                // 尚未展示输出、也没有执行工具，重连不会重复写入或拼接重复回答。
+                if (emitted || attempt == 2) throw e
+                delay(1_200L * (attempt + 1))
+            }
+        }
+        error("无法连接模型服务")
+    }
+
+    private suspend fun streamOnce(
+        config: AgentConfig,
+        reqBody: JsonObject,
+        onDelta: suspend (String) -> Unit,
+        onReasoningDelta: suspend (String) -> Unit,
     ): AgentStreamResult = withContext(Dispatchers.IO) {
         val call = httpClient.newCall(
             Request.Builder()
@@ -64,6 +88,7 @@ class SseAgentTransport : AgentTransport {
         val resp = try {
             call.execute()
         } catch (e: java.io.IOException) {
+            cancellationWatcher.cancel()
             currentCoroutineContext().ensureActive()
             throw e
         }
@@ -83,6 +108,7 @@ class SseAgentTransport : AgentTransport {
                 val reasoningSb = StringBuilder()
                 val toolMap = sortedMapOf<Int, ToolCallAcc>()
                 var finishReason = "stop"
+                var completed = false
                 var totalTokens: Long? = null
 
                 while (true) {
@@ -95,7 +121,7 @@ class SseAgentTransport : AgentTransport {
                     } ?: break
                     if (!line.startsWith("data:")) continue
                     val data = line.substring(5).trim()
-                    if (data == "[DONE]") break
+                    if (data == "[DONE]") { completed = true; break }
                     val chunk = runCatching { AppJson.parseToJsonElement(data).jsonObject }.getOrNull() ?: continue
                     chunk.get("usage")?.takeIf { !it.isNull && it.isObject }?.jsonObject
                         ?.get("total_tokens")
@@ -103,7 +129,7 @@ class SseAgentTransport : AgentTransport {
                     val choices = chunk.arr("choices") ?: continue
                     if (choices.size == 0) continue
                     val choice = choices[0].jsonObject
-                    choice.get("finish_reason")?.takeIf { !it.isNull }?.stringValue?.let { finishReason = it }
+                    choice.get("finish_reason")?.takeIf { !it.isNull }?.stringValue?.let { finishReason = it; completed = true }
                     val delta = choice.obj("delta") ?: continue
 
                     delta.get("reasoning_content")?.takeIf { !it.isNull }?.stringValue?.let {
@@ -127,6 +153,7 @@ class SseAgentTransport : AgentTransport {
                         }
                     }
                 }
+                if (!completed) throw java.io.IOException("连接中断，回复尚未完成，请重试")
                 return@withContext AgentStreamResult(
                     contentSb.toString(),
                     reasoningSb.toString(),

@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.InsightSpec
+import com.xjtu.toolbox.agent.PidaiCard
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.ScheduleCache
@@ -51,6 +52,7 @@ private val ZYXF_PICKS = InsightSpec(
 只输出：
 {"summary":"不超过 30 字","items":[{"course":"课程名","file_id":123,"name":"原文件名","path":"目录路径","why":"不超过 20 字"}]}
     """.trimIndent(),
+    card = PidaiCard.ZYXF,
 )
 
 /** 本学期课表里的课名和 30 天内的考试（本机缓存，不联网）。 */

@@ -218,11 +218,7 @@ internal fun WebScheduleGapNote(mode: ApiMode) {
                 "本端只认 serve 契约里的那一种面（campus-api 的同名路径字段名不同，本端不认，§7 第 2 条）" +
                 "⇒ 考试与教材两栏空着、详情里的「N座」也不画；调课 / 停课 / 换教室同样不体现在格子上。"
         }) +
-            // 「导出日历 (ICS)」不在这里说：它在共享日程屏里有自己的缺口说明槽位
-            // （`WebScheduleHost.gapNotes` 的 SHARE_FILE 那一条），会画在导出菜单里本该有那一行的位置。
             (if (mode == ApiMode.SERVE) {
-                // 2026-10-22 批5：那三格在 serve 形态下已经真接线了（考勤角标 / 本次考勤 / 思源下钻 / 作业截止），
-                // 所以 serve 这条不再宣称「做不到」—— 它只在下面提一句那边用的是哪几条端点。
                 "课程详情里的「思源学堂」与「本次考勤」两项下钻与今日栏的作业截止都已接上" +
                     "（/api/lms/course-match、/api/attendance/records、/api/lms/due）——" +
                     "考勤角标还看设置里「课表显示考勤角标」那一格。"

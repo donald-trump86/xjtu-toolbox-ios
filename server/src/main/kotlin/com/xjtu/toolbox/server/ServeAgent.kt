@@ -155,6 +155,16 @@ class ServeAgent(
         return true
     }
 
+    suspend fun stopAndWait(sessionId: String?): Boolean {
+        if (!sessionId.isNullOrBlank() && sessionId != runningSessionId) return false
+        val job = runningJob ?: return false
+        job.cancel()
+        job.join()
+        runMutex.lock()
+        runMutex.unlock()
+        return true
+    }
+
     /** 跑一轮，把事件按 [write] 写出去（路由传的是「往 SSE 通道写一帧」）。 */
     suspend fun runTurn(sessionId: String, text: String, write: suspend (String) -> Unit) {
         coroutineScope {
@@ -183,6 +193,7 @@ class ServeAgent(
     private class ToolLine(val label: String) {
         var error: String? = null
         var success = true
+        var completed = false
     }
 
     private suspend fun CoroutineScope.executeTurn(
@@ -200,7 +211,6 @@ class ServeAgent(
         val ui = persisted.messages.toMutableList()
 
         val tools = toolTable(config)
-        tools.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
         val runner = AgentRunner(tools, transport())
 
         if (history.firstOrNull()?.jsonObject?.get("role")?.stringValue != "system") {
@@ -227,11 +237,10 @@ class ServeAgent(
         })
         history = agentSanitizeHistory(history)   // 自愈：清掉上一次中断留下的 tool_calls 残体
         // 本轮那条 user 消息之后的内容都是「没答完就不该留」的部分（照 discardUnfinishedTurn）
-        val unfinishedFrom = history.size - 1
 
         val toolLines = mutableListOf<ToolLine>()
-        val calledTools = mutableListOf<String>()
         val reasoning = StringBuilder()
+        val partialReply = StringBuilder()
         var reply: String? = null
         var failure: AgentStreamEvent.Error? = null
 
@@ -251,18 +260,18 @@ class ServeAgent(
             reply = runner.run(
                 messages = history,
                 config = config,
-                onDelta = { emit(AgentStreamEvent.Delta(it)) },
+                onDelta = { partialReply.append(it); emit(AgentStreamEvent.Delta(it)) },
                 onReasoningDelta = { frag ->
                     reasoning.append(frag)
                     emit(AgentStreamEvent.Reasoning(frag))
                 },
                 onToolCall = { name ->
-                    calledTools.add(name)
                     toolLines.add(ToolLine(agentToolLabel(name)))
                     emit(AgentStreamEvent.ToolCall(name))
                 },
                 onToolResult = { name, success, err ->
                     toolLines.lastOrNull()?.let {
+                        it.completed = true
                         it.success = success
                         it.error = if (success) null else (err ?: "工具调用失败")
                     }
@@ -277,11 +286,10 @@ class ServeAgent(
             )
         } catch (e: CancellationException) {
             // 停止生成 / 客户端断开（见类 KDoc）：历史不留残体，落盘记「（已停止）」，一个事件都不再发
-            finishInterrupted(sessionId, ui, toolLines, history.take(unfinishedFrom).toMutableList(), totalTokens, exhausted)
+            finishInterrupted(sessionId, ui, toolLines, history, totalTokens, exhausted, partialReply.toString())
             throw e
         } catch (e: Exception) {
-            history = history.take(unfinishedFrom).toMutableList()
-            toolLines.forEach { it.success = false; it.error = it.error ?: "已中断" }
+            toolLines.filterNot { it.completed }.forEach { it.success = false; it.error = "已中断" }
             failure = if (e is SessionExpiredFailure) {
                 AgentStreamEvent.Error("session_expired", SESSION_EXPIRED_TEXT)
             } else {
@@ -295,14 +303,14 @@ class ServeAgent(
         if (failure != null) {
             // 失败也要落盘（与 `AgentViewModel` 的 `finally` 里那份 persist 同一时机）：
             // 屏上看见的那句「出错了：…」下次进来还在，不会因为刷新就消失。
-            ui.add(StoredMessage(role = "assistant", content = errorBubbleText(failure!!), timestamp = now))
+            ui.add(StoredMessage(role = "assistant", content = partialReply.toString().let { if (it.isEmpty()) errorBubbleText(failure!!) else "$it\n\n[网络中断]" }, timestamp = now))
             persist(sessionId, ui, toolLines, null, null, null, history, totalTokens, exhausted, emptyList())
             emit(failure!!)
             return
         }
 
-        val widgets = tools.drainWidgets()
-        val nav = agentNavSuggestions(calledTools)
+        val widgets = runner.shownWidgets.toList()
+        val nav = agentNavSuggestions(runner.shownTools)
         emit(AgentStreamEvent.Widgets(widgets.map { it.toStored() }))
         emit(AgentStreamEvent.Nav(nav))
         val title = persist(
@@ -337,13 +345,14 @@ class ServeAgent(
         history: MutableList<JsonElement>,
         totalTokens: Long?,
         exhausted: Boolean,
+        partialReply: String,
     ) {
-        toolLines.forEach { it.success = false; it.error = it.error ?: "已中断" }
+        toolLines.filterNot { it.completed }.forEach { it.success = false; it.error = "已中断" }
         persist(
             sessionId = sessionId,
             ui = ui,
             toolLines = toolLines,
-            reply = "（已停止）",
+            reply = partialReply.trimEnd().let { if (it.isEmpty()) "[用户打断]" else "$it\n\n[用户打断]" },
             nav = null,
             reasoning = null,
             history = history,

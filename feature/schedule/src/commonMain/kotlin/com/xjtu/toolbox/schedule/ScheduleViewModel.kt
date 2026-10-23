@@ -832,6 +832,48 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         }
     }
 
+    /**
+     * 屁岱排日程卡里的安排落进日程：和手动「添加日程」同一张表、同一套节次换算，只占 [date] 那一周。
+     * 课和考试本来就在课表里，不经这里。
+     */
+    fun addPlanItems(date: LocalDate, items: List<PlanItem>) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            val start = startOfTerm
+            val term = selectedTermCode
+            val weeks = editableWeeks()
+            val week = start?.let { TermWeeks.weekOf(it, date) }
+            if (start == null || term.isEmpty() || week == null || week !in 1..weeks) {
+                eventChannel.send(ScheduleEvent.Message("这一天不在当前学期里，没法加进日程"))
+                return@launch
+            }
+            val account = AccountContext.activeAccountId ?: ""
+            val summer = XjtuTime.isSummerTime(date.monthNumber)
+            items.forEach { item ->
+                val startSection = kotlin.math.floor(XjtuTime.sectionScaleOf(item.startMinute, summer)).toInt().coerceIn(1, MAX_SECTIONS)
+                val endSection = (kotlin.math.ceil(XjtuTime.sectionScaleOf(item.endMinute, summer)).toInt() - 1).coerceIn(startSection, MAX_SECTIONS)
+                host.customCourses.insert(CustomCourse(
+                    accountId = account,
+                    courseName = item.title,
+                    location = item.place,
+                    weekBits = (1..weeks).joinToString("") { if (it == week) "1" else "0" },
+                    dayOfWeek = date.dayOfWeek.ordinal + 1,
+                    startSection = startSection,
+                    endSection = endSection,
+                    startMinuteOfDay = item.startMinute,
+                    endMinuteOfDay = item.endMinute,
+                    termCode = term,
+                    note = encodeAgendaNote(item.note),
+                ))
+            }
+            customCourses = host.customCourses.getByTerm(account, term)
+            host.onScheduleSynced()
+            eventChannel.send(ScheduleEvent.Message(
+                if (items.size == 1) "已把「${items[0].title}」加进日程" else "已把 ${items.size} 项安排加进日程"
+            ))
+        }
+    }
+
     fun deleteCustomCourse(entity: CustomCourse) {
         viewModelScope.launch {
             host.customCourses.delete(entity)

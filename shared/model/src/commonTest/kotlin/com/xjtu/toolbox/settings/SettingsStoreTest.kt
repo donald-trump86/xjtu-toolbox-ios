@@ -8,6 +8,35 @@ import kotlin.test.assertTrue
 /** 设置偏好的键名与默认值。 */
 class SettingsStoreTest {
     @Test
+    fun `头卡外观跨实例保留且无效偏好回退`() {
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+        assertEquals("auto", settings.heroPalette)
+        assertEquals("auto", settings.heroMotion)
+        assertEquals(-1, settings.heroSeed)
+        assertEquals("liquid", settings.heroBackground)
+        settings.heroBackground = "solid"
+        settings.heroPalette = "custom"
+        settings.heroColorHex = " #a2f "
+        settings.heroMotion = "still"
+        settings.heroSeed = 347
+        val reopened = SettingsStore(raw)
+        assertEquals("custom", reopened.heroPalette)
+        assertEquals("#AA22FF", reopened.heroColorHex)
+        assertEquals("still", reopened.heroMotion)
+        assertEquals(347, reopened.heroSeed)
+        assertEquals("solid", reopened.heroBackground)
+        raw.putString("hero_palette", "unknown")
+        raw.putString("hero_motion", "unknown")
+        raw.putString("hero_color_hex", "not a color")
+        raw.putInt("hero_seed", -100)
+        assertEquals("auto", reopened.heroPalette)
+        assertEquals("auto", reopened.heroMotion)
+        assertEquals("#2F7CFF", reopened.heroColorHex)
+        assertEquals(-1, reopened.heroSeed)
+    }
+
+    @Test
     fun `自定义颜色规范化并保留旧取色偏好`() {
         val raw = freshStore()
         raw.putBoolean("dynamic_color", true)
@@ -41,7 +70,6 @@ class SettingsStoreTest {
         assertEquals("floating", settings.navBarStyle, "界面风格默认玻璃")
         assertEquals("schedule", settings.defaultTab, "默认启动 Tab 是日程（规范化值）")
         assertEquals("auto", settings.networkMode, "连接模式默认自动检测")
-        assertEquals("card", settings.homeTheme, "首页主题默认卡片")
         assertTrue(settings.showQuickActions, "常用功能默认显示")
         assertTrue(settings.scheduleAttendanceBadge, "考勤角标默认开")
         assertTrue(settings.venueAutoSolveCaptchaEnabled, "场馆验证码自动识别默认开")
@@ -66,8 +94,6 @@ class SettingsStoreTest {
         assertEquals("dark", SettingsStore.DARK_MODE_DARK)
         assertEquals("floating", SettingsStore.NAV_STYLE_FLOATING)
         assertEquals("classic", SettingsStore.NAV_STYLE_CLASSIC)
-        assertEquals("card", SettingsStore.THEME_CARD)
-        assertEquals("icon", SettingsStore.THEME_ICON)
         assertEquals("HOME", SettingsStore.TAB_HOME)
         assertEquals("COURSES", SettingsStore.TAB_COURSES)
         assertEquals("PIDAI", SettingsStore.TAB_PIDAI)

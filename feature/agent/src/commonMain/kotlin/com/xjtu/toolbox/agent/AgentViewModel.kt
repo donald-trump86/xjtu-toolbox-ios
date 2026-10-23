@@ -133,9 +133,11 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     // 当前生成任务，供"停止生成"取消
     private var currentJob: kotlinx.coroutines.Job? = null
+    private data class PendingInput(val text: String, val config: AgentConfig, val annex: String?, val images: List<String>)
+    private val pendingInputs = ArrayDeque<PendingInput>()
 
     /** 停止正在进行的生成。 */
-    override fun stop() { currentJob?.cancel() }
+    override fun stop() { pendingInputs.clear(); currentJob?.cancel() }
 
     override fun replaceLastUserAndSend(
         newText: String,
@@ -204,6 +206,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
     }
 
     override fun newSession() {
+        pendingInputs.clear()
         val store = store ?: return
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
         val s = store.create()
@@ -214,6 +217,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
     }
 
     override fun switchSession(id: String) {
+        pendingInputs.clear()
         val store = store ?: return
         if (id == currentSessionId && messages.isNotEmpty() && !isLoading) return
         currentJob?.cancel(); applyLoading(false)   // 切换前停掉旧生成，避免两个会话内容串台
@@ -333,7 +337,12 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         images: List<String>,
     ) {
         // 只发图不打字是合理的（「这是什么」），所以有图时允许正文为空。
-        if ((userText.isBlank() && images.isEmpty()) || isLoading) return
+        if (userText.isBlank() && images.isEmpty()) return
+        if (isLoading) {
+            pendingInputs.addLast(PendingInput(userText, config, llmAnnex, images))
+            currentJob?.cancel()
+            return
+        }
         if (contextExhausted) {
             errorMessage = CONTEXT_EXHAUSTED_MESSAGE
             return
@@ -382,12 +391,20 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         }
         val toolBubbleIndices = mutableListOf<Int>()
         var turnUserMsg: JsonElement? = null
-        /** 这一轮没答完：把它在 LLM 历史里留下的提问和没配对的工具调用整段摘掉，免得下一轮出现连续两条 user。 */
-        fun discardUnfinishedTurn() {
-            val start = llmHistory.indexOfLast { it === turnUserMsg }
-            if (start >= 0) llmHistory = llmHistory.take(start).toMutableList()
+        fun markInterrupted(marker: String) {
+            if (currentSessionId != turnSid) return
+            if (streamIdx in messages.indices) {
+                val previous = messages[streamIdx]
+                messages[streamIdx] = previous.copy(content = previous.content.trimEnd().let { if (it.isEmpty()) marker else "$it\n\n$marker" })
+            } else messages.add(ChatMessage("assistant", marker))
+            // 初始化、认证阶段也可能中断，尚未进入 Runner 时补一个普通 assistant 状态。
+            val lastRole = llmHistory.lastOrNull()?.jsonObject?.get("role")?.stringValue
+            if (lastRole == "user" && llmHistory.lastOrNull() === turnUserMsg) {
+                llmHistory.add(buildJsonObject { put("role", "assistant"); put("content", marker) })
+            }
         }
         currentJob = viewModelScope.launch {
+            var mfaJob: kotlinx.coroutines.Job? = null
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
                 val accountNow = com.xjtu.toolbox.account.AccountContext.activeAccountId
@@ -401,18 +418,16 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 // 工具层与传输层都是**端装配**（见 `:core` 的 [AgentHost]）：`:app` 交取数那些
                 // `*Api` + Android 能力，桌面交它能取到的那部分。没接的端 `honored` 为空，
                 // 那几档就不会画给模型（见 `AgentCapability`）。
-                val registry = tools ?: CompositeAgentTools(host.tools(config),
+                val registry = tools ?: CompositeAgentTools(host.interactiveTools(config),
                     if (config.mcpEnabled && host.supportsMcp) listOf(host.mcpTools(config, ::confirmExternalTool)) else emptyList()
                 ).also { tools = it }
-                registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry, host.transport())
 
-                // 系统提示**一段对话只生成一次**：对话里还没有它（新对话，或老数据缺了）才生成，
-                // 之后原样复用。名字、偏好、画像中途变了，都从下一个新对话起生效——
-                // 中途改写等于篡改上下文：前几轮按旧设定答的，前后人设对不上，前缀缓存也整段作废。
-                // 会变的时间和模型走每条消息头（nowTag），不在这里。
+                // 同一提示版本在会话内复用，升级提示规则时替换旧版本。
+                // 名字、偏好和画像的普通变更从新会话生效；时间和模型走每条消息头。
                 val hasSystem = llmHistory.size > 0 && runCatching {
-                    llmHistory[0].jsonObject.get("role")?.stringValue == "system"
+                    llmHistory[0].jsonObject.get("role")?.stringValue == "system" &&
+                        AgentPrompt.isCurrent(llmHistory[0].jsonObject.get("content")?.stringValue.orEmpty())
                 }.getOrDefault(false)
                 if (!hasSystem) {
                     // 联网补齐姓名/学院只在登录态变过之后再试：没登录时每个新对话都去撞一次网络，
@@ -449,7 +464,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     if (!llmAnnex.isNullOrBlank()) {
                         append("[App 快照]\n")
                         append("用户从 App 里的提醒或屁岱卡片点进来，快照是他当时在看的东西，接着它聊。")
-                        append("缺的字段不要编；要完整、最新或清单仍调工具。\n")
+                        append("快照够用就直接用，别再查一遍；用户要最新情况、完整清单或快照里没有的内容时才调工具。缺的字段不要编。\n")
                         append(llmAnnex.trim())
                         append("\n\n")
                     }
@@ -466,13 +481,10 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 // 带图轮数攒多了才裁一次，见 AgentVision.pruneOldImages
                 AgentVision.pruneOldImages(llmHistory)
 
-                val calledTools = mutableListOf<String>()
-
                 // MFA 提示：监控 SessionManager 的 activeMfaRequest，弹窗期间在对话列表追加一条
                 // "需要登录验证" tool_event，让用户知道为什么对话卡住——不是 AI 在慢，是在校验。
                 // 协程在 run() 挂起期间仍存活，MFA 完成后我们再把这个事件标 isToolCall=false 让它收尾。
                 var mfaBubbleIdx = -1
-                var mfaJob: kotlinx.coroutines.Job? = null
                 val mfaFlow = host.mfaRequests
                 if (mfaFlow != null) {
                     mfaJob = launch {
@@ -515,7 +527,6 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                         }
                     },
                     onToolCall = { name ->
-                        calledTools.add(name)
                         // 本轮模型可能先输出思考/短回复，再请求工具；工具执行后下一次模型回复应新开气泡。
                         // 换气泡前先把攒着的分片落到旧气泡上。
                         flushStream()
@@ -556,9 +567,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 }
 
                 // 存的是 [AppRoute.id]：聊天记录要落盘，点按钮时再用 appRouteOf 解析回来
-                val navSuggestions = agentNavSuggestions(calledTools)
+                val navSuggestions = agentNavSuggestions(runner.shownTools)
 
-                val widgets = registry.drainWidgets()
+                val widgets = runner.shownWidgets.toList()
                 flushStream()
                 if (currentSessionId == turnSid) {   // 仍在本会话才写 UI
                     if (streamIdx >= 0) {
@@ -572,39 +583,48 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 flushStream()
-                discardUnfinishedTurn()
+                markInterrupted("[用户打断]")
                 if (currentSessionId == turnSid) {
                     toolBubbleIndices.forEach { settleToolAt(it, false, "已中断") }
                     toolBubbleIndices.clear()
-                    if (streamIdx >= 0)
-                        messages[streamIdx] = messages[streamIdx].copy(
-                            content = messages[streamIdx].content.ifBlank { "（已停止）" }
-                        )
                 }
                 throw e
             } catch (e: Exception) {
+                if (currentSessionId == turnSid) {
+                    toolBubbleIndices.forEach { settleToolAt(it, false, e.message ?: "调用已结束，请重试") }
+                    toolBubbleIndices.clear()
+                }
                 // 「登录态失效」是 `:core` 的标记接口（见 `error/SessionExpiredFailure`）——
                 // `catch` 抓不了接口，所以先抓 `Exception` 再判，与评教/成绩/校园卡/加餐券同一条缝。
                 if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
-                    discardUnfinishedTurn()
+                    markInterrupted("[登录中断]")
                     if (currentSessionId == turnSid)
-                        messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
+                        messages.add(ChatMessage("assistant", "登录未完成，请进入对应功能验证后重试。"))
                 } else {
                     // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
                     val detail = e.message?.takeIf { it.isNotBlank() }
                         ?: e::class.simpleName?.let { "请求异常（$it）" }
                         ?: "未知错误"
-                    discardUnfinishedTurn()
+                    flushStream()
+                    markInterrupted("[网络中断]")
                     if (currentSessionId == turnSid) {
                         errorMessage = detail
                         messages.add(ChatMessage("assistant", "出错了：$detail"))
                     }
                 }
             } finally {
+                mfaJob?.cancel()
                 flushStream()   // 出错路径上已收到的部分也要落到气泡里再持久化
                 if (currentSessionId == turnSid) {
+                    messages.indices.filter { messages[it].isToolCall }.forEach { index ->
+                        settleToolAt(index, false, "调用已结束")
+                    }
                     applyLoading(false)
                     persist(turnSid)   // 仅当仍在本会话才落盘，避免把新会话内容写到旧 id
+                    currentJob = null
+                    pendingInputs.removeFirstOrNull()?.let { next ->
+                        sendMessage(next.text, next.config, next.annex, next.images)
+                    }
                 }
             }
         }

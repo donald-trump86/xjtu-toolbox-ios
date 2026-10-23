@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import kotlin.concurrent.Volatile
 
-/** 「从提醒气泡进来」那一条路的中转站：屁岱这一屏下次组合时把它当第一条用户消息发出去。 */
+/** 页外请求在屁岱页新开对话，或仅填入草稿。 */
 object AgentPendingPrompt {
 
     data class Pending(
@@ -14,6 +14,7 @@ object AgentPendingPrompt {
         val snapshot: String? = null,
         /** 只填进输入框等用户自己发。外部深链来的都是这种。 */
         val draftOnly: Boolean = false,
+        val images: List<String> = emptyList(),
     )
 
     @Volatile
@@ -22,8 +23,8 @@ object AgentPendingPrompt {
     var generation by mutableIntStateOf(0)
         private set
 
-    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false) {
-        pending = Pending(text, snapshot, draftOnly)
+    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false, images: List<String> = emptyList()) {
+        pending = Pending(text, snapshot, draftOnly, images.toList())
         generation++
     }
 

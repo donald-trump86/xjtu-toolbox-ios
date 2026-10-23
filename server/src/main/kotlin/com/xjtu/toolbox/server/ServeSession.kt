@@ -20,7 +20,6 @@ import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.MfaRequest
 import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.auth.SsnSession
 import com.xjtu.toolbox.auth.VenueSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.YwtbSession
@@ -73,9 +72,6 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         // 加餐券（`coupon`）：`/api/coupon/{list,detail}` 要它。同样是独立登录页
         // （`CouponLogin`：CAS OAuth2 `client_id=1596` → 开放平台 → 回 egc 换 `auth_token`）。
         register(CouponSession())
-        // 宿舍电费（`ssn`）：`/api/dorm/{rooms,reading}` 要它 —— 而且 `cid` 必须由**登录**写进会话
-        // （`SsnLogin.parseCid` 从缴费页 HTML 里取），否则 `DormPowerApi.cid()` 直接抛「未登录」。
-        register(SsnSession())
         // 考勤（`new_attendance`）：`/api/attendance/{terms,records}` 要它。它直连本科生业务站登录
         // （`AttendanceLogin`：入口 → CAS → 换业务令牌），不借别的站点会话。
         register(AttendanceSession())
@@ -281,8 +277,6 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         const val YWTB_SITE_KEY = "ywtb"
         const val DZPZ_SITE_KEY = "dzpz"
         const val COUPON_SITE_KEY = "coupon"
-        /** 宿舍电费。key 是 `SsnSession.SITE_KEY`（**不是** `dorm_power`；`LoginType.DORM_POWER.siteKey()` 映射到它）。 */
-        const val SSN_SITE_KEY = "ssn"
         /** 考勤。key 是 `AttendanceSession` 那个字面量（`LoginType.ATTENDANCE.siteKey()` 映射到它）。 */
         const val ATTENDANCE_SITE_KEY = "new_attendance"
 
@@ -310,7 +304,6 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
             YWTB_SITE_KEY,
             DZPZ_SITE_KEY,
             COUPON_SITE_KEY,
-            SSN_SITE_KEY,
             ATTENDANCE_SITE_KEY,
             LMS_SITE_KEY,
             JWAPP_SITE_KEY,

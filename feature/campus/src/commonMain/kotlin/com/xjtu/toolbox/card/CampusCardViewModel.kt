@@ -203,11 +203,12 @@ internal class CampusCardViewModel(
     private suspend fun fetchRange(start: LocalDate, end: LocalDate, accountId: String?): List<Transaction> {
         val cached = source.snapshot(start, end, accountId)
         val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        if (cached == null || cachedStart == null || cachedStart > start || cached.transactions.isEmpty()) {
-            return source.allTransactions(start, end, maxPages = 12, allowIncomplete = true)
+        // 旧版本最多缓存 12 页，却标记整段已覆盖；完整拉取后再覆盖快照，修复这类旧缓存。
+        if (cached == null || !cached.transactionsComplete || cachedStart == null || cachedStart > start || cached.transactions.isEmpty()) {
+            return source.allTransactions(start, end, maxPages = 400)
         }
         val known = cached.transactions.mapTo(HashSet()) { it.uniqueKey() }
-        val fresh = source.transactionsUntilKnown(start, end, maxPages = 12, pageSize = PAGE_SIZE) { it.uniqueKey() in known }
+        val fresh = source.transactionsUntilKnown(start, end, maxPages = 400, pageSize = PAGE_SIZE) { it.uniqueKey() in known }
         return (fresh + cached.transactions.filter { tx -> tx.date()?.let { it in start..end } == true })
             .distinctBy { it.uniqueKey() }
             .sortedByDescending { it.time }

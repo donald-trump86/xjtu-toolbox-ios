@@ -108,6 +108,36 @@ class AgentRunnerTest {
     }
 
     @Test
+    fun 卡片只留模型点名show的那次() = runBlocking {
+        val transport = FakeTransport(
+            listOf(
+                reply("", listOf(call("c1", "get_grades"), call("c2", "get_grades", """{"show":true}""")), finish = "tool_calls"),
+                reply("好了"),
+            )
+        )
+        val tools = object : AgentTools {
+            private val pending = mutableListOf<AgentWidget>()
+            override val toolDefinitions: String = """[{"type":"function","function":{"name":"get_grades"}}]"""
+            override fun rateLimitKeyOf(toolName: String): String? = null
+            override suspend fun execute(name: String, argsJson: String): String {
+                pending += GradeWidget()
+                return "成绩"
+            }
+            override fun drainWidgets(): List<AgentWidget> = pending.toList().also { pending.clear() }
+        }
+        val messages = messages()
+        val runner = AgentRunner(tools, transport)
+        runner.run(messages, AgentConfig())
+
+        assertEquals(1, runner.shownWidgets.size)
+        assertEquals(listOf("get_grades"), runner.shownTools)
+        val results = messages.filter { it.role() == "tool" }.map { it.jsonObject.text("content") }
+        assertTrue(results[0].contains("card_result_id: c1"))
+        assertFalse(results[0].contains(ToolReply.CARD_SHOWN))
+        assertTrue(results[1].endsWith(ToolReply.CARD_SHOWN))
+    }
+
+    @Test
     fun 工具一轮把调用与结果成对写回历史() = runBlocking {
         val transport = FakeTransport(
             listOf(
@@ -268,7 +298,9 @@ class AgentRunnerTest {
             AgentRunner(FakeTools { _, _ -> throw kotlinx.coroutines.CancellationException("用户点了停止") }, transport)
                 .run(messages, AgentConfig())
         }
-        assertEquals(listOf("user"), messages.map { it.role() })
+        assertEquals(listOf("user", "assistant", "tool", "assistant"), messages.map { it.role() })
+        assertTrue(messages[2].jsonObject.text("content").contains("execution: unknown"))
+        assertEquals("[用户打断]", messages.last().jsonObject.text("content"))
     }
 
     @Test
@@ -338,14 +370,108 @@ class AgentRunnerTest {
                 .run(messages(), AgentConfig())
 
         assertTrue(runWith("length").startsWith("回复被截断"))
-        assertEquals("生成被服务端中断，请重试。", runWith("aborted"))
+        assertEquals("[网络中断]", runWith("aborted"))
         assertEquals("回复被内容过滤拦截。", runWith("content_filter"))
         assertEquals("模型推理资源暂时不足，请稍后重试。", runWith("insufficient_system_resource"))
 
         // 有正文就不是错误：正文照回，只加一句「可能不完整」
         val partial = runWith("aborted", "半句话")
         assertTrue(partial.startsWith("半句话"))
-        assertTrue(partial.endsWith("（生成被服务端中断，回答可能不完整）"))
+        assertTrue(partial.endsWith("[网络中断]"))
+    }
+
+    @Test
+    fun 按结果编号换卡不重复查询且替换原卡() = runBlocking {
+        var queries = 0
+        val pending = mutableListOf<AgentWidget>()
+        val tools = object : AgentTools {
+            override val toolDefinitions = """[{"type":"function","function":{"name":"get_grades"}}]"""
+            override fun rateLimitKeyOf(toolName: String): String? = null
+            override suspend fun execute(name: String, argsJson: String): String {
+                queries++
+                pending += GradeWidget(listOf(
+                    com.xjtu.toolbox.score.ReportedGrade("甲", 1.0, "90", 4.0),
+                    com.xjtu.toolbox.score.ReportedGrade("乙", 2.0, "80", 3.0),
+                ))
+                return "两门成绩"
+            }
+            override fun drainWidgets() = pending.toList().also { pending.clear() }
+        }
+        val transport = FakeTransport(listOf(
+            reply("", listOf(call("r1", "get_grades", """{"show":true}""")), finish = "tool_calls"),
+            reply("", listOf(call("r2", "present_result", """{"result_id":"r1","display":{"rows":[2],"summary":"selected"}}""")), finish = "tool_calls"),
+            reply("好了"),
+        ))
+        val runner = AgentRunner(tools, transport)
+        runner.run(messages(), AgentConfig())
+        assertEquals(1, queries)
+        assertEquals(listOf("get_grades"), runner.shownTools)
+        val card = runner.shownWidgets.single() as GradeWidget
+        assertEquals("乙", card.grades.single().courseName)
+        assertEquals(3.0, card.gpa)
+    }
+
+    @Test
+    fun 流被打断保留正文和标记但不回传半段思考() = runBlocking {
+        val transport = object : AgentTransport {
+            override suspend fun stream(config: AgentConfig, reqBody: JsonObject,
+                onDelta: suspend (String) -> Unit, onReasoningDelta: suspend (String) -> Unit): AgentStreamResult {
+                onReasoningDelta("尚未完成的思考")
+                onDelta("已经生成的正文")
+                throw kotlinx.coroutines.CancellationException("用户停止")
+            }
+        }
+        val history = messages()
+        assertFailsWith<kotlinx.coroutines.CancellationException> { AgentRunner(FakeTools { _, _ -> "" }, transport).run(history, AgentConfig()) }
+        val partial = history.last().jsonObject
+        assertEquals("已经生成的正文\n\n[用户打断]", partial.text("content"))
+        assertNull(partial["reasoning_content"])
+        val previous = history.toList()
+        history += buildJsonObject { put("role", "user"); put("content", "插话") }
+        val next = FakeTransport(listOf(reply("接着说")))
+        AgentRunner(FakeTools { _, _ -> "" }, next).run(history, AgentConfig())
+        assertEquals(previous, next.bodies.single()["messages"]!!.jsonArray.take(previous.size))
+    }
+
+    @Test fun 实时降级快照拒绝节次展示并回报实际状态卡() = runBlocking {
+        val pending = mutableListOf<AgentWidget>()
+        val tools = object : AgentTools {
+            override val toolDefinitions = """[{"type":"function","function":{"name":"get_empty_rooms"}}]"""
+            override fun rateLimitKeyOf(toolName: String): String? = null
+            override suspend fun execute(name: String, argsJson: String): String {
+                pending += LiveRoomWidget(rooms = listOf(com.xjtu.toolbox.emptyroom.LiveRoom("主楼A-402", status = 2)))
+                return "error: failed; 课表查询失败；已取得实时状态，只代表此刻状态"
+            }
+            override fun drainWidgets() = pending.toList().also { pending.clear() }
+        }
+        val transport = FakeTransport(listOf(
+            reply("", listOf(call("r1", "get_empty_rooms", """{"view":"both"}""")), finish = "tool_calls"),
+            reply("", listOf(call("r2", "present_result", """{"result_id":"r1","display":{"fields":["slots","status"]}}""")), finish = "tool_calls"),
+            reply("", listOf(call("r3", "present_result", """{"result_id":"r1","display":{"fields":["status"]}}""")), finish = "tool_calls"),
+            reply("只代表此刻状态"),
+        ))
+        val history = messages()
+        val runner = AgentRunner(tools, transport)
+        runner.run(history, AgentConfig())
+        val results = history.map { it.jsonObject }.filter { it.text("role") == "tool" }.map { it.text("content") }
+        assertTrue(results[0].contains("snapshot: realtime_only"))
+        assertTrue(results[1].contains("slots 字段请查询 view=slots/both"))
+        assertTrue(results[2].contains("card_display: rooms; view=status; slots=unavailable"))
+        assertTrue(runner.shownWidgets.single() is LiveRoomWidget)
+    }
+
+    @Test
+    fun 网络失败保留已生成正文() = runBlocking {
+        val transport = object : AgentTransport {
+            override suspend fun stream(config: AgentConfig, reqBody: JsonObject,
+                onDelta: suspend (String) -> Unit, onReasoningDelta: suspend (String) -> Unit): AgentStreamResult {
+                onDelta("前半句")
+                throw java.io.IOException("断网")
+            }
+        }
+        val history = messages()
+        assertFailsWith<java.io.IOException> { AgentRunner(FakeTools { _, _ -> "" }, transport).run(history, AgentConfig()) }
+        assertEquals("前半句\n\n[网络中断]", history.last().jsonObject.text("content"))
     }
 
     @Test

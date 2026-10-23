@@ -183,14 +183,12 @@ private fun WebAgentKeySection(host: WebAgentHost) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("API Key", style = MiuixTheme.textStyles.body1)
         Text(
-            if (configured) "已在运行 serve 的那台机器上配好" else "还没配：请在运行 serve 的那台机器上设置",
+            if (configured) "已配置" else "未配置，请在服务端设置",
             style = MiuixTheme.textStyles.footnote1,
             color = if (configured) cs.primary else cs.error,
         )
         Text(
-            "Key 存在运行 serve 的那台机器上（`agent_config_secure` 那份存储里）：浏览器这一端一个字都拿不到，" +
-                "也不保存 —— 所以这里没有输入框。要换 Key 就在那台机器上改。" +
-                (if (host.canEditKey) "" else "（这一份部署连那台机器上的 `POST /api/agent/config` 都不收 Key。）"),
+            "API Key 保存在服务端，浏览器不保存。请在服务端修改。",
             style = MiuixTheme.textStyles.footnote2,
             color = cs.onSurfaceVariantSummary,
         )
@@ -226,8 +224,7 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
             Text(
-                "存在运行 serve 的那台机器上，与模型用的是同一份。最多 ${AgentMemory.MAX_ITEMS} 条，" +
-                    "增删从下一个新对话起生效。",
+                "存在 serve 主机上，最多 ${AgentMemory.MAX_ITEMS} 条，新对话起生效。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = cs.onSurfaceVariantSummary,
             )
@@ -271,30 +268,17 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
 
 /** 「这一份部署的屁岱能做什么」——页面说明与白名单同源。 */
 internal fun agentToolNote(allowlist: List<String>): String = buildString {
-    append("这一份部署的屁岱：模型调用、工具取数、会话与记忆、API Key 都在**运行 serve 的那台机器**上，")
-    append("浏览器这一端只发消息、只画屏（所以另一台设备改了会话，这一页刷新后看到的是同一份）。")
-    if (allowlist.isEmpty()) {
-        append("这一份部署**现在一件工具都没给模型**（toolAllowlist 是空的）：能聊天，但查不到校园数据。")
-    } else {
-        append("它能查：")
-        append(allowlist.joinToString("、") { agentToolLine(it) })
-        append("。")
-    }
-    append("不开放的几档，逐条理由：")
-    append(
-        AGENT_CLOSED_TOOL_GROUPS.joinToString("；") { group ->
-            "${group.title} —— ${group.names.joinToString(" / ")}（${group.why}）"
-        },
-    )
-    append("。另外两处如实：① 你在 App 里加的自建日程，浏览器这一端的屁岱**看不到**（它读的是桌面/")
-    append("serve 那份 `custom_courses`，Android 的存在 Room 里）；② 「改上一条重发」这一端只能做到")
-    append("「屏幕上换掉 + 再发一次」—— serve 契约里没有「替换上一轮」的入口。")
+    append("对话、记忆和 API Key 保存在服务端。")
+    if (allowlist.isEmpty()) append("当前仅支持聊天，校园查询暂未开放。")
+    else append("可用功能：").append(allowlist.joinToString("、") { agentToolLine(it) }).append("。")
+    append("暂不支持：").append(AGENT_CLOSED_TOOL_GROUPS.joinToString("、") { it.title }).append("。")
+    append("App 的自建日程不会同步到这里；修改已发送的消息会再发一次。")
 }
 
 /** 一行工具：名字 + `:core` 那份文案表里的话（`agentToolLabel`）。 */
 internal fun agentToolLine(name: String): String {
     val label = agentToolLabel(name)
-    return if (label == "调用工具 $name…") "`$name`（这一端没有它的说明）" else "`$name`（${label.trimEnd('…')}）"
+    return if (label == "调用工具 $name…") "未知工具（$name）" else label.trimEnd('…')
 }
 
 /** 「为什么不开」的一组工具（设计稿 §6.2 的逐条理由，这里只留一句话级）。 */
@@ -303,22 +287,22 @@ internal class AgentClosedToolGroup(val title: String, val why: String, val name
 /** 白名单之外的那几档，按「为什么不开」分组（`docs/agent-web-spec.md` §6.2）。 */
 internal val AGENT_CLOSED_TOOL_GROUPS: List<AgentClosedToolGroup> = listOf(
     AgentClosedToolGroup(
-        title = "写路径",
+        title = "闹钟和日程写入",
         why = "写的是你的闹钟 / 应用设置 / 自建日程，浏览器这一端没有那几样落点",
         names = listOf("set_alarm", "app_setting", "add_schedule_event"),
     ),
     AgentClosedToolGroup(
-        title = "钱",
+        title = "校园卡与加餐券",
         why = "余额 / 流水 / 券都是钱的读数，不该由浏览器上的模型代读代领",
         names = listOf("get_card_info", "get_coupons"),
     ),
     AgentClosedToolGroup(
-        title = "本人敏感",
+        title = "成绩、体测和考勤",
         why = "成绩 / 体测 / 考勤（考勤记录里带上课教师名）",
         names = listOf("get_grades", "get_fitness_score", "get_attendance"),
     ),
     AgentClosedToolGroup(
-        title = "要站点会话或没有落点",
+        title = "图书馆和课程资料",
         why = "图书馆 / 学辅 / 教材 / 思源学堂：前者要站点会话，后者的「读全文」「存进下载」在这一端没有落点",
         names = listOf("get_library", "list_zyxf", "read_zyxf_file", "get_textbooks", "get_lms", "get_lms_activity"),
     ),
@@ -328,7 +312,7 @@ internal val AGENT_CLOSED_TOOL_GROUPS: List<AgentClosedToolGroup> = listOf(
         names = listOf("web_search", "web_fetch"),
     ),
     AgentClosedToolGroup(
-        title = "独立一大块",
+        title = "全校课程与通知",
         why = "全校课表检索要上百行拼装 + 十三个参数；通知要 29 个源（其中 23 源有动态挑战）",
         names = listOf("search_school_courses", "get_notifications"),
     ),
