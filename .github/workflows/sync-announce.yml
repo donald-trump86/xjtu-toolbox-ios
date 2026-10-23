@@ -16,6 +16,7 @@ jobs:
       - name: Install OSS SDK
         id: oss_sdk
         continue-on-error: true
+        timeout-minutes: 3
         run: python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 --upgrade oss2
 
       - name: Upload bulletin to OSS

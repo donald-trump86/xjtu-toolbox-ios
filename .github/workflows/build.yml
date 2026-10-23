@@ -167,6 +167,7 @@ jobs:
         id: oss_sdk
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
         continue-on-error: true
+        timeout-minutes: 3
         run: python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 --upgrade oss2
 
       - name: Publish stable to OSS (primary)
