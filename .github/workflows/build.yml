@@ -184,10 +184,12 @@ jobs:
         if: github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          TAG: ${{ steps.version.outputs.tag }}
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
           # 拿不到凭据就直接失败，不要在无人值守的 CI 上等输入框
           GIT_TERMINAL_PROMPT: "0"
         run: |
+          : "${TAG:?Release tag is required}"
           OWNER="yeliqin666"
           REPO="xjtu-toolbox-android"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
