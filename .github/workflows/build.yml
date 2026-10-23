@@ -163,26 +163,15 @@ jobs:
           python3 -c "import json; print(json.dumps(open('/tmp/release_body.md', encoding='utf-8').read()))" > /tmp/release_body.json
           echo "body_json_path=/tmp/release_body.json" >> $GITHUB_OUTPUT
 
-      - name: Setup Aliyun CLI
+      - name: Install OSS SDK
+        id: oss_sdk
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
-        run: |
-          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun-cli.tgz
-          tar -xzf /tmp/aliyun-cli.tgz -C /tmp
-          sudo install -m 755 /tmp/aliyun /usr/local/bin/aliyun
-          aliyun version
-          # 只为了解压出底层 ossutil。无 profile 时这条命令会报错，但二进制已经解压出来。
-          aliyun ossutil version || true
-          OSSUTIL_BIN="$HOME/.aliyun/ossutil"
-          if [ ! -x "$OSSUTIL_BIN" ]; then
-            OSSUTIL_BIN=$(find "$HOME/.aliyun" -maxdepth 1 -type f -perm -u+x -name 'ossutil*' | head -1)
-          fi
-          test -x "$OSSUTIL_BIN"
-          "$OSSUTIL_BIN" version
-          echo "OSSUTIL_BIN=$OSSUTIL_BIN" >> "$GITHUB_ENV"
+        continue-on-error: true
+        run: python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 --upgrade oss2
 
       - name: Publish stable to OSS (primary)
         id: oss_publish
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.oss_sdk.outcome == 'success'
         continue-on-error: true
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -199,9 +188,7 @@ jobs:
           test -f "$APK"
           APK_KEY="xjtu-toolbox/apk/$VERSION/app-release.apk"
           echo "Uploading APK to OSS: $APK_KEY"
-          "$OSSUTIL_BIN" cp -f "$APK" "oss://$OSS_BUCKET/$APK_KEY" \
-            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
-            -e "$OSS_ENDPOINT" --region cn-beijing
+          python3 .github/scripts/oss_upload.py "$APK" "$APK_KEY"
 
           python3 - <<'PY'
           import datetime
@@ -236,15 +223,11 @@ jobs:
           PY
 
           echo "Uploading manifest last: stable.json"
-          "$OSSUTIL_BIN" cp -f /tmp/stable.json "oss://$OSS_BUCKET/xjtu-toolbox/stable.json" \
-            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
-            -e "$OSS_ENDPOINT" --region cn-beijing
-          "$OSSUTIL_BIN" cp -f /tmp/stable.json "oss://$OSS_BUCKET/xjtu-toolbox/history/stable-$VERSION.json" \
-            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
-            -e "$OSS_ENDPOINT" --region cn-beijing
+          python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/stable.json"
+          python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/history/stable-$VERSION.json"
 
           echo "Verifying public manifest and APK"
-          curl -fsS "$OSS_PUBLIC_BASE/stable.json" -o /tmp/stable-remote.json
+          curl -fsS --max-time 30 "$OSS_PUBLIC_BASE/stable.json" -o /tmp/stable-remote.json
           python3 - <<'PY'
           import json
           import os
@@ -256,7 +239,7 @@ jobs:
           assert len(remote["sha256"]) == 64, remote
           print("manifest ok:", remote["versionName"], remote["sha256"])
           PY
-          curl -fsSI "$OSS_PUBLIC_BASE/apk/$VERSION/app-release.apk" >/dev/null
+          curl -fsSI --max-time 30 "$OSS_PUBLIC_BASE/apk/$VERSION/app-release.apk" >/dev/null
           echo "OSS primary publish verified"
 
       - name: Delete existing tag (if any)
@@ -440,7 +423,7 @@ jobs:
 
       - name: Publish preview to OSS (primary)
         id: oss_preview_publish
-        if: github.ref == 'refs/heads/dev'
+        if: github.ref == 'refs/heads/dev' && steps.oss_sdk.outcome == 'success'
         continue-on-error: true
         env:
           VERSION: ${{ steps.preview.outputs.version }}
@@ -460,9 +443,7 @@ jobs:
           test -f "$APK"
           APK_KEY="xjtu-toolbox/apk/preview/$VERSION/app-preview.apk"
           echo "Uploading preview APK to OSS: $APK_KEY"
-          "$OSSUTIL_BIN" cp -f "$APK" "oss://$OSS_BUCKET/$APK_KEY" \
-            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
-            -e "$OSS_ENDPOINT" --region cn-beijing
+          python3 .github/scripts/oss_upload.py "$APK" "$APK_KEY"
 
           python3 - <<'PY'
           import datetime
@@ -496,12 +477,10 @@ jobs:
           PY
 
           echo "Uploading manifest last: preview.json"
-          "$OSSUTIL_BIN" cp -f /tmp/preview.json "oss://$OSS_BUCKET/xjtu-toolbox/preview.json" \
-            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
-            -e "$OSS_ENDPOINT" --region cn-beijing
+          python3 .github/scripts/oss_upload.py /tmp/preview.json "xjtu-toolbox/preview.json"
 
           echo "Verifying public preview manifest and APK"
-          curl -fsS "$OSS_PUBLIC_BASE/preview.json" -o /tmp/preview-remote.json
+          curl -fsS --max-time 30 "$OSS_PUBLIC_BASE/preview.json" -o /tmp/preview-remote.json
           python3 - <<'PY'
           import json
           import os
@@ -513,7 +492,7 @@ jobs:
           assert len(remote["sha256"]) == 64, remote
           print("preview manifest ok:", remote["versionName"], remote["sha256"])
           PY
-          curl -fsSI "$OSS_PUBLIC_BASE/apk/preview/$VERSION/app-preview.apk" >/dev/null
+          curl -fsSI --max-time 30 "$OSS_PUBLIC_BASE/apk/preview/$VERSION/app-preview.apk" >/dev/null
           echo "OSS preview publish verified"
 
       - name: Create GitHub Pre-release
