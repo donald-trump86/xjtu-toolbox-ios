@@ -463,7 +463,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
         )
         SwitchPreference(
             title = "接收预览版更新",
-            summary = if (receivePreviewUpdates && updateChannel != AppUpdater.CHANNEL_GITHUB) "预览版只在 GitHub 渠道发布" else null,
+            summary = if (receivePreviewUpdates) "预览版可能不稳定" else null,
             checked = receivePreviewUpdates,
             startAction = { SettingsIcon(Icons.Default.CloudSync) },
             onCheckedChange = { checked ->

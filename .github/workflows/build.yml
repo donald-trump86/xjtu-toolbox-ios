@@ -53,7 +53,9 @@ jobs:
         id: version
         run: |
           VERSION=$(grep "versionName" app/build.gradle.kts | head -1 | sed "s/.*\"\(.*\)\".*/\1/")
+          VERSION_CODE=$(grep "versionCode" app/build.gradle.kts | head -1 | sed -E "s/.*=[[:space:]]*([0-9]+).*/\1/")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Decode Keystore
@@ -105,25 +107,6 @@ jobs:
           name: mapping-${{ steps.version.outputs.version }}-run${{ github.run_id }}
           path: app/build/outputs/mapping/release/mapping.txt
           retention-days: 90
-
-      - name: Delete existing tag (if any)
-        if: github.ref == 'refs/heads/main'
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git tag -d "$TAG" 2>/dev/null || true
-          git push origin ":refs/tags/$TAG" 2>/dev/null || true
-
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          files: app/build/outputs/apk/release/app-release.apk
-          generate_release_notes: true
-          make_latest: true
-          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
       - name: Generate release notes from AppChangelog.kt
         if: github.ref == 'refs/heads/main'
@@ -179,6 +162,121 @@ jobs:
           # 转义为 JSON 安全字符串供下一步使用
           python3 -c "import json; print(json.dumps(open('/tmp/release_body.md', encoding='utf-8').read()))" > /tmp/release_body.json
           echo "body_json_path=/tmp/release_body.json" >> $GITHUB_OUTPUT
+
+      - name: Setup Aliyun CLI
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+        run: |
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun-cli.tgz
+          tar -xzf /tmp/aliyun-cli.tgz -C /tmp
+          sudo install -m 755 /tmp/aliyun /usr/local/bin/aliyun
+          aliyun version
+          # 只为了解压出底层 ossutil。无 profile 时这条命令会报错，但二进制已经解压出来。
+          aliyun ossutil version || true
+          OSSUTIL_BIN="$HOME/.aliyun/ossutil"
+          if [ ! -x "$OSSUTIL_BIN" ]; then
+            OSSUTIL_BIN=$(find "$HOME/.aliyun" -maxdepth 1 -type f -perm -u+x -name 'ossutil*' | head -1)
+          fi
+          test -x "$OSSUTIL_BIN"
+          "$OSSUTIL_BIN" version
+          echo "OSSUTIL_BIN=$OSSUTIL_BIN" >> "$GITHUB_ENV"
+
+      - name: Publish stable to OSS (primary)
+        id: oss_publish
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          APK_KEY="xjtu-toolbox/apk/$VERSION/app-release.apk"
+          echo "Uploading APK to OSS: $APK_KEY"
+          "$OSSUTIL_BIN" cp -f "$APK" "oss://$OSS_BUCKET/$APK_KEY" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            -e "$OSS_ENDPOINT" --region cn-beijing
+
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+
+          version = os.environ["VERSION"]
+          base = os.environ["OSS_PUBLIC_BASE"].rstrip("/")
+          repo = os.environ["GITHUB_REPO"]
+          apk = "app/build/outputs/apk/release/app-release.apk"
+          notes = open("/tmp/release_body.md", encoding="utf-8").read()
+          manifest = {
+              "schema": 1,
+              "channel": "stable",
+              "versionName": version,
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "apkUrl": f"{base}/apk/{version}/app-release.apk",
+              "mirrors": [
+                  f"https://github.com/{repo}/releases/download/v{version}/app-release.apk",
+                  f"https://gitee.com/{repo}/releases/download/v{version}/app-release.apk",
+              ],
+              "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest(),
+              "size": os.path.getsize(apk),
+              "notes": notes,
+              "releaseUrl": f"https://github.com/{repo}/releases/tag/v{version}",
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "rollout": 100,
+          }
+          with open("/tmp/stable.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PY
+
+          echo "Uploading manifest last: stable.json"
+          "$OSSUTIL_BIN" cp -f /tmp/stable.json "oss://$OSS_BUCKET/xjtu-toolbox/stable.json" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            -e "$OSS_ENDPOINT" --region cn-beijing
+          "$OSSUTIL_BIN" cp -f /tmp/stable.json "oss://$OSS_BUCKET/xjtu-toolbox/history/stable-$VERSION.json" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            -e "$OSS_ENDPOINT" --region cn-beijing
+
+          echo "Verifying public manifest and APK"
+          curl -fsS "$OSS_PUBLIC_BASE/stable.json" -o /tmp/stable-remote.json
+          python3 - <<'PY'
+          import json
+          import os
+
+          local = json.load(open("/tmp/stable.json", encoding="utf-8"))
+          remote = json.load(open("/tmp/stable-remote.json", encoding="utf-8"))
+          assert remote["versionName"] == os.environ["VERSION"], remote
+          assert remote["sha256"] == local["sha256"], remote
+          assert len(remote["sha256"]) == 64, remote
+          print("manifest ok:", remote["versionName"], remote["sha256"])
+          PY
+          curl -fsSI "$OSS_PUBLIC_BASE/apk/$VERSION/app-release.apk" >/dev/null
+          echo "OSS primary publish verified"
+
+      - name: Delete existing tag (if any)
+        if: github.ref == 'refs/heads/main'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
+          make_latest: true
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
       - name: Sync to Gitee (code + tag + release)
         if: github.ref == 'refs/heads/main'
@@ -340,6 +438,84 @@ jobs:
             || { echo "::error::APK 内 versionName 与预期 $VERSION 不一致"; exit 1; }
           cp "$APK" "xjtu-toolbox-$VERSION.apk"
 
+      - name: Publish preview to OSS (primary)
+        id: oss_preview_publish
+        if: github.ref == 'refs/heads/dev'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.preview.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          ROLLOUT: ${{ vars.PREVIEW_DEFAULT_ROLLOUT || 20 }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+        run: |
+          set -euo pipefail
+          APK="xjtu-toolbox-$VERSION.apk"
+          test -f "$APK"
+          APK_KEY="xjtu-toolbox/apk/preview/$VERSION/app-preview.apk"
+          echo "Uploading preview APK to OSS: $APK_KEY"
+          "$OSSUTIL_BIN" cp -f "$APK" "oss://$OSS_BUCKET/$APK_KEY" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            -e "$OSS_ENDPOINT" --region cn-beijing
+
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+
+          version = os.environ["VERSION"]
+          base = os.environ["OSS_PUBLIC_BASE"].rstrip("/")
+          repo = os.environ["GITHUB_REPO"]
+          run_number = os.environ["RUN_NUMBER"]
+          apk = f"xjtu-toolbox-{version}.apk"
+          manifest = {
+              "schema": 1,
+              "channel": "preview",
+              "versionName": version,
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "apkUrl": f"{base}/apk/preview/{version}/app-preview.apk",
+              "mirrors": [
+                  f"https://github.com/{repo}/releases/download/dev-{run_number}/xjtu-toolbox-{version}.apk",
+              ],
+              "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest(),
+              "size": os.path.getsize(apk),
+              "notes": f"预览版 {version}（提交 {os.environ['COMMIT_SHA']}）\n\n这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。",
+              "releaseUrl": f"https://github.com/{repo}/releases/tag/dev-{run_number}",
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "rollout": int(os.environ["ROLLOUT"]),
+          }
+          with open("/tmp/preview.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PY
+
+          echo "Uploading manifest last: preview.json"
+          "$OSSUTIL_BIN" cp -f /tmp/preview.json "oss://$OSS_BUCKET/xjtu-toolbox/preview.json" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            -e "$OSS_ENDPOINT" --region cn-beijing
+
+          echo "Verifying public preview manifest and APK"
+          curl -fsS "$OSS_PUBLIC_BASE/preview.json" -o /tmp/preview-remote.json
+          python3 - <<'PY'
+          import json
+          import os
+
+          local = json.load(open("/tmp/preview.json", encoding="utf-8"))
+          remote = json.load(open("/tmp/preview-remote.json", encoding="utf-8"))
+          assert remote["versionName"] == os.environ["VERSION"], remote
+          assert remote["sha256"] == local["sha256"], remote
+          assert len(remote["sha256"]) == 64, remote
+          print("preview manifest ok:", remote["versionName"], remote["sha256"])
+          PY
+          curl -fsSI "$OSS_PUBLIC_BASE/apk/preview/$VERSION/app-preview.apk" >/dev/null
+          echo "OSS preview publish verified"
+
       - name: Create GitHub Pre-release
         if: github.ref == 'refs/heads/dev'
         uses: softprops/action-gh-release@v2
@@ -369,3 +545,15 @@ jobs:
           | while read -r t; do
               echo "delete $t"; gh release delete "$t" --yes --cleanup-tag || true
             done
+
+      - name: Fail if OSS stable publish failed
+        if: github.ref == 'refs/heads/main' && steps.oss_publish.outcome != 'success'
+        run: |
+          echo "::error::OSS primary publish failed; GitHub/Gitee fallback was published. Re-run the workflow to fix OSS."
+          exit 1
+
+      - name: Fail if OSS preview publish failed
+        if: github.ref == 'refs/heads/dev' && steps.oss_preview_publish.outcome != 'success'
+        run: |
+          echo "::error::OSS preview publish failed; GitHub pre-release fallback was published. Re-run the workflow to fix OSS."
+          exit 1

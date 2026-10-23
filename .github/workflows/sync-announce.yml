@@ -1,4 +1,4 @@
-name: Sync announce to Gitee
+name: Sync announce to OSS + Gitee
 
 on:
   push:
@@ -13,7 +13,43 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Aliyun CLI
+        run: |
+          curl -fsSL https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz -o /tmp/aliyun-cli.tgz
+          tar -xzf /tmp/aliyun-cli.tgz -C /tmp
+          sudo install -m 755 /tmp/aliyun /usr/local/bin/aliyun
+          aliyun version
+          # 只为了解压出底层 ossutil。无 profile 时这条命令会报错，但二进制已经解压出来。
+          aliyun ossutil version || true
+          OSSUTIL_BIN="$HOME/.aliyun/ossutil"
+          if [ ! -x "$OSSUTIL_BIN" ]; then
+            OSSUTIL_BIN=$(find "$HOME/.aliyun" -maxdepth 1 -type f -perm -u+x -name 'ossutil*' | head -1)
+          fi
+          test -x "$OSSUTIL_BIN"
+          "$OSSUTIL_BIN" version
+          echo "OSSUTIL_BIN=$OSSUTIL_BIN" >> "$GITHUB_ENV"
+
+      - name: Upload bulletin to OSS
+        id: oss_bulletin
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+        run: |
+          set -euo pipefail
+          test -f bulletin.json
+          python3 -m json.tool bulletin.json >/dev/null
+          "$OSSUTIL_BIN" cp -f bulletin.json "oss://$OSS_BUCKET/xjtu-toolbox/bulletin.json" \
+            -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" \
+            -e "$OSS_ENDPOINT" --region cn-beijing
+          curl -fsS "$OSS_PUBLIC_BASE/bulletin.json" -o /tmp/bulletin-remote.json
+          python3 -c "import json; json.load(open('/tmp/bulletin-remote.json', encoding='utf-8')); print('bulletin ok')"
+
       - name: Push announce to Gitee
+        continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
           GITEE_URL: https://gitee.com/yeliqin666/xjtu-toolbox-android.git
@@ -35,3 +71,9 @@ jobs:
             '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
           git push gitee HEAD:announce --force
           echo "announce branch synced to Gitee"
+
+      - name: Fail if OSS bulletin upload failed
+        if: steps.oss_bulletin.outcome != 'success'
+        run: |
+          echo "::error::OSS bulletin upload failed; Gitee fallback was updated. Re-run the workflow to fix OSS."
+          exit 1

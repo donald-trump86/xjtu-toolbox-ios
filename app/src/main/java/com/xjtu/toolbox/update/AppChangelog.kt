@@ -34,6 +34,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.2.2" to VersionChangelog(
+            items = listOf(
+                "☁️" to "更新分发新增阿里云渠道，下载更快更稳；在设置里可以切换回 GitHub 或 Gitee",
+                "🔁" to "下载失败会自动尝试备用源，安装包继续做 SHA-256 校验",
+                "📢" to "公告和强制更新配置迁到阿里云，加载更稳定",
+            )
+        ),
         "5.2.1" to VersionChangelog(
             items = listOf(
                 "🪶" to "少则得，多则惑。",

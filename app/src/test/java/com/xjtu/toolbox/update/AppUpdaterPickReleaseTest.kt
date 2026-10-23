@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
@@ -160,5 +161,74 @@ class AppUpdaterPickReleaseTest {
 
         assertNotNull(result)
         assertEquals("4.9.7", result!!.version)
+    }
+
+    private fun validManifestJson(): String = """
+        {
+          "schema": 1,
+          "channel": "stable",
+          "versionName": "5.2.2",
+          "versionCode": 92,
+          "apkUrl": "https://dzhz.zyxf.top/xjtu-toolbox/apk/5.2.2/app-release.apk",
+          "mirrors": ["https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v5.2.2/app-release.apk"],
+          "sha256": "${"a".repeat(64)}",
+          "size": 6712345,
+          "notes": "## test",
+          "releaseUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.2.2",
+          "publishedAt": "2026-10-23T12:00:00Z",
+          "rollout": 100
+        }
+    """.trimIndent()
+
+    @Test
+    fun aliyunManifestParses() {
+        val manifest = AppUpdater.parseOssManifest(validManifestJson())
+        assertNotNull(manifest)
+        assertEquals("5.2.2", manifest!!.versionName)
+        assertEquals(92, manifest.versionCode)
+        assertEquals(100, manifest.rollout)
+        assertEquals(1, manifest.mirrors.size)
+    }
+
+    @Test
+    fun aliyunManifestRejectsBadShaAndHttpUrl() {
+        val valid = validManifestJson()
+        assertNotNull(AppUpdater.parseOssManifest(valid))
+        assertNull(AppUpdater.parseOssManifest(valid.replace("a".repeat(64), "short")))
+        assertNull(
+            AppUpdater.parseOssManifest(
+                valid.replace("https://dzhz.zyxf.top", "http://dzhz.zyxf.top")
+            )
+        )
+    }
+
+    @Test
+    fun newestManifestUsesPublishTimeForSameBasePreview() {
+        val stable = UpdateManifest(
+            schema = 1,
+            channel = "stable",
+            versionName = "5.2.0",
+            apkUrl = "https://example.com/app.apk",
+            sha256 = "a".repeat(64),
+            publishedAt = "2026-10-20T08:00:00Z",
+        )
+        val preview = stable.copy(
+            channel = "preview",
+            versionName = "5.2.0-dev.100",
+            publishedAt = "2026-10-22T08:00:00Z",
+        )
+
+        assertEquals("5.2.0-dev.100", AppUpdater.pickNewestManifest(stable, preview)!!.versionName)
+        assertEquals("5.2.0", AppUpdater.pickNewestManifest(stable, null)!!.versionName)
+    }
+
+    @Test
+    fun aliyunChannelLabelAndNormalization() {
+        assertEquals("阿里云", AppUpdater.channelLabel(AppUpdater.CHANNEL_ALIYUN))
+        assertEquals("GitHub", AppUpdater.channelLabel(AppUpdater.CHANNEL_GITHUB))
+        assertEquals("Gitee", AppUpdater.channelLabel(AppUpdater.CHANNEL_GITEE))
+        assertEquals(AppUpdater.CHANNEL_ALIYUN, AppUpdater.normalizeChannel("oss"))
+        assertEquals(AppUpdater.CHANNEL_ALIYUN, AppUpdater.normalizeChannel("stable"))
+        assertEquals(AppUpdater.CHANNEL_GITEE, AppUpdater.normalizeChannel("gitee"))
     }
 }
