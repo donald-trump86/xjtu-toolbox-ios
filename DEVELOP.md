@@ -164,7 +164,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 
 - 功能与修复分支从 `dev` 拉出，默认合回 `dev`；只有发版时才把 `dev` 合入 `main`。
 - 不得直接向 `main` 推送日常开发提交；紧急热修复也应当通过分支与 PR 完成。
-- 不得手动创建、修改或删除 CI 生成的 Release/tag；灰度比例调整按预览渠道文档操作。
+- 不得手动创建或删除 CI 生成的 Release/tag，不得修改其版本号或安装包附件；灰度比例调整按预览渠道文档操作。
 - 预览渠道的灰度、止血与发布细节见 [`docs/preview-channel.md`](docs/preview-channel.md)。该文档中的版本号示例如与本文冲突，以本文为准。
 
 ## 3. 提交与 PR
