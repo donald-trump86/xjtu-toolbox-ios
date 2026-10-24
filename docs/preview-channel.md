@@ -8,7 +8,7 @@
 
 - **分支分工**：
   - `main`：正式发布分支。CI 构建 `release` 变体、打 `v*` tag、发 GitHub Latest Release、全量同步至 Gitee。
-  - `dev`：日常开发集成分支。CI 构建 `preview` 变体、打 `dev-N` tag、发 GitHub Pre-release（`make_latest: false`），**不同步 Gitee**。
+  - `dev`：日常开发集成分支。CI 默认构建 `preview` 变体、打 `dev-N` tag、发 GitHub Pre-release（`make_latest: false`），**不同步 Gitee**；本次不发布时在 head commit / PR 标题写 `[skip preview]`。
 - **构建类型 `preview`**：
   - 不混淆、不压缩（保留完整可读崩溃堆栈与 Log）。
   - **非 debuggable**（避免 Compose 调试卡顿）。
@@ -27,8 +27,10 @@
 1. **日常开发**：
    - 开发者从 `dev` 分支拉出功能分支（例如 `feat/...` 或 `fix/...`）。
    - 开发测试完成后，提 PR 合并回 `dev` 分支。
-2. **预览包自动发出**：
-   - PR 合并或 push 到 `dev` 后，CI 自动运行 `Build Preview APK`，构建出 `xjtu-toolbox-X.Y.Z-dev.N.apk` 并创建 GitHub Pre-release。
+2. **预览包按需发出**：
+   - PR 合并或 push 到 `dev` 后，CI 默认运行 `Build Preview APK`，构建出 `xjtu-toolbox-X.Y.Z-dev.N.apk` 并创建 GitHub Pre-release。
+   - 如果本次改动暂不发预览，在本次推送的 head commit（通过 PR 合并时写在 PR 标题）加入 `[skip preview]`。CI 只跑校验、测试与 release 收缩检查，不构建、不发布预览包；改动会在下一次发布预览时一并进入 beta。详见 [DEVELOP.md](../DEVELOP.md) §1.6。
+   - 只想补发当前 `dev` 上累积的改动时，可在 Actions 中手动运行 `Build & Release`，选择 `dev` 并勾选 `publish_preview`。
    - 初始默认推送比例为 20%（`rollout: 20`）。
    - CI 会自动清理并仅保留最近 5 个预览版 Pre-release。
 

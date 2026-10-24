@@ -45,6 +45,7 @@
 4. 不得跨核心版本累加 beta 序号，也不得使用 CI 运行号、提交数、日期等全局递增数字代替 `N`。`5.1.2-dev.244` 这类写法不再允许。
 5. 已发布的 beta 序号不得复用。某个 beta 构建有问题时，发布 `N+1` 修复，或把该 beta 的灰度比例调为 `0`；不得删除后重新用同一个 `N` 发布不同内容。
 6. 同一核心版本的所有 beta 共用同一个更新日志条目，见 1.5。
+7. 跳过发布的开发版推送不占用 `N`；`N` 只在真正发布 beta 时递增。被跳过的改动会在下一次发布时一并进入 beta，见 1.6。
 
 ### 1.4 版本顺序与升级路径
 
@@ -105,14 +106,32 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 2. 把 `dev` 上 `app/build.gradle.kts` 的 `versionName` 提升为一个严格大于最新正式版的核心版本号，并同步递增 `versionCode`。
 3. 在 `AppChangelog.kt` 顶部追加该核心版本的条目；内容可以先占位，发版前补全。
 4. 同步修改 `desktop/build.gradle.kts` 的 `desktopPackageVersion`。
-5. 提交并推送到 `dev`。CI 据此构建 `X.Y.Z-beta.1` 并发布预发布版。
+5. 提交并推送到 `dev`。默认会构建 `X.Y.Z-beta.1` 并发布预发布版；如果本次只想先进入 `dev`、暂不发预览，按下面的「发不发预览版」处理。
 
 **日常开发**
 
 - 功能分支从 `dev` 拉出，通过 PR 合回 `dev`。
-- 每次合入 `dev` 都会产生新的 beta。beta 序号由构建流程按同一核心版本递增，开发人员不需要手动修改 `N`。
+- 每次合入 `dev` 默认会构建并发布一个新的 beta。beta 序号由构建流程按同一核心版本递增，开发人员不需要手动修改 `N`。
 - 如果本次改动包含新的用户可见功能或修复，确认 `AppChangelog.kt` 中对应核心版本的条目已更新。
 - 不得为了让版本号「看起来更新」而手动修改 beta 序号或核心版本号。
+
+**发不发预览版**
+
+推送前必须明确本次是否发布预览版：
+
+1. 如果本次改动已经可以给预览用户测试：正常推送，CI 构建并发布 `X.Y.Z-beta.N`；迁移期内仍可能是 `X.Y.Z-dev.<run>`。
+2. 如果本次改动还不适合发预览：在本次推送的最后一个提交（head commit）的提交信息中加入 `[skip preview]`。通过 PR 合并时，把标记写在 PR 标题里，确保它进入合并提交信息。CI 仍会执行版本号与更新日志校验、单元测试和 release 收缩检查，但不构建、不发布预览包。
+3. 被跳过的改动不会丢失，也不占用 beta 序号。下一次发布预览时，CI 会以当时的 `dev` HEAD 构建，这些改动会一并进入 beta。
+4. 如果只想补发当前 `dev` 上已经累积的改动，可以在 Actions 中手动运行 `Build & Release`，选择 `dev` 分支并勾选 `publish_preview`。手动运行不受 `[skip preview]` 影响。
+5. 不得用跳过预览来绕过测试或版本号检查。该标记只控制「发不发」，不控制「测不测」。
+
+**推送前检查清单**
+
+- [ ] 本地相关单元测试已通过；涉及构建配置时，至少跑过一次 `assemblePreview` 或 `minifyReleaseWithR8`。
+- [ ] 本次是否发布预览版已经确定。
+- [ ] 如果发布：核心版本号严格大于最新正式版，`AppChangelog.kt` 有对应条目，`desktopPackageVersion` 已同步。
+- [ ] 如果不发布：`[skip preview]` 已写入 head commit 或 PR 标题，并确认这些改动可以由下一次 beta 一并发布。
+- [ ] 推送后检查 Actions 结果：预览版已发布，或按预期跳过。
 
 **发布正式版**
 
@@ -136,11 +155,14 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - `versionName` 带有非 `beta` 的预发布标识，或 beta 序号格式不合法；
 - `AppChangelog.kt` 缺少当前核心版本的条目；
 - `desktopPackageVersion` 与 `app` 的 `versionName` 不一致；
-- 正式版的 `versionCode` 低于同核心版本的 beta 包。
+- 正式版的 `versionCode` 低于同核心版本的 beta 包；
+- 带 `[skip preview]` 的推送跳过了单元测试、版本号校验或更新日志校验。该标记只允许跳过预览包的构建与发布。
 
 ### 1.8 从 `-dev.N` 迁移
 
 版本号条款自本文件合并后的下一个核心版本起强制执行；当前正在进行的核心版本按本节顺序收尾。
+
+无论使用 `-dev.N` 还是 `-beta.N`，`[skip preview]` 的语义相同：只跳过预览包的构建与发布，不跳过校验，也不占用序号。
 
 在本规范生效前，预览包的版本号形如 `X.Y.Z-dev.<CI 运行号>`。运行号跨版本持续累加，正是本规范要废除的写法。
 
@@ -159,10 +181,11 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 | 分支 | 用途 | CI 行为 |
 |---|---|---|
 | `main` | 正式发布分支 | 构建正式版，创建 `vX.Y.Z` Release，更新正式渠道 |
-| `dev` | 日常集成分支 | 构建 `X.Y.Z-beta.N` 预览版，创建预发布 Release |
+| `dev` | 日常集成分支 | 默认构建并发布预览版；head commit 带 `[skip preview]` 时只跑检查，不发布 |
 | `feat/*`、`fix/*`、`chore/*` 等 | 功能与修复分支 | 通过 PR 合回 `dev` |
 
 - 功能与修复分支从 `dev` 拉出，默认合回 `dev`；只有发版时才把 `dev` 合入 `main`。
+- 预览版的发与不发由 head commit 的 `[skip preview]` 或手动触发时的 `publish_preview` 输入决定；不要通过删除或修改已有 Release 来模拟跳过。
 - 不得直接向 `main` 推送日常开发提交；紧急热修复也应当通过分支与 PR 完成。
 - 不得手动创建或删除 CI 生成的 Release/tag，不得修改其版本号或安装包附件；灰度比例调整按预览渠道文档操作。
 - 预览渠道的灰度、止血与发布细节见 [`docs/preview-channel.md`](docs/preview-channel.md)。该文档中的版本号示例如与本文冲突，以本文为准。
