@@ -44,12 +44,10 @@ NOTES*.md
 TODO*.md
 plan.md
 /tools/*
-# R8/Gson 模型检查脚本入库，维护者发版前顺手跑（见脚本头注释）
-!/tools/check_gson_signatures.py
 # 二维码中日韩码表的生成器入库（维护者改了字符集口径才跑；见脚本头注释）
 !/tools/gen-qr-charset-tables.java
 # 校区简图数据生成（OpenStreetMap → CampusMapsGenerated.kt），见脚本头注释
-!/tools/gen_campus_map.py
+!/tools/gen-campus-map.py
 
 # 不纳入 App 仓库（保留本地）
 /update_api.py
