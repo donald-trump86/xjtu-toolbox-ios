@@ -12,7 +12,8 @@ import com.xjtu.toolbox.nav.AppRoute
  * ## 什么不在清单里
  *
  * - `Browser`：有分支但不是一屏，直接 `navigateSameTab` 交给浏览器；
- * - `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`：本端没有屏，落 `NotPortedScreen`。
+ * - `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`：本端没有屏，落 `NotPortedScreen`；
+ * - `Zyxf`：资料站依赖 Android 端的下载/预览/文件能力，本端没有对应屏，落 `NotPortedScreen`。
  */
 internal object WebSupport {
 
