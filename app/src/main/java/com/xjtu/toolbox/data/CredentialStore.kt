@@ -186,21 +186,13 @@ class CredentialStore(context: Context) {
             .apply()
     }
 
-    /** 是否接收预览版更新。预览包自身默认开（否则装了预览包的人收不到下一个预览）。 */
+    /**
+     * 是否接收预览版更新。预览包自身默认开（否则装了预览包的人收不到下一个预览）。
+     * 开启后全量接收预览版，不再按灰度分桶过滤。
+     */
     var receivePreviewUpdates: Boolean
         get() = appPrefs.getBoolean(KEY_RECEIVE_PREVIEW, BuildConfig.IS_PREVIEW)
         set(value) { appPrefs.edit().putBoolean(KEY_RECEIVE_PREVIEW, value).apply() }
-
-    /**
-     * 灰度分桶用的本机随机 ID。只存在本地，不上传、不与账号关联。
-     * 首次读取时生成；清数据/重装会重新生成（等于重新抽签，可以接受）。
-     */
-    val rolloutId: String
-        // 各处都是现场 new 的 CredentialStore，锁实例没用，锁类。
-        get() = synchronized(CredentialStore::class.java) {
-            appPrefs.getString(KEY_ROLLOUT_ID, null) ?: java.util.UUID.randomUUID().toString()
-                .also { appPrefs.edit().putString(KEY_ROLLOUT_ID, it).commit() }
-        }
 
     var accountType: AccountType
         get() = AccountType.fromKey(appPrefs.getString(KEY_ACCOUNT_TYPE, AccountType.UNDERGRADUATE.key))
@@ -261,7 +253,6 @@ class CredentialStore(context: Context) {
         private const val KEY_UPDATE_CHANNEL = "update_channel"
         private const val KEY_UPDATE_CHANNEL_MIGRATED = "update_channel_migrated"
         private const val KEY_RECEIVE_PREVIEW = "receive_preview_updates"
-        private const val KEY_ROLLOUT_ID = "rollout_id"
         private const val KEY_LAST_RUN_VERSION = "last_run_version"
         private const val KEY_LAST_AUTO_UPDATE_CHECK_AT = "last_auto_update_check_at"
         private const val KEY_ACCOUNT_TYPE = "account_type"

@@ -488,7 +488,6 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
                         AppUpdater.check(
                             channel = updateChannel,
                             includePreview = receivePreviewUpdates,
-                            rolloutId = credentialStore.rolloutId,
                         )
                     }
                     checkingUpdate = false

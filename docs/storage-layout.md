@@ -170,7 +170,7 @@
 
 | # | store 名 | 账号后缀 | Android 文件 / 桌面文件 / web 键前缀 | 已核对的键 | 核对 |
 |---|---|---|---|---|---|
-| 1 | `app_settings` | 无 | `app_settings.xml` / `app_settings.properties` / `xjtu-toolbox.app_settings.*` | `nav_bar_style` `dark_mode` `dynamic_color` `default_tab` `network_mode` `home_theme` `show_quick_actions` `venue_auto_solve_captcha` `schedule_attendance_badge` `schedule_source`（`SettingsStore.kt` companion）+ `eula_accepted_version` `update_channel` `receive_preview_updates` `rollout_id` `last_run_version` `last_auto_update_check_at` `account_type` `empty_room_cdn_tip` `recent_site_keys` `site_usage` `update_notice_<ver>` `last_seen_changelog_version` `cached_nickname`（`:app` `CredentialStore.kt` companion；`cached_nickname` 由 2026-10-14 批②工单拆分补记，见 `docs/storage-layout-plan.md` §7 的裁定 R7） | 全 |
+| 1 | `app_settings` | 无 | `app_settings.xml` / `app_settings.properties` / `xjtu-toolbox.app_settings.*` | `nav_bar_style` `dark_mode` `dynamic_color` `default_tab` `network_mode` `home_theme` `show_quick_actions` `venue_auto_solve_captcha` `schedule_attendance_badge` `schedule_source`（`SettingsStore.kt` companion）+ `eula_accepted_version` `update_channel` `receive_preview_updates` `last_run_version` `last_auto_update_check_at` `account_type` `empty_room_cdn_tip` `recent_site_keys` `site_usage` `update_notice_<ver>` `last_seen_changelog_version` `cached_nickname`（`:app` `CredentialStore.kt` companion；`cached_nickname` 由 2026-10-14 批②工单拆分补记，见 `docs/storage-layout-plan.md` §7 的裁定 R7） | 全 |
 | 2 | `xjtu_credentials` | 无 | 密文 xml / `xjtu_credentials.properties`（Windows 下值 = `xjtu-sealed:1:dpapi:…`）/ **web 无** | `username` `password` `fp_visitor_id` `rsa_public_key` `rsa_key_time` `account_type` | 全 |
 | 3 | `xjtu_accounts` | 无 | 密文 xml / `xjtu_accounts.properties` / **web 无** | `accounts` `active_account` `migration_done` | 全 |
 | 4 | `xjtu_cookies` | 无 | 密文 xml / `.properties` | `all_cookies` | 全（迁移残留池） |
@@ -242,7 +242,7 @@
 
 ### 3.4 `app_settings` 的双写者（这是最容易漏的一条）
 
-`:core` 的 `SettingsStore` 只读写 10 个设置键，但**同一个文件**还被 `:app` 的 `CredentialStore` 写 12 个非设置键（更新渠道 / 灰度 ID / 站点使用记录 / EULA 版本……），其 KDoc 明写「两个对象写同一个文件是安全的」（`SettingsStore.kt` 的类 KDoc；Android 侧 `getSharedPreferences` 按名字返回同一实例；`:app` 侧 `CredentialStore.kt:59,111-113`）。**档案导出 `app_settings` 必须是全体键**，否则跨端一拷就丢 `rollout_id` / `update_channel` / `site_usage`。
+`:core` 的 `SettingsStore` 只读写 10 个设置键，但**同一个文件**还被 `:app` 的 `CredentialStore` 写 12 个非设置键（更新渠道 / 站点使用记录 / EULA 版本……），其 KDoc 明写「两个对象写同一个文件是安全的」（`SettingsStore.kt` 的类 KDoc；Android 侧 `getSharedPreferences` 按名字返回同一实例；`:app` 侧 `CredentialStore.kt:59,111-113`）。**档案导出 `app_settings` 必须是全体键**，否则跨端一拷就丢 `update_channel` / `site_usage` 等键。
 
 ### 3.5 已发现的四处「同名不同形状」分歧（必须写进真源）
 

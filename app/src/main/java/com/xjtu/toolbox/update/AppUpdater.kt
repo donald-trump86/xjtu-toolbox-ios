@@ -57,7 +57,6 @@ data class UpdateManifest(
     val notes: String = "",
     val releaseUrl: String = "",
     val publishedAt: String = "",
-    val rollout: Int = 100,
 )
 
 object AppUpdater {
@@ -127,34 +126,31 @@ object AppUpdater {
     suspend fun fetchLatest(
         channel: String,
         includePreview: Boolean = false,
-        rolloutId: String = "",
     ): AppUpdateInfo = withContext(Dispatchers.IO) {
         when (val normalized = normalizeChannel(channel)) {
             CHANNEL_ALIYUN -> {
-                fetchAliyunLatest(includePreview, rolloutId)
+                fetchAliyunLatest(includePreview)
                     ?: if (includePreview) {
                         // 预览版只有 GitHub Pre-release 有兜底；不能先退 Gitee 的稳定版。
-                        runCatching { fetchGithubLatest(true, rolloutId) }.getOrNull()
+                        runCatching { fetchGithubLatest(true) }.getOrNull()
                             ?: runCatching { fetchGiteeLatest() }.getOrNull()
                     } else {
                         // 正式版优先 Gitee（国内更稳），再退 GitHub。
                         runCatching { fetchGiteeLatest() }.getOrNull()
-                            ?: fetchGithubLatest(false, rolloutId)
+                            ?: fetchGithubLatest(false)
                     }
                     ?: error("检查更新失败")
             }
-            CHANNEL_GITHUB -> fetchGithubLatest(includePreview, rolloutId)
+            CHANNEL_GITHUB -> fetchGithubLatest(includePreview)
             else -> fetchGiteeLatest()
         }
     }
 
-    /** OSS 清单不可用/字段非法/灰度未命中时返回 null，交给 Gitee/GitHub 兜底。 */
-    private fun fetchAliyunLatest(includePreview: Boolean, rolloutId: String): AppUpdateInfo? {
+    /** OSS 清单不可用或字段非法时返回 null，交给 Gitee/GitHub 兜底。 */
+    private fun fetchAliyunLatest(includePreview: Boolean): AppUpdateInfo? {
         val stable = fetchOssManifest("$OSS_BASE_URL/stable.json")
-            ?.takeIf { isRolloutHit(rolloutId, it.versionName, it.rollout) }
         val preview = if (includePreview) {
             fetchOssManifest("$OSS_BASE_URL/preview.json")
-                ?.takeIf { isRolloutHit(rolloutId, it.versionName, it.rollout) }
         } else {
             null
         }
@@ -214,18 +210,16 @@ object AppUpdater {
         require(manifest.versionName.isNotBlank()) { "versionName missing" }
         require(manifest.apkUrl.startsWith("https://")) { "apkUrl must be https" }
         require(manifest.sha256.matches(SHA256_REGEX)) { "sha256 invalid" }
-        require(manifest.rollout in 0..100) { "rollout invalid" }
         manifest
     }.getOrNull()
 
     private suspend fun fetchGithubLatest(
         includePreview: Boolean,
-        rolloutId: String,
     ): AppUpdateInfo {
         if (includePreview) {
             val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=30"
             val array = AppJson.parseToJsonElement(fetchText(url)).jsonArray
-            pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true, rolloutId = rolloutId)
+            pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true)
                 ?.let { return it }
         }
         return fetchRelease(CHANNEL_GITHUB).info
@@ -264,9 +258,8 @@ object AppUpdater {
     suspend fun check(
         channel: String,
         includePreview: Boolean = false,
-        rolloutId: String = "",
     ): AppUpdateInfo? {
-        val latest = fetchLatest(channel, includePreview, rolloutId)
+        val latest = fetchLatest(channel, includePreview)
         return latest.takeIf {
             isNewerUpdate(BuildConfig.VERSION_NAME, it)
         }
@@ -280,32 +273,10 @@ object AppUpdater {
             current.removePrefix("v") == candidate.version.removePrefix("v").substringBefore('-')
     }
 
-    private val ROLLOUT_REGEX = Regex("""(?im)^\s*rollout\s*:\s*(\d{1,3})\s*%?\s*$""")
-
-    fun extractRolloutPercentage(body: String): Int {
-        val match = ROLLOUT_REGEX.find(body) ?: return 100
-        val p = match.groupValues[1].toIntOrNull() ?: 100
-        return p.coerceIn(0, 100)
-    }
-
-    fun isRolloutHit(rolloutId: String, tag: String, rolloutPct: Int): Boolean {
-        if (rolloutPct <= 0) return false
-        if (rolloutPct >= 100) return true
-        val md = MessageDigest.getInstance("SHA-256")
-        val hash = md.digest("$rolloutId:$tag".toByteArray(Charsets.UTF_8))
-        val raw = ((hash[0].toLong() and 0xFFL) shl 24) or
-                ((hash[1].toLong() and 0xFFL) shl 16) or
-                ((hash[2].toLong() and 0xFFL) shl 8) or
-                (hash[3].toLong() and 0xFFL)
-        val bucket = (raw % 100L).toInt()
-        return bucket < rolloutPct
-    }
-
     fun pickRelease(
         releases: JsonArray,
         currentVersion: String,
         includePreview: Boolean = false,
-        rolloutId: String = "",
     ): AppUpdateInfo? {
         val candidates = mutableListOf<AppUpdateInfo>()
         for (el in releases) {
@@ -343,12 +314,6 @@ object AppUpdater {
                 // 预览版版本号从 name 取（CI 约定 name 为完整版本号，如 4.9.8-dev.12）
                 if (name.isBlank()) continue
                 version = name
-
-                // 灰度判定
-                val rolloutPct = extractRolloutPercentage(body)
-                if (!isRolloutHit(rolloutId, tagName, rolloutPct)) {
-                    continue
-                }
             } else {
                 // 正式版
                 val ver = tagName.removePrefix("v").trim()
