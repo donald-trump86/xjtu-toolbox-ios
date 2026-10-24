@@ -567,6 +567,19 @@ jobs:
               echo "delete $t"; gh release delete "$t" --yes --cleanup-tag || true
             done
 
+      - name: Prune old OSS previews
+        # 预览 APK 是按版本号分目录的独立 key，生命周期规则（只管同一 key 的历史版本）
+        # 清不到它们。这里与上一步 GitHub 的保留数对齐，只保留最近 5 个版本目录，
+        # 其余连同历史版本与删除标记一起删；失败不阻塞发布（发布本身已经成功）。
+        if: env.PUBLISH_PREVIEW == 'true' && steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: python3 .github/scripts/oss_prune_previews.py --keep 5
+
       - name: Fail if OSS stable publish failed
         if: github.ref == 'refs/heads/main' && steps.oss_publish.outcome != 'success'
         run: |

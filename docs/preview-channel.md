@@ -31,7 +31,7 @@
    - 如果本次改动暂不发预览，在本次推送的 head commit（通过 PR 合并时写在 PR 标题）加入 `[skip preview]`。CI 只跑校验、测试与 release 收缩检查，不构建、不发布预览包；改动会在下一次发布预览时一并进入 beta。详见 [DEVELOP.md](../DEVELOP.md) §1.6。
    - 只想补发当前 `dev` 上累积的改动时，可在 Actions 中手动运行 `Build & Release`，选择 `dev` 并勾选 `publish_preview`。
    - 预览版全量推送，不设灰度比例。
-   - CI 会自动清理并仅保留最近 5 个预览版 Pre-release。
+   - CI 会自动清理：GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个版本；OSS 的历史版本与删除标记由 bucket 生命周期策略兜底清理。
 
 ---
 
