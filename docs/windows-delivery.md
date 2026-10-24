@@ -67,7 +67,7 @@ WiX（`candle.exe` / `light.exe`）。Compose Desktop 会**自己下载**一份 
 | `copyright` 落到哪 | 安装器与控制面板的「版权」栏 | 包里的 `share/doc/copyright`（`License: Unknown` 是 jpackage 按 `licenseType` 默认值填的） | 平台差异（同一个值） |
 | `licenseFile` / EULA | **没设** | **没设**（所以 Linux 那份 `copyright` 里是 `License: Unknown`） | ✅ 两边都缺（同一个 TODO：本节 §9 第 2 条 / `linux-delivery.md` §7 第 12 条） |
 | 数据目录 | `~/.local/share/xjtu-toolbox`（XDG 口径，见 §9 第 6 条） | 同一个 | ✅ |
-| 出包 CI | `.github/workflows/desktop-windows.yml`（windows-latest） | `.github/workflows/desktop-linux.yml`（ubuntu-latest） | 两条独立、路径过滤重叠 |
+| 出包 CI | `.github/workflows/desktop-windows.yml`（windows-latest） | `.github/workflows/desktop-linux.yml`（ubuntu-latest） | 两条独立；Windows 只看平台专属面 |
 
 标「平台差异」的都是**必须**不一样的（安装范围、认产品的方式、签名链）；真正不一致的只有 `iconFile`
 那一格 —— 不是配置写错了（两边的 `iconFile` 都指对了文件名），差的是 `windows.ico` 里那张**图本身**。
@@ -77,7 +77,7 @@ WiX（`candle.exe` / `light.exe`）。Compose Desktop 会**自己下载**一份 
 | 步骤 | 内容 |
 |---|---|
 | 卡死护栏 | job 级 `timeout-minutes: 60`（与 `desktop-linux.yml` 同一个数字；⚠️ 没在 CI 上量过） |
-| 触发 | `pull_request`（路径过滤：`desktop/**` `data/**` `core/**` `gradle/**` `gradlew*` `settings.gradle.kts` 与本文件）+ `workflow_dispatch`；`concurrency` 去重 |
+| 触发 | `pull_request`（路径过滤：`desktop/**` `data/**` `shared/data/**` `build-logic/**` `gradle/**` `gradlew` `gradlew.bat` `settings.gradle.kts` 与本文件）+ `workflow_dispatch`；`concurrency` 去重。`core/**`、`shared/**`（除 data）、`feature/**` 不触发 —— 它们编出的 JVM 字节码与平台无关，由 `core-gate.yml` + `desktop-linux.yml` 覆盖 |
 | 环境 | `windows-latest` · `actions/setup-java@v4`（temurin 21，与 `jvmToolchain(21)` / Kotlin 2.4.20 对齐）· `gradle/actions/setup-gradle@v4` |
 | 哨兵 | 一条检查 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 的步骤：我们只编 `:desktop`，但 Gradle 会配置整个构建（含 `:app` 的 AGP），缺 SDK 时**响亮地**失败在这一步 |
 | 编译 | `.\gradlew.bat :desktop:compileKotlin` |

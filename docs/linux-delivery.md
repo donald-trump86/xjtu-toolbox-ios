@@ -403,7 +403,7 @@ Icon=/opt/xjtu-toolbox/lib/xjtu-toolbox.png
 `timeout-minutes`）里，图标自证那一步的**脚本本体**在本机真跑过（拿真 `.deb` 试了正反两向），但
 「在 GitHub 的 runner 上跑」仍是未验证。
 
-**与 `desktop-windows.yml` 的关系**：两条独立、互不引用、路径过滤重叠（`desktop/**` 一起动时两条都跑）。
+**与 `desktop-windows.yml` 的关系**：两条独立、互不引用、路径过滤部分重叠（`desktop/**`、`data/**` 一起动时两条都跑；Windows 那条只覆盖平台专属面）。
 上一轮 Windows 那份一个字没动；**这一轮两条都动了**，而且是**对称**的：都加了 job 级
 `timeout-minutes: 60`，各自多了一步「自己那个图标」的自证（Linux 比包里的 png、Windows 比
 `windows.ico` 的 ICO 头与 256×256 那张），而 JDK / 缓存 / task 名 / `if-no-files-found` 四项两份逐字一致
