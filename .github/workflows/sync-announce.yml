@@ -48,8 +48,26 @@ jobs:
           bucket.put_object_from_file("xjtu-toolbox/bulletin.json", "bulletin.json")
           print("bulletin uploaded")
           PY
-          curl -fsS --max-time 30 "$OSS_PUBLIC_BASE/bulletin.json" -o /tmp/bulletin-remote.json
-          python3 -c "import json; json.load(open('/tmp/bulletin-remote.json', encoding='utf-8')); print('bulletin ok')"
+          python3 - <<'PY'
+          import json
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          local = json.load(open("bulletin.json", encoding="utf-8"))
+          remote = json.loads(bucket.get_object("xjtu-toolbox/bulletin.json").read())
+          assert local == remote, "bulletin mismatch"
+          print("bulletin OSS ok")
+          PY
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/bulletin.json" >/dev/null \
+            || echo "::warning::public CDN bulletin check timed out; OSS object is verified"
 
       - name: Push announce to Gitee
         continue-on-error: true

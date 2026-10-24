@@ -227,20 +227,33 @@ jobs:
           python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/stable.json"
           python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/history/stable-$VERSION.json"
 
-          echo "Verifying public manifest and APK"
-          curl -fsS --max-time 30 "$OSS_PUBLIC_BASE/stable.json" -o /tmp/stable-remote.json
+          echo "Verifying OSS manifest and APK via SDK"
           python3 - <<'PY'
           import json
           import os
+          import oss2
 
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          version = os.environ["VERSION"]
           local = json.load(open("/tmp/stable.json", encoding="utf-8"))
-          remote = json.load(open("/tmp/stable-remote.json", encoding="utf-8"))
-          assert remote["versionName"] == os.environ["VERSION"], remote
+          remote = json.loads(bucket.get_object("xjtu-toolbox/stable.json").read())
+          assert remote["versionName"] == version, remote
           assert remote["sha256"] == local["sha256"], remote
           assert len(remote["sha256"]) == 64, remote
-          print("manifest ok:", remote["versionName"], remote["sha256"])
+          head = bucket.head_object(f"xjtu-toolbox/apk/{version}/app-release.apk")
+          assert head.content_length == local["size"], (head.content_length, local["size"])
+          print("manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
-          curl -fsSI --max-time 30 "$OSS_PUBLIC_BASE/apk/$VERSION/app-release.apk" >/dev/null
+          # 公共 CDN 只做抽样；GitHub runner 跨境访问偶发超时不应阻断发布。
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/stable.json" >/dev/null \
+            || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
           echo "OSS primary publish verified"
 
       - name: Delete existing tag (if any)
@@ -480,20 +493,32 @@ jobs:
           echo "Uploading manifest last: preview.json"
           python3 .github/scripts/oss_upload.py /tmp/preview.json "xjtu-toolbox/preview.json"
 
-          echo "Verifying public preview manifest and APK"
-          curl -fsS --max-time 30 "$OSS_PUBLIC_BASE/preview.json" -o /tmp/preview-remote.json
+          echo "Verifying OSS preview manifest and APK via SDK"
           python3 - <<'PY'
           import json
           import os
+          import oss2
 
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          version = os.environ["VERSION"]
           local = json.load(open("/tmp/preview.json", encoding="utf-8"))
-          remote = json.load(open("/tmp/preview-remote.json", encoding="utf-8"))
-          assert remote["versionName"] == os.environ["VERSION"], remote
+          remote = json.loads(bucket.get_object("xjtu-toolbox/preview.json").read())
+          assert remote["versionName"] == version, remote
           assert remote["sha256"] == local["sha256"], remote
           assert len(remote["sha256"]) == 64, remote
-          print("preview manifest ok:", remote["versionName"], remote["sha256"])
+          head = bucket.head_object(f"xjtu-toolbox/apk/preview/{version}/app-preview.apk")
+          assert head.content_length == local["size"], (head.content_length, local["size"])
+          print("preview manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
-          curl -fsSI --max-time 30 "$OSS_PUBLIC_BASE/apk/preview/$VERSION/app-preview.apk" >/dev/null
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/preview.json" >/dev/null \
+            || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
           echo "OSS preview publish verified"
 
       - name: Create GitHub Pre-release
