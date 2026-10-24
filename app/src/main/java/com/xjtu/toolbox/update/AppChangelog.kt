@@ -39,6 +39,7 @@ object AppChangelog {
                 "☁️" to "更新分发新增阿里云渠道，下载更快更稳；在设置里可以切换回 GitHub 或 Gitee",
                 "🔁" to "下载失败会自动尝试备用源，安装包继续做 SHA-256 校验",
                 "📢" to "公告和强制更新配置迁到阿里云，加载更稳定",
+                "📦" to "安装包缩小约 4MB",
             )
         ),
         "5.2.1" to VersionChangelog(

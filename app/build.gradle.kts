@@ -175,6 +175,8 @@ android {
         // 存储；运行时跑的是 AOT/JIT 产物，启动速度不受影响（同机交替 A/B 各 18 次冷启动，
         // 压缩 ~335ms vs 不压缩 ~332ms，差异在噪声内）。
         dex { useLegacyPackaging = true }
+        // pdfbox-android 传递引入的 BouncyCastle 带约 4MB 后量子算法参数表（R8 不管 Java 资源），PDF 用不到
+        resources { excludes += "org/bouncycastle/**" }
     }
 }
 
