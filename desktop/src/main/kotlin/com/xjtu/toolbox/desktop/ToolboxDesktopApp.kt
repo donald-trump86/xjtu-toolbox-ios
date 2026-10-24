@@ -804,6 +804,8 @@ private fun DesktopPage(
             scanner = null,
         )
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
+        // 资料站（zyxf）没有桌面端实现：显式给一条分支，不依赖 else。
+        AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(route, onNavigate)
