@@ -90,6 +90,7 @@
 | `app/build.gradle.kts` 的 `defaultConfig.versionCode` | 按发布节奏递增；发布前确认不低于线上任何可覆盖版本。 |
 | `desktop/build.gradle.kts` 的 `desktopPackageVersion` | 必须与 `app` 的 `versionName` 逐字相同，且只能是 `x.y.z`（jpackage 限制）。`DesktopPackageVersionJvmTest` 会校验。 |
 | `app/src/main/java/com/xjtu/toolbox/update/AppChangelog.kt` | 在 `ENTRIES` 顶部为核心版本 `X.Y.Z` 增加条目。beta 与正式版共用该条目；匹配逻辑会忽略 `-beta.N` 后缀。 |
+| `README.md` 的版本徽章 | 发版后如有必要更新。 |
 | CI 与发布脚本 | 不得硬编码版本号；必须从 `app/build.gradle.kts` 读取核心版本号，并据此生成 beta 后缀、tag 与更新清单。 |
 
 发版前应当检查仓库中是否还有遗漏的版本字面量：
@@ -187,6 +188,8 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 | `feat/*`、`fix/*`、`chore/*` 等 | 功能与修复分支 | 通过 PR 合回 `dev` |
 
 - 功能与修复分支从 `dev` 拉出，默认合回 `dev`；只有发版时才把 `dev` 合入 `main`。
+- 推送到 `main` 后，CI 用签名密钥构建 Release APK，并按 `versionName` 创建或更新对应的 GitHub / Gitee Release；Release 说明由 `AppChangelog.kt` 自动生成，其中 `issues` 字段写发版时仍存在的问题。
+- 校园系统临时故障或维护公告：对 `announce` 分支的 `bulletin.json` 提 PR，或开一个「校园系统状态」Issue。
 - 预览版的发与不发由 head commit 的 `[skip preview]` 或手动触发时的 `publish_preview` 输入决定；不要通过删除或修改已有 Release 来模拟跳过。
 - 不得直接向 `main` 推送日常开发提交；紧急热修复也应当通过分支与 PR 完成。
 - 不得手动创建或删除 CI 生成的 Release/tag，不得修改其版本号或安装包附件；发布记录的止血操作按预览渠道文档执行。
