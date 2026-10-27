@@ -43,6 +43,13 @@ interface AgentChatSession {
     /** 切到某个会话（实现方负责「切走就取消本轮、防串台」）。 */
     fun switchSession(id: String)
 
+    /** 从落盘重读并切到某个会话（后台往里追加过消息时用）。正在生成时不打断，返回 false。 */
+    fun reloadSession(id: String): Boolean {
+        if (isLoading) return false
+        switchSession(id)
+        return currentSessionId == id
+    }
+
     /** 删掉某个会话（幂等）。 */
     fun deleteSession(id: String)
 
