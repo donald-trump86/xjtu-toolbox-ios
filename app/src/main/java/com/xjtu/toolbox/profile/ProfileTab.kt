@@ -427,6 +427,7 @@ private fun ProfileHeroCard(
                             .align(Alignment.BottomEnd)
                             .size(24.dp)
                             .clip(CircleShape)
+                            .clickable(onClick = onAvatarClick)
                             .background(AppCardColor)
                             .padding(2.dp)
                             .clip(CircleShape)
@@ -679,8 +680,8 @@ internal fun ProfileTab(
         OverlayDialog(
             show = true,
             title = "更换头像",
-            summary = if (hasCustomAvatar) "可重新选择，或恢复为证件照。"
-                      else "默认使用学工系统证件照，可换成自己的图片。",
+            summary = if (hasCustomAvatar) "只保存在本机，不会修改学校系统里的照片。可重新选择，或恢复为证件照。"
+                      else "默认使用学工系统证件照。换成自己的图片只在本机生效，不会修改学校系统里的照片。",
             onDismissRequest = { if (!avatarSaving) showAvatarSheet = false }
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
