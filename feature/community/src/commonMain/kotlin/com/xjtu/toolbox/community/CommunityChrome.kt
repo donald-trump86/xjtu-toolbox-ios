@@ -63,6 +63,8 @@ import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
 import com.mikepenz.markdown.model.DefaultMarkdownColors
 import com.mikepenz.markdown.model.DefaultMarkdownTypography
 import com.mikepenz.markdown.model.markdownAlertColors
+import com.mikepenz.markdown.model.markdownAnnotator
+import com.mikepenz.markdown.model.markdownAnnotatorConfig
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
@@ -191,6 +193,8 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
         table = text,
         alertTitle = text.copy(fontWeight = FontWeight.Bold),
     )
+    // 段内单个换行按硬换行显示，与 GitHub 评论一致（#214）；代码块不经此路径
+    val annotator = remember { markdownAnnotator(config = markdownAnnotatorConfig(eolAsNewLine = true)) }
     val linked = remember(markdown) { linkMentions(markdown) }
     // 引用垫一层浅底圆角，和正文分得开；内容仍是标准的「> 」引用，只是这边画得像卡片
     val quoteBackground = colors.onSurface.copy(alpha = 0.05f)
@@ -204,14 +208,14 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
     // 独占一行的图片拆出来自己画：渲染库把图片当行内元素，尺寸一变整段重排，图多时界面连跳好几下
     val parts = remember(linked) { splitBlockImages(linked) }
     if (parts.size == 1 && parts[0] is PostPart.Text) {
-        Markdown(linked, markdownColors, typography, modifier, components = components, imageTransformer = Coil3ImageTransformerImpl)
+        Markdown(linked, markdownColors, typography, modifier, components = components, imageTransformer = Coil3ImageTransformerImpl, annotator = annotator)
         return
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         parts.forEach { part ->
             when (part) {
                 is PostPart.Text -> Markdown(part.markdown, markdownColors, typography, Modifier.fillMaxWidth(),
-                    components = components, imageTransformer = Coil3ImageTransformerImpl)
+                    components = components, imageTransformer = Coil3ImageTransformerImpl, annotator = annotator)
                 is PostPart.Image -> PostImage(part)
             }
         }
