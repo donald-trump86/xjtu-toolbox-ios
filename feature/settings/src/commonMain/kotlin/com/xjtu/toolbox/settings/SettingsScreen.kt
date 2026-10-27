@@ -123,6 +123,12 @@ fun SettingsScreen(
     var venueAutoSolveCaptcha by remember { mutableStateOf(store.venueAutoSolveCaptchaEnabled) }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
+    var showCredits by rememberSaveable { mutableStateOf(false) }
+    if (showCredits) {
+        BackHandler { showCredits = false }
+        CreditsScreen(host = host, onBack = { showCredits = false })
+        return
+    }
     if (showThemeColor) {
         ThemeColorDialog(
             initialHex = customColorHex,
@@ -420,57 +426,15 @@ fun SettingsScreen(
                     onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
                 )
                 ArrowPreference(
+                    title = CREDITS_TITLE,
+                    summary = "贡献者、上游项目与许可证",
+                    startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
+                    onClick = { showCredits = true }
+                )
+                ArrowPreference(
                     title = "用户协议与隐私政策",
                     startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
                     onClick = { showEula = true }
-                )
-            }
-        }
-
-        val creditsGroup: @Composable () -> Unit = {
-            // ── 致谢 ──
-            SmallTitle("致谢")
-            SettingsCard {
-                ArrowPreference(
-                    title = "XJTUToolBox by yan-xiaoo",
-                    summary = "开源社区项目",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
-                )
-            }
-            // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
-            // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
-            SmallTitle("小游戏的上游项目")
-            SettingsCard {
-                ArrowPreference(
-                    title = "suika-game by moonfloof",
-                    summary = "「合成西交大」的玩法与实现基础 · Unlicense",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/moonfloof/suika-game") }
-                )
-                ArrowPreference(
-                    title = "Matter.js by liabru",
-                    summary = "「合成西交大」的物理引擎 · MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/liabru/matter-js") }
-                )
-                ArrowPreference(
-                    title = "chinese-chess-fish-android by zfdang",
-                    summary = "象棋规则引擎 · MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/zfdang/chinese-chess-fish-android") }
-                )
-                ArrowPreference(
-                    title = "Etoile by JoyinJoester",
-                    summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/JoyinJoester/Etoile") }
-                )
-                ArrowPreference(
-                    title = "blackstone by haslam22",
-                    summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/haslam22/blackstone") }
                 )
             }
         }
@@ -496,7 +460,6 @@ fun SettingsScreen(
                 add(SettingsGroup("更新", Icons.Default.Star, cGreen, it))
             }
             add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
-            add(SettingsGroup("致谢", Icons.Default.Star, cPurple, creditsGroup))
         }
 
         // 宽屏：左栏组名列表 + 右栏选中组。选中项 rememberSaveable，跨旋转不丢。
@@ -658,6 +621,117 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
         ) {
             com.xjtu.toolbox.legal.Eula.Body()
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+private const val CREDITS_TITLE = "致谢与开源许可"
+
+/** 致谢二级页：贡献者、许可证与上游项目。 */
+@Composable
+private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
+    val cBlue = Color(0xFF42A5F5)
+    val cPurple = Color(0xFF7E57C2)
+    val cLime = Color(0xFF9CCC65)
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val glass = rememberPageGlass()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = CREDITS_TITLE,
+                largeTitle = CREDITS_TITLE,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
+                scrollBehavior = scrollBehavior,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .glassSource(glass)
+                .background(MiuixTheme.colorScheme.surface)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .padding(padding.withoutTop(glass))
+        ) {
+            Spacer(Modifier.height(padding.glassTop(glass)))
+            SmallTitle("贡献者")
+            SettingsCard {
+                ArrowPreference(
+                    title = "项目贡献者",
+                    summary = "GitHub 上的贡献者列表",
+                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/graphs/contributors") }
+                )
+            }
+            SmallTitle("许可证")
+            SettingsCard {
+                ArrowPreference(
+                    title = "岱宗盒子",
+                    summary = "GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/LICENSE") }
+                )
+                ArrowPreference(
+                    title = "第三方声明",
+                    summary = "上游项目的改动说明与许可证全文",
+                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/THIRD_PARTY_NOTICES.md") }
+                )
+            }
+            SmallTitle("致谢")
+            SettingsCard {
+                ArrowPreference(
+                    title = "XJTUToolBox by yan-xiaoo",
+                    summary = "开源社区项目",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
+                )
+            }
+            // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
+            // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
+            SmallTitle("小游戏的上游项目")
+            SettingsCard {
+                ArrowPreference(
+                    title = "suika-game by moonfloof",
+                    summary = "「合成西交大」的玩法与实现基础 · Unlicense",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/moonfloof/suika-game") }
+                )
+                ArrowPreference(
+                    title = "Matter.js by liabru",
+                    summary = "「合成西交大」的物理引擎 · MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/liabru/matter-js") }
+                )
+                ArrowPreference(
+                    title = "chinese-chess-fish-android by zfdang",
+                    summary = "象棋规则引擎 · MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/zfdang/chinese-chess-fish-android") }
+                )
+                ArrowPreference(
+                    title = "Etoile by JoyinJoester",
+                    summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/JoyinJoester/Etoile") }
+                )
+                ArrowPreference(
+                    title = "blackstone by haslam22",
+                    summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/haslam22/blackstone") }
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }
