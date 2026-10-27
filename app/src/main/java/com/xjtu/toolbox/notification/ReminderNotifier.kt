@@ -94,17 +94,19 @@ internal object ReminderNotifier {
         route = AppRoute.Inbox,
     )
 
-    /** 屁岱的简报或定时任务结果。[key] 区分是哪一份（早报 / 晚报 / 某个任务），同一份覆盖不堆叠。 */
-    fun notifyPidai(context: Context, key: String, title: String, text: String): Boolean = post(
+    /** 屁岱的简报或定时任务结果。[key] 区分是哪一份，同一份覆盖不堆叠；[pushAt] 非空时点开定位到「推送记录」里那条（#194）。 */
+    fun notifyPidai(context: Context, key: String, title: String, text: String, pushAt: Long? = null): Boolean = post(
         context = context,
         id = ("pidai:$key").hashCode(),
-        requestCode = RequestCodes.REMINDER_PIDAI,
+        // 与通知 id 一致：每份推送各带各的定位 extras，点旧通知不会跳到最新那条
+        requestCode = ("pidai:$key").hashCode(),
         channel = AppNotificationChannels.CHANNEL_APP,
         icon = R.drawable.ic_notification_notice,
         title = title,
         text = text,
-        route = AppRoute.Inbox,
+        route = if (pushAt != null) AppRoute.Agent else AppRoute.Inbox,
         style = androidx.core.app.NotificationCompat.BigTextStyle().bigText(text),
+        extras = pushAt?.let { mapOf(com.xjtu.toolbox.agent.AgentPushFocus.EXTRA_PUSH_AT to it) }.orEmpty(),
     )
 
     fun notifyExam(context: Context, courseName: String, label: String, detail: String): Boolean = post(
@@ -164,10 +166,12 @@ internal object ReminderNotifier {
         route: AppRoute,
         style: NotificationCompat.Style? = null,
         actions: List<NotificationCompat.Action> = emptyList(),
+        extras: Map<String, Long> = emptyMap(),
     ): Boolean {
         if (!canPost(context)) return false
         val launch = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, route.id)
+            extras.forEach { (k, v) -> putExtra(k, v) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(

@@ -36,6 +36,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -124,6 +126,19 @@ fun AgentScreen(
             return@LaunchedEffect
         }
         vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot, images = pending.images)
+    }
+
+    // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）
+    // 正开着这个会话时后台追加了推送也重读；生成中不读，结束写盘时会并回推送并重读
+    LaunchedEffect(host.accountId, AgentPushFocus.generation, AgentPushFocus.appended) {
+        val at = AgentPushFocus.pending
+        if (at == null && (vm.currentSessionId != AgentPushFocus.SESSION_ID || vm.isLoading)) return@LaunchedEffect
+        // 兜底：生成卡住时也别一直挂着，超时照样重读
+        withTimeoutOrNull(60_000L) { snapshotFlow { vm.isLoading }.first { !it } }
+        if (!vm.reloadSession(AgentPushFocus.SESSION_ID) || at == null) return@LaunchedEffect
+        AgentPushFocus.consume()
+        showConfig = false
+        AgentPushFocus.highlight = at
     }
 
     // 上下文耗尽主动弹窗：避免"输入框禁用 + label 文字里藏一句"的隐晦提示

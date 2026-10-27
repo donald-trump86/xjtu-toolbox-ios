@@ -133,6 +133,8 @@ class MainActivity : ComponentActivity() {
                 ?.let { listOf("notice:$it") }.orEmpty()
             com.xjtu.toolbox.inbox.InboxStore.acknowledge(ids, com.xjtu.toolbox.inbox.InboxCategories.ofRoute(route))
         }
+        extras?.getLongExtra(com.xjtu.toolbox.agent.AgentPushFocus.EXTRA_PUSH_AT, 0L)?.takeIf { it > 0 }
+            ?.let(com.xjtu.toolbox.agent.AgentPushFocus::set)
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
         if (deepLink?.imageUris?.isNotEmpty() == true) importSharedImages(deepLink)
