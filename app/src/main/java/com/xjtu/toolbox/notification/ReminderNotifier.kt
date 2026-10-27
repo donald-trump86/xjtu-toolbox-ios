@@ -28,20 +28,48 @@ internal object ReminderNotifier {
 
     fun canPost(context: Context): Boolean = NoticeNotifier.canPost(context)
 
-    /** @return 是否真的发出去了。发不出去时调用方该退回应用内提示。 */
-    fun notifyLibrary(context: Context, action: String, seat: String?): Boolean = post(
+    /** @param status 替换正文，回显按钮签到的进度或结果。
+     *  @param withAction 是否带「签到」按钮（#204）。 */
+    fun notifyLibrary(
+        context: Context,
+        action: String,
+        seat: String?,
+        status: String? = null,
+        withAction: Boolean = true,
+    ): Boolean = post(
         context = context,
         id = ID_LIBRARY,
         requestCode = RequestCodes.REMINDER_LIBRARY,
         channel = AppNotificationChannels.CHANNEL_REMINDER,
         icon = R.drawable.ic_notification_seat,
         title = "图书馆座位要$action",
-        text = buildString {
+        text = status ?: buildString {
             seat?.takeIf { it.isNotBlank() }?.let { append("座位 $it · ") }
             append(if (action == "入馆签到") "超时没签到今天就不能再线上预约了" else "还没返座，记得回去签一下")
         },
         route = AppRoute.Library,
+        actions = if (withAction) listOf(librarySignAction(context, action)) else emptyList(),
     )
+
+    /** 撤掉图书馆提醒（#203）。 */
+    fun cancelLibrary(context: Context) {
+        NotificationManagerCompat.from(context).cancel(ID_LIBRARY)
+    }
+
+    private fun librarySignAction(context: Context, action: String): NotificationCompat.Action {
+        val intent = Intent(context, LibraryActionReceiver::class.java).apply {
+            this.action = LibraryActionReceiver.INTENT_ACTION
+            putExtra(LibraryReminderWorker.KEY_ACTION, action)
+        }
+        val pending = PendingIntent.getBroadcast(
+            context,
+            RequestCodes.REMINDER_LIBRARY_ACTION,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val label = if (action == LibraryReminderWorker.ACTION_RETURN) "返座签到" else "签到"
+        return NotificationCompat.Action.Builder(0, label, pending).build()
+    }
 
     fun notifyScheduleChange(context: Context, summary: String): Boolean = post(
         context = context,
@@ -135,6 +163,7 @@ internal object ReminderNotifier {
         text: String,
         route: AppRoute,
         style: NotificationCompat.Style? = null,
+        actions: List<NotificationCompat.Action> = emptyList(),
     ): Boolean {
         if (!canPost(context)) return false
         val launch = Intent(context, MainActivity::class.java).apply {
@@ -155,6 +184,7 @@ internal object ReminderNotifier {
             // 同一件事复查多轮时只响第一次，后面几轮静默更新，不反复打扰。
             .setOnlyAlertOnce(true)
             .setContentIntent(pending)
+        actions.forEach { builder.addAction(it) }
         if (style != null) builder.setStyle(style) else builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
         NotificationManagerCompat.from(context).notify(id, builder.build())
         return true
