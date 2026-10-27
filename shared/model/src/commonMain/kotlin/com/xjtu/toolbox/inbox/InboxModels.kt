@@ -81,6 +81,7 @@ object InboxCategories {
     const val ATTENDANCE = "msg.attendance"
     const val NOTICE = "msg.notice"
     const val BULLETIN = "msg.bulletin"
+    const val COMMUNITY = "msg.community"
     /** 屁岱的主动简报与定时任务结果。 */
     const val PIDAI = "msg.pidai"
     private const val SCHOOL_PREFIX = "school:"
@@ -100,6 +101,7 @@ object InboxCategories {
         InboxCategory(ATTENDANCE, "考勤异常"),
         InboxCategory(NOTICE, "教务新通知"),
         InboxCategory(BULLETIN, "工具箱公告"),
+        InboxCategory(COMMUNITY, "社区回复 / @我"),
         InboxCategory(PIDAI, "屁岱简报"),
     )
 
@@ -121,6 +123,7 @@ object InboxCategories {
         ATTENDANCE -> 0xFFEF4444
         NOTICE -> 0xFF10B981
         BULLETIN -> 0xFF0EA5E9
+        COMMUNITY -> 0xFFF59E0B
         PIDAI -> 0xFFA855F7
         else -> 0xFF64748B
     }.toInt()

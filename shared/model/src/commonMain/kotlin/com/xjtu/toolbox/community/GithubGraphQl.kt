@@ -188,6 +188,34 @@ class GraphQlGithubDiscussionsRepository(
         ) { it.getValue("addDiscussionComment").jsonObject.getValue("comment").jsonObject.text("id") }
     }
 
+    /**
+     * 一次查询两路搜索：我发的帖子（看别人的回复）、全文含「@我」的帖子（GitHub 的 `mentions:` 不索引
+     * Discussions，全文搜索覆盖正文和评论，再在本地按 [mentions] 精确筛）。各取最近更新的 10 帖，
+     * 每帖最近 20 楼、每楼最近 20 条楼中楼，表情回应不查。
+     */
+    override suspend fun activity(owner: String, name: String, login: String): Result<List<CommunityActivity>> = execute(
+        "query(\$mine:String!,\$at:String!){mine:search(type:DISCUSSION,query:\$mine,first:10){nodes{$ACTIVITY}} at:search(type:DISCUSSION,query:\$at,first:10){nodes{$ACTIVITY}}}",
+        buildJsonObject {
+            put("mine", "repo:$owner/$name author:$login sort:updated-desc")
+            put("at", "repo:$owner/$name \"@$login\" sort:updated-desc")
+        }
+    ) { data ->
+        fun posts(alias: String) = data.getValue(alias).jsonObject.getValue("nodes").jsonArray.map { it.jsonObject }
+            .filter { "id" in it } // search 结果里可能混进拿不到的节点
+        fun floors(post: JsonObject) = post.getValue("comments").jsonObject.getValue("nodes").jsonArray.flatMap { c ->
+            listOf(c.jsonObject) + c.jsonObject.getValue("replies").jsonObject.getValue("nodes").jsonArray.map { it.jsonObject }
+        }
+        fun JsonObject.byOthers() = login(this)?.equals(login, ignoreCase = true) == false
+        fun JsonObject.activity(kind: CommunityActivityKind, post: JsonObject) = CommunityActivity(
+            text("id"), kind, login(this).orEmpty(), post.text("title"), text("body"), text("url"), text("createdAt"),
+        )
+        posts("mine").flatMap { post -> floors(post).filter { it.byOthers() }.map { it.activity(CommunityActivityKind.REPLY, post) } } +
+            posts("at").flatMap { post ->
+                (listOf(post) + floors(post)).filter { it.byOthers() && mentions(it.text("body"), login) }
+                    .map { it.activity(CommunityActivityKind.MENTION, post) }
+            }
+    }
+
     private suspend fun mutate(mutation: String, inputType: String, input: JsonObject): Result<Unit> =
         execute("mutation(\$input:$inputType!){$mutation(input:\$input){clientMutationId}}",
             buildJsonObject { put("input", input) }) { Unit }
@@ -300,6 +328,8 @@ class GraphQlGithubDiscussionsRepository(
         const val REPLY_FIELDS = "id url body createdAt $AUTHOR authorAssociation $REACTIONS isAnswer viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer viewerCanUpdate viewerCanDelete isMinimized minimizedReason viewerCanMinimize viewerCanUnminimize"
         const val COMMENT_FIELDS = "$REPLY_FIELDS replies(first:2){totalCount nodes{$REPLY_FIELDS}}"
         const val POLL = "poll{question totalVoteCount viewerCanVote viewerHasVoted options(first:20){nodes{id option totalVoteCount viewerHasVoted}}}"
+        const val ACTIVITY_NODE = "id url body createdAt $AUTHOR"
+        const val ACTIVITY = "... on Discussion{$ACTIVITY_NODE title comments(last:20){nodes{$ACTIVITY_NODE replies(last:20){nodes{$ACTIVITY_NODE}}}}}"
         const val FIELDS = "viewerCanUpdate viewerCanDelete viewerCanClose viewerCanReopen authorAssociation id number title body url createdAt updatedAt closed stateReason locked repository{viewerPermission} $AUTHOR $REACTIONS $POLL category{id name isAnswerable} comments{totalCount} answer{id}"
     }
 }

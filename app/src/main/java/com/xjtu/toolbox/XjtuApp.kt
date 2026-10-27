@@ -89,6 +89,7 @@ class XjtuApp : Application() {
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.notification.CommunityWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.agent.PidaiJobScheduler.apply(this@XjtuApp)
         }
     }
