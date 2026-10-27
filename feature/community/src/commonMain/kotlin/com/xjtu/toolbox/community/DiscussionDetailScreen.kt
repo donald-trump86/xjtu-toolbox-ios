@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -344,10 +346,11 @@ private fun OriginalPost(
         Spacer(Modifier.height(12.dp))
         MarkdownText(discussion.body.ifBlank { "（没有正文）" })
         discussion.poll?.let { DiscussionPollCard(it, onVote) }
-        ReactionChips(discussion.reactions, discussion.canReact, onReact)
+        ReactionChips(discussion.reactions, discussion.canReact, setOf(LIKE, DISLIKE), onReact)
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             LikeAction(discussion.reactions, discussion.canReact, "赞") { onReact(LIKE) }
+            LikeAction(discussion.reactions, discussion.canReact, "踩", DISLIKE) { onReact(DISLIKE) }
             ReactionButton(discussion.reactions, discussion.canReact, onReact)
             Spacer(Modifier.weight(1f))
             MoreMenu(menu)
@@ -367,16 +370,23 @@ fun DiscussionStateTags(discussion: GithubDiscussion, modifier: Modifier = Modif
     }
 }
 
-/** 👍：数量为 0 时显示 [empty]。 */
+/** 👍 或 👎（[content]）：数量为 0 时显示 [empty]。 */
 @Composable
-fun LikeAction(reactions: List<GithubReaction>, canReact: Boolean, empty: String, onClick: () -> Unit) {
-    val liked = reactions.mine(LIKE)
-    val count = reactions.count(LIKE)
+fun LikeAction(
+    reactions: List<GithubReaction>,
+    canReact: Boolean,
+    empty: String,
+    content: String = LIKE,
+    onClick: () -> Unit,
+) {
+    val liked = reactions.mine(content)
+    val count = reactions.count(content)
+    val down = content == DISLIKE
     CommunityAction(
-        Icons.Outlined.ThumbUp,
+        if (down) Icons.Outlined.ThumbDown else Icons.Outlined.ThumbUp,
         if (count > 0) "$count" else empty,
         active = liked,
-        activeIcon = Icons.Filled.ThumbUp,
+        activeIcon = if (down) Icons.Filled.ThumbDown else Icons.Filled.ThumbUp,
         enabled = canReact || liked,
         onClick = onClick,
     )
@@ -414,7 +424,7 @@ private fun Floor(
                 MinimizedNotice(reason) { expanded = true }
             } else {
                 MarkdownText(comment.body)
-                ReactionChips(comment.reactions, comment.canReact, onReactFloor)
+                ReactionChips(comment.reactions, comment.canReact, onToggle = onReactFloor)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LikeAction(comment.reactions, comment.canReact, "赞") { onReactFloor(LIKE) }
@@ -495,7 +505,7 @@ private fun ReplyBar(discussion: GithubDiscussion, canReply: Boolean, onReply: (
             )
         }
         Spacer(Modifier.width(8.dp))
-        LikeAction(discussion.reactions, discussion.canReact, "赞", onLike)
+        LikeAction(discussion.reactions, discussion.canReact, "赞", onClick = onLike)
     }
 }
 

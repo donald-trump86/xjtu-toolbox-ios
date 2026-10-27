@@ -35,6 +35,9 @@ val REACTION_EMOJI = linkedMapOf(
 /** 点赞就是 👍 回应。 */
 const val LIKE = "THUMBS_UP"
 
+/** 踩就是 👎 回应。 */
+const val DISLIKE = "THUMBS_DOWN"
+
 fun List<GithubReaction>.count(content: String) = firstOrNull { it.content == content }?.count ?: 0
 fun List<GithubReaction>.mine(content: String) = any { it.content == content && it.mine }
 
@@ -49,10 +52,15 @@ fun List<GithubReaction>.toggled(content: String): List<GithubReaction> {
         .sortedBy { order.indexOf(it.content) }
 }
 
-/** 👍 以外已有的表情回应，点一下加 / 撤自己那一份。 */
+/** 动作栏没单独列出（[inBar]）的已有表情回应，点一下加 / 撤自己那一份。 */
 @Composable
-fun ReactionChips(reactions: List<GithubReaction>, enabled: Boolean, onToggle: (String) -> Unit) {
-    val shown = reactions.filter { it.content != LIKE && it.count > 0 && it.content in REACTION_EMOJI }
+fun ReactionChips(
+    reactions: List<GithubReaction>,
+    enabled: Boolean,
+    inBar: Set<String> = setOf(LIKE),
+    onToggle: (String) -> Unit,
+) {
+    val shown = reactions.filter { it.content !in inBar && it.count > 0 && it.content in REACTION_EMOJI }
     if (shown.isEmpty()) return
     val colors = MiuixTheme.colorScheme
     FlowRow(
