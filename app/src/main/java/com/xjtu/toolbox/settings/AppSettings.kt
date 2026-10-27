@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -57,6 +59,7 @@ import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.archive.AppArchiveUx
 import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.notification.CommunityWatchScheduler
 import com.xjtu.toolbox.notification.LibraryReminderScheduler
 import com.xjtu.toolbox.notification.LmsDeadlineScheduler
 import com.xjtu.toolbox.notification.NoticeWatchScheduler
@@ -173,6 +176,8 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
     var reminderLibrary by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LIBRARY)) }
     var reminderSchedule by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.SCHEDULE)) }
     var reminderLms by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LMS)) }
+    var reminderReply by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.COMMUNITY_REPLY)) }
+    var reminderMention by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.COMMUNITY_MENTION)) }
 
     /** 打开某类提醒后待补的通知权限申请；授权回调里再落盘排程。 */
     var pendingReminder by remember { mutableStateOf<ReminderKind?>(null) }
@@ -192,6 +197,10 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             ReminderKind.LMS -> {
                 reminderLms = enabled
                 LmsDeadlineScheduler.apply(context)
+            }
+            ReminderKind.COMMUNITY_REPLY, ReminderKind.COMMUNITY_MENTION -> {
+                if (kind == ReminderKind.COMMUNITY_REPLY) reminderReply = enabled else reminderMention = enabled
+                CommunityWatchScheduler.apply(context)
             }
         }
     }
@@ -305,6 +314,25 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
                     Toast.makeText(context, "这台设备没有电池优化设置页", Toast.LENGTH_SHORT).show()
                 }
             }
+        )
+    }
+
+    // 社区提醒只进消息收纳、不弹系统通知，所以不经 applyReminder 问通知权限
+    SmallTitle("社区")
+    SettingsCard {
+        SwitchPreference(
+            title = ReminderKind.COMMUNITY_REPLY.title,
+            summary = "自己发的帖子有新回复，需先登录社区",
+            checked = reminderReply,
+            startAction = { SettingsIcon(Icons.Default.Forum) },
+            onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_REPLY, on) }
+        )
+        SwitchPreference(
+            title = ReminderKind.COMMUNITY_MENTION.title,
+            summary = "任意帖子或评论里 @ 了我",
+            checked = reminderMention,
+            startAction = { SettingsIcon(Icons.Default.AlternateEmail) },
+            onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_MENTION, on) }
         )
     }
 

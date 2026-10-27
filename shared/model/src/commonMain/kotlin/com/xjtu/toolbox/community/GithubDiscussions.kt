@@ -79,4 +79,7 @@ interface GithubDiscussionsRepository {
     suspend fun minimize(id: String, classifier: String): Result<Unit>
     suspend fun unminimize(id: String): Result<Unit>
     suspend fun vote(optionId: String): Result<Unit>
+
+    /** 别人对 [login] 的近期回复与 @，见 [CommunityActivity]。 */
+    suspend fun activity(owner: String, name: String, login: String): Result<List<CommunityActivity>>
 }
