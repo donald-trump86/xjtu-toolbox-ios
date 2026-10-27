@@ -425,7 +425,8 @@ private const val MATH_SETTLE_MS = 600L
 private const val MAX_MATH_LINE = 10_000
 /** 超长公式不排版，直接显示源码。 */
 private const val MAX_TEX_LENGTH = 2000
-private val envRe = Regex("""\\(begin|end)\{([^}]*)}""")
+/** Android 用 ICU 正则：未转义的 } 会抛 PatternSyntaxException，必须写成 \} */
+private val envRe = Regex("""\\(begin|end)\{([^}]*)\}""")
 
 /** 行内公式源码（去重）。 */
 internal fun inlineTexOf(s: AnnotatedString): List<String> =
