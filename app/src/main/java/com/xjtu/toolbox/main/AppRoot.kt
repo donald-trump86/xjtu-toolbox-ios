@@ -45,6 +45,7 @@ import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.MfaDialogHost
 import com.xjtu.toolbox.game.board.LeaderboardHost
+import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.refreshCampusCardCache
@@ -457,7 +458,10 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
                 "${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}:$addrs"
         }
         val last = java.util.concurrent.atomic.AtomicReference(fingerprint(cm?.activeNetwork))
+        loginState.hasNetwork = HomeStatsRefresher.isOnline(context)
         fun onChange(reason: String) {
+            // 回调在后台线程，切回主线程改 Compose 状态
+            scope.launch { loginState.hasNetwork = HomeStatsRefresher.isOnline(context) }
             val now = fingerprint(cm?.activeNetwork)
             val prev = last.getAndSet(now)
             if (now == prev) return
