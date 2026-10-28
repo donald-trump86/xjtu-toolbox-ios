@@ -96,6 +96,8 @@ internal fun PidaiNavButton(
     ink: Color = MiuixTheme.colorScheme.onSurface,
     /** 用户选的角色；null = 经典屁岱。 */
     cast: CastCharacter? = null,
+    /** 经典屁岱的形状轮廓；null = 云朵。 */
+    shape: DoubleArray? = null,
     /** 眼神：一直盯着的方向与一次性的瞟眼，见 [BloubBotIcon]。 */
     gaze: () -> Offset? = { null },
     glance: PidaiGlance? = null,
@@ -227,6 +229,7 @@ internal fun PidaiNavButton(
                     ink = ink,
                     paper = paper,
                     cast = cast,
+                    shape = shape,
                     gaze = gaze,
                     glance = glance,
                     pokeSerial = pokes.serial,

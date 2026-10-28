@@ -170,6 +170,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surface,
                 cast = look.cast,
+                shape = look.shape,
                 pokeSerial = pokes.serial,
                 gaze = gaze.look,
                 modifier = Modifier

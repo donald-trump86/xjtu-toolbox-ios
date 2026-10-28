@@ -95,6 +95,7 @@ internal fun AndroidPokeWhisper(modifier: Modifier = Modifier) {
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surfaceVariant,
                 cast = look.cast,
+                shape = look.shape,
                 gaze = gaze.look,
                 modifier = Modifier.then(gaze.track).size(26.dp),
             )

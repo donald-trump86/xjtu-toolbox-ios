@@ -104,6 +104,7 @@ private fun PidaiTabButton(
         paper = paper,
         ink = style.ink,
         cast = style.cast,
+        shape = style.shape,
         gaze = gaze.look,
         glance = glance,
         modifier = modifier.then(gaze.track),
