@@ -220,7 +220,10 @@ internal fun ChatPanel(
                     is AgentRow.Tools -> Box(Modifier.padding(horizontal = 8.dp)) {
                         ToolCallNote(row.events)
                     }
-                    is AgentRow.Assistant -> PushFlash(active = flashAt != null && row.msg.timestamp == flashAt) {
+                    is AgentRow.Assistant -> PushFlash(
+                        active = flashAt != null && row.msg.timestamp == flashAt,
+                        card = vm.currentSessionId == AgentPushFocus.SESSION_ID,
+                    ) {
                         MessageBubble(
                             msg = row.msg,
                             host = host,
@@ -376,9 +379,12 @@ private fun ThinkingDots() {
     }
 }
 
-/** 被定位的推送气泡背景闪两下（#194）。 */
+/**
+ * 被定位的推送气泡背景闪两下（#194）。
+ * [card]：推送记录里全是助手消息、中间没有用户气泡隔开，每条各包一张卡片，不然会连成一片字。
+ */
 @Composable
-private fun PushFlash(active: Boolean, content: @Composable () -> Unit) {
+private fun PushFlash(active: Boolean, card: Boolean = false, content: @Composable () -> Unit) {
     val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(active) {
         if (!active) { alpha.snapTo(0f); return@LaunchedEffect }
@@ -388,8 +394,15 @@ private fun PushFlash(active: Boolean, content: @Composable () -> Unit) {
         }
     }
     val color = MiuixTheme.colorScheme.primary
+    val cardModifier = if (card) {
+        Modifier
+            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .padding(vertical = 6.dp)
+    } else Modifier
     Box(
-        Modifier.fillMaxWidth().drawBehind {
+        Modifier.fillMaxWidth().then(cardModifier).drawBehind {
             if (alpha.value > 0f) drawRoundRect(
                 color.copy(alpha = alpha.value),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
