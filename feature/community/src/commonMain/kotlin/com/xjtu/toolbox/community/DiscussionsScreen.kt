@@ -53,6 +53,11 @@ fun DiscussionsScreen(
     onCreate: () -> Unit,
     onOpen: (GithubDiscussion) -> Unit,
     onFilter: (String?) -> Unit,
+    onState: (DiscussionStateFilter) -> Unit,
+    onSort: (DiscussionSort) -> Unit,
+    onAuthor: (String?) -> Unit,
+    /** 当前登录的 GitHub 用户名，「我发的」用。 */
+    me: String,
     onAccount: () -> Unit,
     onLegacyFeedback: () -> Unit,
     /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
@@ -102,6 +107,20 @@ fun DiscussionsScreen(
                         }
                     }
                 }
+                item(key = "options") {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(DiscussionStateFilter.entries) { value ->
+                            AppFilterChip(selected = state.stateFilter == value, onClick = { onState(value) }, label = value.label)
+                        }
+                        items(DiscussionSort.entries) { value ->
+                            AppFilterChip(selected = state.sort == value, onClick = { onSort(value) }, label = value.label)
+                        }
+                        item {
+                            val mine = state.author.equals(me, ignoreCase = true)
+                            AppFilterChip(selected = mine, onClick = { onAuthor(if (mine) null else me) }, label = "我发的")
+                        }
+                    }
+                }
                 item(key = "legacy") { LegacyFeedbackEntry(onLegacyFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
@@ -111,7 +130,12 @@ fun DiscussionsScreen(
                         ErrorState("帖子加载失败，检查网络后重试", onRetry = onRefresh, modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp))
                     }
                     state.items.isEmpty() -> item(key = "empty") {
-                        EmptyState("还没有帖子", "点右下角的 + 发第一帖", Icons.Outlined.Forum, Modifier.fillMaxWidth().padding(vertical = 48.dp))
+                        val filtering = state.filter != null || state.author != null || state.stateFilter != DiscussionStateFilter.ALL
+                        EmptyState(
+                            if (filtering) "没有符合条件的帖子" else "还没有帖子",
+                            if (filtering) "换个筛选条件试试" else "点右下角的 + 发第一帖",
+                            Icons.Outlined.Forum, Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        )
                     }
                 }
                 items(state.items, key = { it.id }) { discussion ->
@@ -232,15 +256,19 @@ fun DiscussionComposer(
     onRetryCategories: () -> Unit,
 ) {
     var preview by remember { mutableStateOf(false) }
-    // 分区加载好了还没选：默认选第一个，少点一下
-    LaunchedEffect(state.categories) {
-        if (state.categoryId == null && state.categories.isNotEmpty()) onEdit(state.title, state.body, state.categories.first().id)
+    // 无权发帖的分类（如通知公告）不列出
+    val postable = remember(state.categories, state.viewerPermission) { postableCategories(state.categories, state.viewerPermission) }
+    // 分区加载好了还没选（或选中的发不了）：默认选第一个可发的，少点一下
+    LaunchedEffect(postable) {
+        if (state.categories.isNotEmpty() && postable.none { it.id == state.categoryId }) {
+            onEdit(state.title, state.body, postable.firstOrNull()?.id)
+        }
     }
     // 发新帖时能 @ 的人：列表里出现过的作者
     val candidates = remember(state.items) {
         state.items.mapNotNull { d -> d.author?.let { CommunityUser(it, d.authorAvatar) } }.distinctBy { it.login }
     }
-    val canSubmit = !state.submitting && state.categories.any { it.id == state.categoryId } &&
+    val canSubmit = !state.submitting && postable.any { it.id == state.categoryId } &&
         state.title.isNotBlank() && state.body.isNotBlank()
     CommunityPage(
         title = "发帖",
@@ -274,7 +302,7 @@ fun DiscussionComposer(
                 CircularProgressIndicator(size = 20.dp)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.categories.forEach { category ->
+                postable.forEach { category ->
                     AppFilterChip(
                         selected = state.categoryId == category.id,
                         onClick = { if (!state.submitting) onEdit(state.title, state.body, category.id) },
@@ -282,7 +310,7 @@ fun DiscussionComposer(
                     )
                 }
             }
-            if (state.categories.firstOrNull { it.id == state.categoryId }?.acceptsAnswers == true) {
+            if (postable.firstOrNull { it.id == state.categoryId }?.acceptsAnswers == true) {
                 Text(
                     "这是问答分类：别人的回复可以被你采纳为答案。",
                     style = MiuixTheme.textStyles.footnote1,

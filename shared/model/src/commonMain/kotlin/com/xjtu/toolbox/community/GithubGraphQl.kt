@@ -114,20 +114,51 @@ class GraphQlGithubDiscussionsRepository(
         buildJsonObject { put("id", id); put("cursor", cursor) }
     ) { data -> comments(data.getValue("node").jsonObject.getValue("comments").jsonObject) }
 
-    /** 第一页顺带拉置顶帖，排在最前面。 */
-    override suspend fun list(owner: String, name: String, cursor: String?, categoryId: String?): Result<GithubDiscussionPage> = execute(
-        "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID,\$top:Boolean!){repository(owner:\$owner,name:\$name){id pinnedDiscussions(first:10) @include(if:\$top){nodes{discussion{$FIELDS}}} discussions(first:20,after:\$cursor,categoryId:\$category,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
-        buildJsonObject { put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId); put("top", cursor == null) }
+    /**
+     * 第一页顺带拉置顶帖（按状态 / 分类筛），排在最前面。按作者筛时 `discussions` 没有对应参数，
+     * 改走 `search`，此时不带置顶。
+     */
+    override suspend fun list(owner: String, name: String, cursor: String?, query: DiscussionQuery): Result<GithubDiscussionPage> {
+        if (query.author != null) return search(owner, name, cursor, query)
+        val categoryId = query.categoryId
+        val states = query.state.graphQl?.let { JsonArray(listOf(JsonPrimitive(it))) } ?: JsonNull
+        return execute(
+            "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID,\$states:[DiscussionState!],\$top:Boolean!){repository(owner:\$owner,name:\$name){id viewerPermission pinnedDiscussions(first:10) @include(if:\$top){nodes{discussion{$FIELDS}}} discussions(first:20,after:\$cursor,categoryId:\$category,states:\$states,orderBy:{field:${query.sort.field},direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
+            buildJsonObject {
+                put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId)
+                put("states", states); put("top", cursor == null)
+            }
+        ) { data ->
+            val repo = data.getValue("repository").jsonObject
+            val pinned = repo.obj("pinnedDiscussions")?.getValue("nodes")?.jsonArray.orEmpty()
+                .map { discussion(it.jsonObject.getValue("discussion").jsonObject).copy(pinned = true) }
+                .filter { categoryId == null || it.category.id == categoryId }
+                .filter { query.state == DiscussionStateFilter.ALL || it.closed == (query.state == DiscussionStateFilter.CLOSED) }
+            val connection = repo.getValue("discussions").jsonObject
+            val page = connection.getValue("pageInfo").jsonObject
+            val items = connection.getValue("nodes").jsonArray.map { discussion(it.jsonObject) }
+            GithubDiscussionPage(repo.text("id"), (pinned + items).distinctBy { it.id },
+                if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null,
+                repo.optText("viewerPermission"))
+        }
+    }
+
+    private suspend fun search(owner: String, name: String, cursor: String?, query: DiscussionQuery): Result<GithubDiscussionPage> = execute(
+        "query(\$owner:String!,\$name:String!,\$q:String!,\$cursor:String){repository(owner:\$owner,name:\$name){id viewerPermission} search(query:\$q,type:DISCUSSION,first:20,after:\$cursor){nodes{... on Discussion{$FIELDS}} pageInfo{hasNextPage endCursor}}}",
+        buildJsonObject {
+            put("owner", owner); put("name", name); put("cursor", cursor)
+            put("q", discussionSearchText(owner, name, query))
+        }
     ) { data ->
         val repo = data.getValue("repository").jsonObject
-        val pinned = repo.obj("pinnedDiscussions")?.getValue("nodes")?.jsonArray.orEmpty()
-            .map { discussion(it.jsonObject.getValue("discussion").jsonObject).copy(pinned = true) }
-            .filter { categoryId == null || it.category.id == categoryId }
-        val connection = repo.getValue("discussions").jsonObject
+        val connection = data.getValue("search").jsonObject
         val page = connection.getValue("pageInfo").jsonObject
-        val items = connection.getValue("nodes").jsonArray.map { discussion(it.jsonObject) }
-        GithubDiscussionPage(repo.text("id"), (pinned + items).distinctBy { it.id },
-            if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null)
+        val items = connection.getValue("nodes").jsonArray.map { it.jsonObject }
+            .filter { "id" in it } // search 结果里可能混进拿不到的节点
+            .map { discussion(it) }
+        GithubDiscussionPage(repo.text("id"), items,
+            if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null,
+            repo.optText("viewerPermission"))
     }
 
     override suspend fun detail(owner: String, name: String, number: Int): Result<GithubDiscussion> = execute(
