@@ -181,11 +181,24 @@ internal fun ConfigPanel(
                         ),
                         keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
-                    if (provider == AgentConfig.PROVIDER_DEEPSEEK) {
-                        TextButton(
-                            text = "去 DeepSeek 开放平台创建 Key",
-                            onClick = { uriHandler.openUri(AgentConfig.DEEPSEEK_KEYS_URL) },
-                        )
+                    // 贴在 Key 框下面的一行小字，填了 Key 就收起：整宽按钮夹在两个输入框中间像第三个表单项
+                    if (provider == AgentConfig.PROVIDER_DEEPSEEK && apiKey.isBlank() && apiKeySection == null) {
+                        Row(
+                            Modifier.padding(start = 12.dp, top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "还没有 Key？",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Text(
+                                "去 DeepSeek 开放平台创建",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { uriHandler.openUri(AgentConfig.DEEPSEEK_KEYS_URL) },
+                            )
+                        }
                     }
                     TextField(
                         value = model,
