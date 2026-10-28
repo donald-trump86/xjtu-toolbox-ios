@@ -80,3 +80,7 @@ server/leaderboard/aliyun.env
 # （top.yukonga.miuix.kmp:miuix-*-android），并不编译这个目录——但它是整个仓库里
 # 最大的未跟踪目录（152MB / 7000+ 文件），不忽略的话一个 git add -A 就带进去了。
 miuix-ref/
+
+# Python 脚本（.github/scripts）在 CI 与本机跑过之后会留下字节码缓存
+__pycache__/
+*.pyc
