@@ -132,6 +132,9 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
 
         /** 取值是旧版考勤（bkkq）的写法，已写进用户设置，不能改。 */
         const val SCHEDULE_SOURCE_ATTENDANCE = "bkkq"
+
+        /** 智慧教室平台；和旧版存的值一致，以前选过它的用户升级后直接生效。 */
+        const val SCHEDULE_SOURCE_JS = "js"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"
