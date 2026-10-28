@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -258,11 +261,21 @@ internal fun splitBlockImages(markdown: String): List<PostPart> {
     return parts.ifEmpty { listOf(PostPart.Text(markdown)) }
 }
 
-/** 帖子里的一张图：知道比例就一次占好位，不知道先占一块，加载完平滑变到真实比例。 */
+private enum class ImageStatus { LOADING, FAILED, READY }
+
+/**
+ * 帖子里的一张图：知道比例就一次占好位，不知道先占一块，加载完平滑变到真实比例。
+ * 加载中转圈；失败了（GitHub 图床在国内常连不上）点一下重试；加载好了点开全屏缩放。
+ */
 @Composable
 private fun PostImage(image: PostPart.Image) {
     val known = image.width?.takeIf { it > 0 }?.let { w -> image.height?.takeIf { it > 0 }?.let { h -> w.toFloat() / h } }
     var ratio by remember(image.url) { mutableStateOf(known) }
+    var status by remember(image.url) { mutableStateOf(ImageStatus.LOADING) }
+    // 换个 attempt 就重建 AsyncImage 重新请求；失败的请求 Coil 不缓存
+    var attempt by remember(image.url) { mutableStateOf(0) }
+    var viewing by remember { mutableStateOf(false) }
+    val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Box(
         Modifier
             .then(if (image.width != null && image.width > 0) Modifier.widthIn(max = image.width.dp) else Modifier)
@@ -270,20 +283,60 @@ private fun PostImage(image: PostPart.Image) {
             .animateContentSize()
             .then(ratio?.let { Modifier.aspectRatio(it.coerceIn(0.25f, 4f)) } ?: Modifier.height(180.dp))
             .clip(RoundedCornerShape(12.dp))
-            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f)),
-    ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true).build(),
-            contentDescription = image.alt.ifBlank { null },
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize(),
-            onSuccess = { state ->
-                if (ratio == null) {
-                    val size = state.painter.intrinsicSize
-                    if (size.width > 0f && size.height > 0f) ratio = size.width / size.height
-                }
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+            .clickable(enabled = status != ImageStatus.LOADING) {
+                if (status == ImageStatus.FAILED) { status = ImageStatus.LOADING; attempt++ } else viewing = true
             },
-        )
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.runtime.key(attempt) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true).build(),
+                contentDescription = image.alt.ifBlank { null },
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+                onError = { status = ImageStatus.FAILED },
+                onSuccess = { state ->
+                    status = ImageStatus.READY
+                    if (ratio == null) {
+                        val size = state.painter.intrinsicSize
+                        if (size.width > 0f && size.height > 0f) ratio = size.width / size.height
+                    }
+                },
+            )
+        }
+        when (status) {
+            ImageStatus.LOADING -> top.yukonga.miuix.kmp.basic.CircularProgressIndicator(size = 24.dp)
+            ImageStatus.FAILED -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(androidx.compose.material.icons.Icons.Outlined.BrokenImage, contentDescription = null, tint = summary)
+                Text("图片加载失败，点按重试", style = MiuixTheme.textStyles.footnote1, color = summary)
+            }
+            ImageStatus.READY -> Unit
+        }
+    }
+    if (viewing) CommunityImageViewer(image.url, image.alt, onDismiss = { viewing = false })
+}
+
+/** 帖子图片全屏查看：双指缩放、双击放大，没放大时单击或点左上角关闭。 */
+@Composable
+private fun CommunityImageViewer(url: String, alt: String, onDismiss: () -> Unit) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            com.xjtu.toolbox.ui.components.ZoomableBox(Modifier.fillMaxSize(), key = url, onTap = onDismiss) { zoom ->
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalPlatformContext.current).data(url).build(),
+                    contentDescription = alt.ifBlank { null },
+                    contentScale = ContentScale.Fit,
+                    modifier = zoom,
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.statusBarsPadding().padding(8.dp)) {
+                Icon(androidx.compose.material.icons.Icons.Default.Close, contentDescription = "关闭", tint = Color.White)
+            }
+        }
     }
 }
 
