@@ -415,6 +415,14 @@ internal fun MainScreen(
                             AgentPendingPrompt.set(prompt)
                             router.selectTab(BottomTab.PIDAI)
                         },
+                        onOpenUrl = { url ->
+                            showGlobalSearch = false
+                            router.open(AppRoute.Browser(url))
+                        },
+                        onOpenWithWebVpn = { vpnUrl ->
+                            showGlobalSearch = false
+                            pageDeps.onOpenWithWebVpn(vpnUrl)
+                        },
                         accountType = loginState.accountType,
                     )
                 }
