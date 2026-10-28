@@ -346,12 +346,10 @@ private fun OriginalPost(
         Spacer(Modifier.height(12.dp))
         MarkdownText(discussion.body.ifBlank { "（没有正文）" })
         discussion.poll?.let { DiscussionPollCard(it, onVote) }
-        ReactionChips(discussion.reactions, discussion.canReact, setOf(LIKE, DISLIKE), onReact)
+        ReactionChips(discussion.reactions, discussion.canReact, onToggle = onReact)
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LikeAction(discussion.reactions, discussion.canReact, "赞") { onReact(LIKE) }
-            LikeAction(discussion.reactions, discussion.canReact, "踩", DISLIKE) { onReact(DISLIKE) }
-            ReactionButton(discussion.reactions, discussion.canReact, onReact)
+            ReactionActions(discussion.reactions, discussion.canReact, likeEmpty = true, onToggle = onReact)
             Spacer(Modifier.weight(1f))
             MoreMenu(menu)
         }
@@ -427,8 +425,7 @@ private fun Floor(
                 ReactionChips(comment.reactions, comment.canReact, onToggle = onReactFloor)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LikeAction(comment.reactions, comment.canReact, "赞") { onReactFloor(LIKE) }
-                ReactionButton(comment.reactions, comment.canReact, onReactFloor)
+                ReactionActions(comment.reactions, comment.canReact, likeEmpty = true, onToggle = onReactFloor)
                 if (canReply) CommunityAction(Icons.AutoMirrored.Outlined.Reply, "回复", onClick = { onReply(null) })
                 if (answerable && (if (comment.isAnswer) comment.canUnmarkAnswer else comment.canMarkAnswer)) {
                     CommunityAction(

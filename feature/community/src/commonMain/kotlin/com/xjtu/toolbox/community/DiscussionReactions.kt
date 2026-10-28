@@ -38,6 +38,9 @@ const val LIKE = "THUMBS_UP"
 /** 踩就是 👎 回应。 */
 const val DISLIKE = "THUMBS_DOWN"
 
+/** 动作栏里单独成按钮的两种回应。 */
+val BAR_REACTIONS = setOf(LIKE, DISLIKE)
+
 fun List<GithubReaction>.count(content: String) = firstOrNull { it.content == content }?.count ?: 0
 fun List<GithubReaction>.mine(content: String) = any { it.content == content && it.mine }
 
@@ -57,7 +60,7 @@ fun List<GithubReaction>.toggled(content: String): List<GithubReaction> {
 fun ReactionChips(
     reactions: List<GithubReaction>,
     enabled: Boolean,
-    inBar: Set<String> = setOf(LIKE),
+    inBar: Set<String> = BAR_REACTIONS,
     onToggle: (String) -> Unit,
 ) {
     val shown = reactions.filter { it.content !in inBar && it.count > 0 && it.content in REACTION_EMOJI }
@@ -83,6 +86,14 @@ fun ReactionChips(
     }
 }
 
+/** 主帖、楼层、楼中楼共用的一组动作：赞、踩、加表情。[likeEmpty] 是赞 / 踩数为 0 时的文案。 */
+@Composable
+fun ReactionActions(reactions: List<GithubReaction>, canReact: Boolean, likeEmpty: Boolean, onToggle: (String) -> Unit) {
+    LikeAction(reactions, canReact, if (likeEmpty) "赞" else "") { onToggle(LIKE) }
+    LikeAction(reactions, canReact, if (likeEmpty) "踩" else "", DISLIKE) { onToggle(DISLIKE) }
+    ReactionButton(reactions, canReact, onToggle)
+}
+
 /** 动作栏里的「加表情」按钮，点开一排表情。 */
 @Composable
 fun ReactionButton(reactions: List<GithubReaction>, enabled: Boolean, onToggle: (String) -> Unit) {
@@ -91,7 +102,7 @@ fun ReactionButton(reactions: List<GithubReaction>, enabled: Boolean, onToggle: 
         CommunityAction(Icons.Outlined.AddReaction, "", enabled = enabled, onClick = { open = true })
         AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                REACTION_EMOJI.filterKeys { it != LIKE }.forEach { (content, emoji) ->
+                REACTION_EMOJI.filterKeys { it !in BAR_REACTIONS }.forEach { (content, emoji) ->
                     val mine = reactions.mine(content)
                     Box(
                         Modifier
