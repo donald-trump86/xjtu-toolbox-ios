@@ -138,7 +138,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
                     ).forEach { (label, name, phone) -> MentorLine(label, name, phone) }
                     p.counselorOffice.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(8.dp))
-                        InfoLine("办公室", it)
+                        InfoLine("辅导员办公室", it)
                     }
                 }
             }
