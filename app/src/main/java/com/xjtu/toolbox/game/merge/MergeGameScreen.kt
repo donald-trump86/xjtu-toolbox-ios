@@ -36,6 +36,7 @@ import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.RestartConfirmMenu
 import com.xjtu.toolbox.game.ui.rememberLeaveGuard
+import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -162,6 +163,13 @@ fun MergeGameScreen(onBack: () -> Unit) {
                             }
                             return null // 交给 WebView 默认的 android_asset 加载逻辑
                         }
+
+                        override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean =
+                            view.recoverFromRendererGone {
+                                webViewRef.value = null
+                                android.widget.Toast.makeText(ctx, "游戏页面崩溃了，再进一次试试", android.widget.Toast.LENGTH_SHORT).show()
+                                onBack()
+                            }
                     }
 
                     webViewRef.value = this
