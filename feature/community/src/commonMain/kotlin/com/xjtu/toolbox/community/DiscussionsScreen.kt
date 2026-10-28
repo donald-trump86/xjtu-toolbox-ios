@@ -4,6 +4,7 @@ package com.xjtu.toolbox.community
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.runtime.*
@@ -77,16 +79,41 @@ fun DiscussionsScreen(
         if (nearEnd && state.nextCursor != null && !state.loadError) onLoadMore()
     }
 
+    // 状态、排序、「我发的」收进顶栏的筛选弹窗；列表顶上只留一行分类，不堆两行胶囊
+    var showOptions by remember { mutableStateOf(false) }
+    val mine = state.author.equals(me, ignoreCase = true)
+    val customized = state.stateFilter != DiscussionStateFilter.OPEN || state.sort != DiscussionSort.UPDATED || mine
+
     CommunityPage(
         title = "社区",
         onBack = onBack,
-        actions = { CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount) },
+        actions = {
+            Box {
+                CommunityBarAction(Icons.Outlined.FilterList, "筛选与排序", onClick = { showOptions = true })
+                // 改过默认筛选时亮一个小点，免得忘了自己筛过
+                if (customized) Box(
+                    Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(7.dp)
+                        .background(MiuixTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
+                )
+            }
+            CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount)
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onCreate) {
                 Icon(Icons.Filled.Add, contentDescription = "发帖", tint = Color.White)
             }
         },
     ) { top ->
+        // 弹窗靠 Scaffold 提供的宿主渲染，必须放在页面内容里
+        DiscussionOptionsSheet(
+            show = showOptions,
+            state = state,
+            mine = mine,
+            onState = onState,
+            onSort = onSort,
+            onMine = { onAuthor(if (it) me else null) },
+            onDismiss = { showOptions = false },
+        )
         AppPullToRefresh(
             isRefreshing = pulling && state.loading,
             onRefresh = { pulling = true; onRefresh() },
@@ -107,20 +134,6 @@ fun DiscussionsScreen(
                         }
                     }
                 }
-                item(key = "options") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(DiscussionStateFilter.entries) { value ->
-                            AppFilterChip(selected = state.stateFilter == value, onClick = { onState(value) }, label = value.label)
-                        }
-                        items(DiscussionSort.entries) { value ->
-                            AppFilterChip(selected = state.sort == value, onClick = { onSort(value) }, label = value.label)
-                        }
-                        item {
-                            val mine = state.author.equals(me, ignoreCase = true)
-                            AppFilterChip(selected = mine, onClick = { onAuthor(if (mine) null else me) }, label = "我发的")
-                        }
-                    }
-                }
                 item(key = "legacy") { LegacyFeedbackEntry(onLegacyFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
@@ -130,7 +143,7 @@ fun DiscussionsScreen(
                         ErrorState("帖子加载失败，检查网络后重试", onRetry = onRefresh, modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp))
                     }
                     state.items.isEmpty() -> item(key = "empty") {
-                        val filtering = state.filter != null || state.author != null || state.stateFilter != DiscussionStateFilter.ALL
+                        val filtering = state.filter != null || state.author != null || state.stateFilter != DiscussionStateFilter.OPEN
                         EmptyState(
                             if (filtering) "没有符合条件的帖子" else "还没有帖子",
                             if (filtering) "换个筛选条件试试" else "点右下角的 + 发第一帖",
@@ -227,6 +240,43 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
             )
             Spacer(Modifier.weight(1f))
             DiscussionStateTags(discussion)
+        }
+    }
+}
+
+/** 列表筛选：状态、排序两个下拉，加「只看我发的」开关。改完即生效，不用点确定。 */
+@Composable
+private fun DiscussionOptionsSheet(
+    show: Boolean,
+    state: DiscussionsUiState,
+    mine: Boolean,
+    onState: (DiscussionStateFilter) -> Unit,
+    onSort: (DiscussionSort) -> Unit,
+    onMine: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    com.xjtu.toolbox.platform.BackHandler(enabled = show) { onDismiss() }
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(show = show, title = "筛选与排序", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+            val states = DiscussionStateFilter.entries
+            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+                title = "状态",
+                items = states.map { it.label },
+                selectedIndex = states.indexOf(state.stateFilter).coerceAtLeast(0),
+                onSelectedIndexChange = { onState(states[it]) },
+            )
+            val sorts = DiscussionSort.entries
+            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+                title = "排序",
+                items = sorts.map { it.label },
+                selectedIndex = sorts.indexOf(state.sort).coerceAtLeast(0),
+                onSelectedIndexChange = { onSort(sorts[it]) },
+            )
+            top.yukonga.miuix.kmp.preference.SwitchPreference(
+                title = "只看我发的",
+                checked = mine,
+                onCheckedChange = onMine,
+            )
         }
     }
 }
