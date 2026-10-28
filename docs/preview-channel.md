@@ -71,3 +71,27 @@
 1. 在 `main` 上开分支修复，`versionCode` 使用预留的那一个号（例如 63），`versionName` 递增 `PATCH`（例如 `X.Y.(Z+1)`）；不要使用 `X.Y.Z.1` 这类四段式编号。
 2. 合并发布热修复。
 3. 开 PR 把 `main` 回流至 `dev`（`main → dev`），解决冲突时**保留 `dev` 的主版本号与 versionCode**。
+
+---
+
+## 6. 分发渠道与固定下载链接
+
+正式版由 CI 同时写到三处（见 `.github/workflows/build.yml` 的 `Publish stable to OSS (primary)`）：
+
+| 对象键 | 用途 |
+|---|---|
+| `xjtu-toolbox/apk/<versionName>/app-release.apk` | 按版本归档；`stable.json` 的 `apkUrl` 指向它 |
+| `xjtu-toolbox/apk/latest/app-release.apk` | **固定别名**，每次发版覆盖，`Cache-Control: no-cache` 避免 CDN 继续下发旧包 |
+| `xjtu-toolbox/stable.json` + `history/stable-<versionName>.json` | 客户端更新清单与历史清单 |
+
+固定别名的公网直链（域名取 `secrets.OSS_PUBLIC_BASE`，与 `AppUpdater.OSS_BASE_URL` 一致）：
+
+```
+https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk
+```
+
+用途：官网、文档、二维码等不会随版本变化的下载入口。**注意**别名只在正式版发布后存在；
+预览包只写 `apk/preview/<version>/app-preview.apk` 与 `preview.json`，不写别名。
+
+验证要点（CI 已内置）：别名对象的 `Content-Length` 必须与本次 APK 一致；
+`Cache-Control` 不是 `no-cache` 时打 warning；公网侧用带版本号查询串的 HEAD 抽查绕过缓存。
