@@ -48,9 +48,12 @@ internal const val SPIN_SPEED = 1.3f
 /** 蹦床落稳后隔这么久自动起跳。 */
 const val BOUNCE_DELAY = 0.3f
 
-/** 彩蛋台：黑胶（圆台 1）停够两秒 +10，咖啡杯（圆台 2）、魔方（方台 3）+5，别的台子 0。 */
+/**
+ * 彩蛋台：黑胶（圆台 1）停够两秒 +10，咖啡杯（圆台 2）、魔方（方台 3）+5，别的台子 0。
+ * 移动台画的也是这几种造型，落上去就停了，同样算。
+ */
 fun stayBonusOf(pad: Pad): Int = when {
-    pad.kind != PadKind.NORMAL || pad.bonus > 0 -> 0
+    (pad.kind != PadKind.NORMAL && pad.kind != PadKind.MOVING) || pad.bonus > 0 -> 0
     pad.round && pad.style == 1 -> 10
     pad.round && pad.style == 2 -> 5
     !pad.round && pad.style == 3 -> 5
