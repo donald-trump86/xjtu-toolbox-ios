@@ -25,6 +25,11 @@ import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
 import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.platform.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -83,12 +88,33 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/** 设置屏。 */
+/** 设置屏。致谢二级页叠在主页上滑入，返回时主页滚动位置不丢。 */
 @Composable
 fun SettingsScreen(
     store: SettingsStore,
     host: SettingsHost,
     onBack: () -> Unit,
+) {
+    var showCredits by rememberSaveable { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        SettingsHome(store, host, onBack, onOpenCredits = { showCredits = true })
+        AnimatedVisibility(
+            visible = showCredits,
+            enter = slideInHorizontally { it / 3 } + fadeIn(),
+            exit = slideOutHorizontally { it / 3 } + fadeOut(),
+        ) {
+            BackHandler { showCredits = false }
+            CreditsScreen(host = host, onBack = { showCredits = false })
+        }
+    }
+}
+
+@Composable
+private fun SettingsHome(
+    store: SettingsStore,
+    host: SettingsHost,
+    onBack: () -> Unit,
+    onOpenCredits: () -> Unit,
 ) {
 
     val showDarkMode = SettingsRow.DARK_MODE in host.honoredRows
@@ -123,12 +149,6 @@ fun SettingsScreen(
     var venueAutoSolveCaptcha by remember { mutableStateOf(store.venueAutoSolveCaptchaEnabled) }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
-    var showCredits by rememberSaveable { mutableStateOf(false) }
-    if (showCredits) {
-        BackHandler { showCredits = false }
-        CreditsScreen(host = host, onBack = { showCredits = false })
-        return
-    }
     if (showThemeColor) {
         ThemeColorDialog(
             initialHex = customColorHex,
@@ -429,7 +449,7 @@ fun SettingsScreen(
                     title = CREDITS_TITLE,
                     summary = "贡献者、上游项目与许可证",
                     startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
-                    onClick = { showCredits = true }
+                    onClick = onOpenCredits
                 )
                 ArrowPreference(
                     title = "用户协议与隐私政策",
