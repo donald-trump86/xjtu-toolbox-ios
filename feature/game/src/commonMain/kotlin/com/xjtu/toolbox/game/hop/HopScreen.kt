@@ -282,7 +282,8 @@ fun HopScreen(
         ) {
             if (frame < 0) return@Canvas // 游戏状态不是 Compose state，读一下帧号让画布每帧重画
             drawSky(game.score, fx.time)
-            val scale = size.width / VIEW_UNITS
+            // 按竖屏手机的视野取景：横屏平板只按宽度算会把台子放得过大
+            val scale = minOf(size.width, size.height * 0.6f) / VIEW_UNITS
             if (landmarkIndex >= 0) {
                 drawLandmark(landmarkImages[landmarkIndex], (fx.time - landmarkShownAt) / 1.2f, night, -(camX - camZ) * scale * 0.05f)
             }
