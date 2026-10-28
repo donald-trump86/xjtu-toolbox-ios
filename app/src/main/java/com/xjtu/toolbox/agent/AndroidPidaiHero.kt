@@ -108,6 +108,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
     // 进来先眨个眼打招呼，之后回到待命；戳它一下换一句话，连戳放彩蛋
     var beat by remember { mutableStateOf(PidaiBeat.IDLE) }
     val pokes = remember { PidaiPokes() }
+    val gaze = rememberPidaiGaze()
     LaunchedEffect(pokes.serial) {
         delay(beat.holdMs(look.cast) ?: return@LaunchedEffect)
         beat = PidaiBeat.REST
@@ -170,7 +171,9 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 paper = MiuixTheme.colorScheme.surface,
                 cast = look.cast,
                 pokeSerial = pokes.serial,
+                gaze = gaze.look,
                 modifier = Modifier
+                    .then(gaze.track)
                     .size(72.dp)
                     .graphicsLayer { translationY = -4.dp.toPx() + kotlin.math.sin(floatPhase.floatValue) * 4.dp.toPx() },
             )

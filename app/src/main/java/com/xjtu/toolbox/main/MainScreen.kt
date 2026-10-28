@@ -340,8 +340,7 @@ internal fun MainScreen(
     AppShell(
         nav = navState,
         rootModifier = Modifier
-            .onGloballyPositioned { overlayOrigin = it.positionInRoot() }
-            .feedPidaiTouch { overlayOrigin },
+            .onGloballyPositioned { overlayOrigin = it.positionInRoot() },
         glassStyle = glassStyle,
         // 系统导航条那一格：玻璃底栏的空隙与浮空占位都按它算（见 ShellLayout）
         bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),

@@ -7,11 +7,14 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import com.xjtu.toolbox.agent.feedPidaiTouch
 import androidx.compose.ui.text.font.FontWeight
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -219,7 +222,9 @@ fun AppRoot(
         val pageDeps = remember(router, loginState, credentialStore) {
             AppPageDeps(router, loginState, credentialStore, viewModel.accountManager) { currentOpenWithWebVpn(it) }
         }
-        // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建
+        // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建。
+        // 外面这层 Box 只喂手指位置给屁岱的眼睛，全 App 所有页面都算
+        Box(Modifier.fillMaxSize().feedPidaiTouch()) {
         AppNavHost(backStack = backStack, deps = pageDeps) {
             MainScreen(
                 router = router,
@@ -235,6 +240,7 @@ fun AppRoot(
                 onHeroBulletinTap = notices::onHeroTap,
                 onHeroBulletinDismiss = notices::dismissHero,
             )
+        }
         }
 
         AutoLoginDialog(router)
