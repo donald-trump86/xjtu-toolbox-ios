@@ -9,7 +9,6 @@ local.properties
 /.vscode/
 /.github/copilot-instructions.md
 # Agent customization files added in this task
-/AGENTS.md
 /.github/AGENTS.md
 /.github/agents/
 /.github/instructions/*.md
