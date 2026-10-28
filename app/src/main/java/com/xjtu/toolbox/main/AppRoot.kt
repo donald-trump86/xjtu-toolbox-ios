@@ -459,9 +459,10 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
         }
         val last = java.util.concurrent.atomic.AtomicReference(fingerprint(cm?.activeNetwork))
         loginState.hasNetwork = HomeStatsRefresher.isOnline(context)
-        fun onChange(reason: String) {
+        // online 取回调自带的网络状态：网络刚恢复时 activeNetwork 常还没更新，回读会误判没网
+        fun onChange(reason: String, online: Boolean) {
             // 回调在后台线程，切回主线程改 Compose 状态
-            scope.launch { loginState.hasNetwork = HomeStatsRefresher.isOnline(context) }
+            scope.launch { loginState.hasNetwork = online }
             val now = fingerprint(cm?.activeNetwork)
             val prev = last.getAndSet(now)
             if (now == prev) return
@@ -472,10 +473,11 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
             trigger(reason)
         }
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = onChange("onAvailable")
-            override fun onLost(network: Network) = onChange("onLost")
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onChange("onCapabilitiesChanged")
-            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = onChange("onLinkPropertiesChanged")
+            override fun onAvailable(network: Network) = onChange("onAvailable", true)
+            override fun onLost(network: Network) = onChange("onLost", false)
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+                onChange("onCapabilitiesChanged", caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = onChange("onLinkPropertiesChanged", true)
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
             .onFailure { Log.w("Network", "registerDefaultNetworkCallback failed: ${it.message}") }
