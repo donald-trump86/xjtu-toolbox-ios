@@ -87,7 +87,7 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
             ),
         )
         // 全文记入「推送记录」，通知栏只放预览（#194）
-        val pushAt = PidaiPushLog.append(title, body)
+        val pushAt = PidaiPushLog.append(title, body, PidaiPushLog.kindOf(key))
         ReminderNotifier.notifyPidai(context, key, title, if (pushAt != null) PidaiPushLog.preview(body) else body, pushAt)
     }
 
