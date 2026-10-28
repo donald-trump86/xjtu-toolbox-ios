@@ -118,7 +118,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
         if (host.heroPokes == seenPokes[0]) return@LaunchedEffect
         seenPokes[0] = host.heroPokes
         host.heroLine?.let { line = it }
-        beat = pokes.poke()
+        beat = pokes.poke(beat)
     }
     // 轻轻上下浮动：约 30 帧/秒推进相位，页面不可见就停（和底栏屁岱同一档开销）
     val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
@@ -159,7 +159,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 .size(88.dp)
                 .clip(CircleShape)
                 .clickable {
-                    beat = pokes.poke()
+                    beat = pokes.poke(beat)
                     pickLine(facts, com.xjtu.toolbox.util.nowOnCampus(), line)?.let { line = it }
                 },
             contentAlignment = Alignment.Center,
