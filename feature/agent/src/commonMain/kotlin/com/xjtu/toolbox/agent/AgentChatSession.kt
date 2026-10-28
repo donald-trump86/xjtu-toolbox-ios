@@ -53,6 +53,9 @@ interface AgentChatSession {
     /** 删掉某个会话（幂等）。 */
     fun deleteSession(id: String)
 
+    /** 给某个会话改名（标题随之锁定，不再被自动总结覆盖）。 */
+    fun renameSession(id: String, title: String)
+
     /** 停止正在生成的那一轮。 */
     fun stop()
 

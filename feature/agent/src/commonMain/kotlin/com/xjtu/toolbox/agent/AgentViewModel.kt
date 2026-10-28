@@ -267,6 +267,13 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         }
     }
 
+    override fun renameSession(id: String, title: String) {
+        val store = store ?: return
+        val clean = title.trim().take(40).ifEmpty { return }
+        store.rename(id, clean)
+        refreshSessions()
+    }
+
     private fun refreshSessions() {
         val store = store ?: return
         sessions.clear(); sessions.addAll(store.list())
