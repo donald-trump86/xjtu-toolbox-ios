@@ -200,6 +200,13 @@ jobs:
           echo "Uploading APK to OSS: $APK_KEY"
           python3 .github/scripts/oss_upload.py "$APK" "$APK_KEY"
 
+          # 固定别名的「最新正式包」，给官网/文档一条不随版本变化的直链：
+          #   $OSS_PUBLIC_BASE/apk/latest/app-release.apk
+          # no-cache 让 CDN 每次回源校验，否则发版后仍可能下发上一版安装包。
+          LATEST_KEY="xjtu-toolbox/apk/latest/app-release.apk"
+          echo "Uploading APK to OSS (fixed alias): $LATEST_KEY"
+          python3 .github/scripts/oss_upload.py "$APK" "$LATEST_KEY" "no-cache"
+
           python3 - <<'PY'
           import datetime
           import hashlib
@@ -258,11 +265,20 @@ jobs:
           assert len(remote["sha256"]) == 64, remote
           head = bucket.head_object(f"xjtu-toolbox/apk/{version}/app-release.apk")
           assert head.content_length == local["size"], (head.content_length, local["size"])
+          latest = bucket.head_object("xjtu-toolbox/apk/latest/app-release.apk")
+          assert latest.content_length == local["size"], (latest.content_length, local["size"])
+          alias_headers = getattr(latest, "headers", None) or {}
+          cache_control = {k.lower(): v for k, v in alias_headers.items()}.get("cache-control", "")
+          if cache_control != "no-cache":
+              print(f"::warning::latest alias Cache-Control is {cache_control!r}, expected 'no-cache'")
           print("manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
           # 公共 CDN 只做抽样；GitHub runner 跨境访问偶发超时不应阻断发布。
           curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/stable.json" >/dev/null \
             || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
+          # 固定别名带版本号查询串绕过 CDN 缓存，确认新包已经能被公网取到。
+          curl -fsSI --max-time 20 "$OSS_PUBLIC_BASE/apk/latest/app-release.apk?v=$VERSION" >/dev/null \
+            || echo "::warning::public CDN latest-apk check timed out; OSS objects are verified"
           echo "OSS primary publish verified"
 
       - name: Delete existing tag (if any)
