@@ -95,3 +95,13 @@ https://dzhz.zyxf.top/xjtu-toolbox/apk/latest/app-release.apk
 
 验证要点（CI 已内置）：别名对象的 `Content-Length` 必须与本次 APK 一致；
 `Cache-Control` 不是 `no-cache` 时打 warning；公网侧用带版本号查询串的 HEAD 抽查绕过缓存。
+
+CDN 侧（`dzhz.zyxf.top`，`PayByTraffic` 按流量计费）的路径缓存规则必须与上面的对象划分对齐，否则会盖掉源站的 `Cache-Control`：
+
+| 路径 | TTL | weight | 说明 |
+|---|---|---|---|
+| `/xjtu-toolbox/apk/` | 31536000（1 年） | 1 | 版本号目录不可变，长缓存省回源；`latest` 也在该前缀下，靠下面的规则优先命中 |
+| `/xjtu-toolbox/apk/latest/` | 60 | 2 | 固定别名会变，短 TTL：发版后最多 60 秒内仍可能下发旧包 |
+| `*.json`（`filetype_based_ttl_set`） | 0 | 1 | 清单不缓存，客户端每次都取最新 |
+
+2026-10-28 已在控制台核对并补齐 `latest` 这一条（原只有 1 年那条，会把别名锁死一年）。
