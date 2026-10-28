@@ -89,6 +89,14 @@ fun AgentScreen(
                 Column(Modifier.heightIn(max = 280.dp).then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()))) {
                     Text("服务：${request.endpoint}\n工具：${request.tool}\n参数：${request.arguments}")
                 }
+                val leaks = remember(request.arguments) { personalDataHints(request.arguments) }
+                if (leaks.isNotEmpty()) {
+                    Text(
+                        "参数里像是有${leaks.joinToString("、")}，确认是你要发出去的再允许",
+                        color = MiuixTheme.colorScheme.error,
+                        style = MiuixTheme.textStyles.body2,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TextButton(text = "拒绝", onClick = { vm.answerExternalTool(false) }, modifier = Modifier.weight(1f))
                     TextButton(text = "允许这一次", onClick = { vm.answerExternalTool(true) }, modifier = Modifier.weight(1f))
@@ -445,3 +453,11 @@ class AgentOverlays {
         content?.invoke()
     }
 }
+
+/** 远程工具参数里疑似的个人信息，只用来在确认框里提醒，不拦截。 */
+internal fun personalDataHints(arguments: String): List<String> = listOfNotNull(
+    "手机号".takeIf { Regex("""(?<!\d)1[3-9]\d{9}(?!\d)""").containsMatchIn(arguments) },
+    "身份证号".takeIf { Regex("""(?<!\d)\d{17}[\dXx](?!\d)""").containsMatchIn(arguments) },
+    // 10 位、以年级开头；秒级时间戳以 17 开头，不会误报
+    "学号".takeIf { Regex("""(?<!\d)[2-4]\d{9}(?!\d)""").containsMatchIn(arguments) },
+)
