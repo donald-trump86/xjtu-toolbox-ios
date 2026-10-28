@@ -814,7 +814,7 @@ private fun DesktopPage(
 /** 屁岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
 @Composable
 private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
-    // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走，进配置面板时变成「配置」。
+    // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走。
     var title by remember { mutableStateOf(AgentConfig.DEFAULT_ASSISTANT_NAME) }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
