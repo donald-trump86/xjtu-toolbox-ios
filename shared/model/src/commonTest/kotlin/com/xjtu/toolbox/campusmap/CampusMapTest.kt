@@ -1,9 +1,7 @@
 package com.xjtu.toolbox.campusmap
 
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -54,11 +52,4 @@ class CampusMapTest {
         }
     }
 
-    @Test
-    fun `campus_map 工具：路线与附近`() = runTest {
-        val out = CampusMapAgentTools().execute("campus_map", """{"from":"主楼A-403","to":"钱学森图书馆","near":"canteen"}""")
-        assertTrue(out.contains("到 钱学森图书馆：步行约"), out)
-        assertTrue(out.contains("康桥苑") || out.contains("梧桐苑"), out)
-        assertNotNull(Regex("error: not_found; place: 9号巨构").find(CampusMapAgentTools().execute("campus_map", """{"from":"9号巨构"}""")))
-    }
 }

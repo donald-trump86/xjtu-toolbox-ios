@@ -9,6 +9,7 @@ case "$MODE" in
     *) echo "Usage: $0 [unsigned|signed]" >&2; exit 2 ;;
 esac
 mkdir -p "$OUT"
+xcodegen generate --spec "$ROOT/iosApp/project.yml"
 if [ "$MODE" = signed ]; then
     : "${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your local Apple team identifier}"
     xcodebuild -project "$ROOT/iosApp/XJTUToolbox.xcodeproj" -scheme XJTUToolbox \
@@ -29,7 +30,7 @@ else
     xcrun vtool -show-build "$APP/XJTUToolbox" | tee "$OUT/device-platform.txt"
     # vtool distinguishes an arm64 simulator executable from an arm64 device executable.
     python3 - "$APP" "$OUT/XJTUToolbox-unsigned.ipa" <<'PY'
-import pathlib, plistlib, subprocess, sys, zipfile
+import hashlib, pathlib, plistlib, subprocess, sys, zipfile
 app, output = map(pathlib.Path, sys.argv[1:])
 info = plistlib.loads((app / 'Info.plist').read_bytes())
 executable = app / info['CFBundleExecutable']
@@ -40,6 +41,9 @@ with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(app.rglob('*')):
         if path.is_file():
             archive.write(path, pathlib.Path('Payload') / app.name / path.relative_to(app))
+digest = hashlib.sha256(output.read_bytes()).hexdigest()
+output.with_suffix(output.suffix + '.sha256').write_text(digest + '  ' + output.name + '\n')
 print(f'Unsigned device IPA (must re-sign in SideStore): {output}')
+print(f'SHA-256: {digest}')
 PY
 fi

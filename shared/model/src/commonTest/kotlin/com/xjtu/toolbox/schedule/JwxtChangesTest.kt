@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 /** 形状取自 2026-09 教务 `xsdkkc.do` 的真实记录。 */
 class JwxtChangesTest {
 
-    private fun bits(vararg weeks: Int, len: Int = 19) = String(CharArray(len) { if (it + 1 in weeks) '1' else '0' })
+    private fun bits(vararg weeks: Int, len: Int = 19) = CharArray(len) { if (it + 1 in weeks) '1' else '0' }.concatToString()
 
     private fun row(
         jxbid: String = "JXB1",

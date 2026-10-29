@@ -39,7 +39,7 @@ class WeekGridLayoutTest {
     // ── 条目起止 ──
 
     @Test
-    fun `clock minutes prefer valid custom clock, else sections of the given season`() {
+    fun validCustomClockTakesPriorityOverSeasonSections() {
         assertEquals(840 to 890, section("冬五", 1, 5, 5).clockMinutes(summer = false))
         assertEquals(870 to 920, section("夏五", 1, 5, 5).clockMinutes(summer = true))
         assertEquals(0 to 60, timed("零点", 1, "00:00", "01:00").clockMinutes(true))
@@ -55,7 +55,7 @@ class WeekGridLayoutTest {
     }
 
     @Test
-    fun `legacy custom entries without clock read sections as hours from 8am, like the editor`() {
+    fun legacyCustomEntriesTreatSectionsAsHoursFromEightAm() {
         val legacy = CourseItem(startSection = 5, endSection = 6, courseCode = "${CUSTOM_COURSE_CODE_PREFIX}1")
         // 第 5–6「节」= 12:00–14:00，两套作息都一样
         assertEquals(720 to 840, legacy.clockMinutes(summer = true))
@@ -64,7 +64,7 @@ class WeekGridLayoutTest {
     }
 
     @Test
-    fun `sections outside the timetable are clamped, end before start uses the start section`() {
+    fun invalidSectionsAreClampedAndReversedEndUsesStart() {
         assertEquals(480 to 530, CourseItem(startSection = 0, endSection = 0).clockMinutes(true))
         assertEquals(1300 to 1350, CourseItem(startSection = 14, endSection = 20).clockMinutes(true))
         assertEquals(870 to 920, CourseItem(startSection = 5, endSection = 3).clockMinutes(true))
@@ -131,7 +131,7 @@ class WeekGridLayoutTest {
     }
 
     @Test
-    fun `band pieces split occupied from free time, merging overlaps across days`() {
+    fun restBandsSplitOccupiedAndFreeTimeAndMergeOverlappingDays() {
         val layout = summerWeek(
             timed("午饭会", 2, "12:30", "13:30"),
             timed("答疑", 3, "13:00", "13:45"),

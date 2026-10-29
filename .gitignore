@@ -1,96 +1,52 @@
+# IDE and local tooling
 *.iml
 /.idea/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
 /.vscode/
-/.github/copilot-instructions.md
-# Agent customization files added in this task
+.DS_Store
 /AGENTS.md
 /.github/AGENTS.md
+/.github/copilot-instructions.md
 /.github/agents/
-/.github/instructions/*.md
-# ZCode 工作区状态（计划文件，含本地会话 ID，勿入库）
+/.github/instructions/
+/.agents/
+/.claude/
 /.zcode/
-# Signing
-release.jks
-release.jks.b64
-keystore.properties
-.kotlin/
-# Gradle
+
+# Gradle, Kotlin/Native and generated outputs
 .gradle/
+.kotlin/
 /.gradle-user-home/
 build/
-# APK
-*.apk
-*.ap_
-*.aab
-# Dex metadata
-*.dm
-# Generated files
-output.json
-output-metadata.json
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcarchive/
 
-# Misc local artifacts
-build_output.txt
+# Credentials, signing and machine-specific settings
+.env
+.env.*
+*.env
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+*.ipa
+local.properties
+keystore.properties
+feedback.properties
+leaderboard.properties
+/iosApp/Signing.local.xcconfig
 
-# Refactoring / planning docs (local only, not part of repo)
-REFACTORING_PLAN.md
+# Local research, plans and worktrees
+/miuix-ref/
+/announce/
+/.companion/
+/.probe-notices/
+/update_api.py
+/tools/*
+!/tools/gen_campus_map.py
 PROGRESS*.md
 NOTES*.md
 TODO*.md
 plan.md
-/tools/*
-# R8/Gson 模型检查脚本入库，维护者发版前顺手跑（见脚本头注释）
-!/tools/check_gson_signatures.py
-# 二维码中日韩码表的生成器入库（维护者改了字符集口径才跑；见脚本头注释）
-!/tools/gen-qr-charset-tables.java
-# 校区简图数据生成（OpenStreetMap → CampusMapsGenerated.kt），见脚本头注释
-!/tools/gen_campus_map.py
-
-# 不纳入 App 仓库（保留本地）
-/update_api.py
-
-# 开发期抓取的页面样本，不入库
-.probe-notices/
-.companion/
-
-# announce 分支的 worktree（公告 bulletin.json），git worktree 管理，勿手动删除
-/announce/
-
-# 反馈后端（飞书多维表格）凭据，不入库
-feedback.properties
-
-# 小游戏全服榜的服务端地址覆盖，只在本地联调时用（默认走正式环境，见 app/build.gradle.kts）
-leaderboard.properties
-
-# 榜单昵称的禁止词表：放服务端目录下按需增补，不进仓库
-# （公开一份词表等于给绕过它的人一张清单）
-server/leaderboard/banned.txt
-
-# 内容安全凭据，只该存在于服务器的 /opt/xjtu-games/
-server/leaderboard/aliyun.env
-
-# 屁岱皮肤制作 Skill：独立维护在 yeliqin666/pidai-skin-maker，本仓库不再内嵌一份拷贝
-# （曾经嵌过，两边一改就容易分叉）。本地想用就 clone 到这两个路径，不会被 git 跟踪。
-/.agents/skills/pidai-skin-maker/
-/.claude/skills/pidai-skin-maker/
-
-# miuix 的本地源码副本，查 MIUIX 组件实现时用的参考。App 走 Maven 依赖
-# （top.yukonga.miuix.kmp:miuix-*-android），并不编译这个目录——但它是整个仓库里
-# 最大的未跟踪目录（152MB / 7000+ 文件），不忽略的话一个 git add -A 就带进去了。
-miuix-ref/
-
-# iOS / Xcode local state and signing material
-DerivedData/
-*.xcuserstate
-xcuserdata/
-*.xcarchive/
-*.ipa
-*.p12
-*.mobileprovision
-*.provisionprofile
-/iosApp/Signing.local.xcconfig

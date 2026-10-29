@@ -23,7 +23,6 @@ kotlin {
             implementation(project(":shared:model"))
             implementation(project(":shared:navigation"))
             implementation(project(":shared:designsystem"))
-            implementation(project(":shared:network"))
             implementation(project(":shared:campus"))
             implementation(project(":feature:account"))
             implementation(project(":feature:home"))

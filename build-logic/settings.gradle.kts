@@ -1,7 +1,6 @@
-// build-logic —— 各 KMP 模块共用的约定插件（目标平台、compileSdk、wasm、测试落盘根）。
+// Shared build conventions for iOS device and simulator libraries.
 dependencyResolutionManagement {
     repositories {
-        google()
         mavenCentral()
         gradlePluginPortal()
     }

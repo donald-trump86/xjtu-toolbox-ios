@@ -1,52 +1,46 @@
 # iOS 功能与验证矩阵
 
-本表区分代码实现、离线协议测试、模拟器运行、真机运行和真实校园账号。iOS/iPadOS Fork 的首个可编译版本已具备账号、课表、成绩、首页与设置；真实 CAS/MFA、校外 WebVPN 和教务数据仍需本人在设备上验收。模拟器交互测试只输入合成账号，未提交登录。
+当前分支仅维护 iPhone / iPad，最低系统为 16.0。代码实现、模拟器验证、真机与真实校园账号分开记录。协议测试使用合成 fixture；交互测试输入合成账号且不提交登录。
 
-## 功能范围
+## 当前功能
 
-| 级别 | 功能 | 已实现及本次证据 | 尚未验证或未接入 |
-|---|---|---|---|
-| P0 | UIKit 宿主与共享 UI | SceneDelegate 承载同一个 ComposeUIViewController；复用账号、首页、课表、成绩、设置、MIUIX 与原图标 | 真机触感、分屏和内存压力 |
-| P0 | CAS 与 RSA | KMP 直连状态机、Ksoup DOM 表单解析、标准 RSA/PKCS#1；JVM 与 Native 测试通过 | 真实校园登录 |
-| P0 | 两种短信 MFA | detect 与 safety 分支、gid、原地址/Referer 恢复提交、三次/150 秒限制；fixture 通过 | 真实短信收发、验证码及学校风控；没有绕过流程 |
-| P0 | 直连与 WebVPN | 用户明确选择路由；网关与业务认证分离；有效代理落地、过期恢复及一次重放测试通过 | 校内/校外真实网络；尚无自动探测切换 |
-| P0 | 会话与安全存储 | 按账号、路由、业务站隔离 cookie/token；恢复、过期、退出、锁定存储错误及后台禁止触发 MFA 均有测试 | 真机冷启动、锁屏、重签/团队变化后的恢复 |
-| P0 | Keychain 与私有缓存 | iPhone/iPad App 宿主均完成真实 Keychain 往返、跨实例读取、类型、删除和命名空间隔离 | 设备缓存容量、长时间离线及系统回收 |
-| P0 | 基础身份 | 显示账号 NetID | 姓名、真实学号、院系接口未接入；不把 NetID 冒充学号 |
-| P0 | 课表 | JWXT 学期、周次、课程详情、教师/教室、调停课、刷新、带时间戳缓存；复用共享模型、算法与页面 | 真实账号数据及真实离线重启 |
-| P0 | 自建日程与退出隔离 | 共享存储适配器；课表/考试/自建日程/调课快照进入 Keychain；退出撤销旧任务写入权限；并发和迟到写入测试通过 | 大量真实数据下的性能 |
-| P0 | 成绩 | JWAPP 学期筛选、学分、GPA、课程明细、无明细响应与缓存；共享页面和计算器 | 真实成绩/GPA 与明细权限 |
-| P0 | 首页、设置与交互 | 仅开放已接入路由；中文导航、合成输入、密码遮罩、键盘、浅深色切换、横屏通过模拟器测试 | 无障碍完整审计、真机输入法和触感 |
-| P1 | 考试只读 | 已纳入课表学期视图，离线 fixture 通过 | 真实考试安排 |
-| P1 | 校园卡、图书馆、通知、思源学堂、下载、多账号管理 | 尚未接入，首页不展示入口 | 待 P0 真实账号验收后推进 |
-| P1 | 教材、成绩报告、档案导入/导出 | 未接入；宿主隐藏入口并关闭未支持的教材请求 | 后续单独实现 |
-| P1/P2 | 校园写操作 | 未开放 | 预约、取消、签到、支付等须逐项验证 |
-| P2 | AI、交晓智、论坛、场馆、付款码、体测等 | 未接入，不提供空白页面 | 后续范围 |
+| 功能 | 已实现与证据 | 验收边界 |
+| --- | --- | --- |
+| UIKit 与 Compose | SceneDelegate 承载 ComposeUIViewController；账号、首页、课表、成绩和设置共用 Compose / MIUIX 页面 | 真机触感、分屏与内存压力待验证 |
+| 应用图标 | 新绘蓝白 / 米金色腾飞塔与书页，1024 × 1024 不透明资源已打入设备包 | 非学校官方标识 |
+| CAS / RSA | 设备直连、Ksoup DOM 表单、标准 RSA / PKCS#1；Native fixture 与 Security.framework 测试通过 | 真实校园登录待验证 |
+| 短信 MFA | detect 与 safety 分支；gid、原地址 / Referer、三次 / 150 秒限制；后台不主动发送短信 | 真实短信与学校风控待验证 |
+| 直连 / WebVPN | 用户选择路由；网关与业务认证分离；合法代理落地、过期恢复和一次重放有回归 | 校内 / 校外网络待验证；无自动路由切换 |
+| 会话与退出 | 账号、路由、业务站隔离 Cookie / token；恢复、过期、锁定错误、退出与迟到写入有测试 | 真机冷启动、锁屏与重签恢复待验证 |
+| Keychain | iPhone / iPad 宿主均完成真实往返、跨实例读取、类型、删除与命名空间隔离 | 设备容量、长期离线及系统回收待验证 |
+| 基础身份 | 当前显示 NetID | 姓名、真实学号与院系未接入 |
+| 课表 | 学期 / 周切换、教师 / 教室、课程详情、调停课、考试、自建课程、刷新与时间戳缓存 | 真实教务数据与离线重启待验证 |
+| 成绩 | 学期、学分、GPA、明细、无明细响应及缓存；页面状态与算法运行 Native 测试 | 真实成绩、GPA 与明细权限待验证 |
+| 交互与设置 | 中文、合成输入、密码遮罩、键盘、登录限宽、浅深色和实际横屏尺寸 | 完整无障碍与真机输入法 / 触感待验证 |
 
-## 构建与运行证据
+校园卡、图书馆、通知、思源学堂、教材、成绩报告、档案导入 / 导出、多账号管理、AI、社区、场馆和支付等业务未在本分支接入，界面不提供空白入口。校园预约、取消、签到等写操作也未开放。
 
-| 项目 | 本次结果 | 证据或边界 |
-|---|---|---|
-| 基线审计 | 完成 | `23b835c5716d38edfd0ff046c518de3804c1f70e`，`feat/ios-port`；Fork origin 与原 upstream 保留 |
-| `iosSimulatorArm64` | 通过 | Debug 静态 framework 与 UIKit 宿主实际构建、启动 |
-| `iosArm64` | 通过 | Release framework 与 generic/platform=iOS 设备应用；打包脚本检查 `arm64` 和 `platform IOS` |
-| JVM 回归 | **590 项通过** | campus 47、model 208、schedule 50、score 12、旧 shared:data 273；无失败/跳过 |
-| Native 回归 | **44 项通过** | 通用协议 fixture 与 Security.framework RSA/CSPRNG；无失败/跳过 |
-| iPhone | 通过 | 常规 iPhone 14 / iOS 27.0；交互与 App 宿主 Keychain；合成输入，不访问学校 |
-| iPad | 通过 | iPad Pro 13-inch (M4) / iPadOS 27.0；宽屏、键盘、主题与 App 宿主 Keychain |
-| 宽屏与旋转追加回归 | 两端通过 | 修正登录框限宽顺序；输入框实际宽度、横屏窗口宽于高及稳定后的截图均验证。Duo/iOS 27.1 双屏横屏断言仍超时，不宣称该场景支持 |
-| Android Debug APK | 通过 | 最终限宽修复后 `:app:assembleDebug` 再次成功，APK 53,089,506 字节 |
-| 未签名设备 IPA | 通过 | Release、`arm64`、`platform IOS`、iOS 16.0、iPhone/iPad；16,691,631 字节，ZIP 校验通过；见[验收记录](ios-validation.md#设备产物)。仍需本人重签 |
-| 远程 CI | 仅配置，未运行 | 使用官方 Xcode 27 arm64 preview 镜像并固定 Xcode 27.1；不宣称远程通过 |
-| 真机启动 / SideStore 安装 | 未验证 | 缺本人设备配对及签名/重签操作 |
-| 真实 CAS / WebVPN / 课表 / 成绩 | 未验证 | 须本人在 App 内登录、正常完成必要 MFA |
+## 本次 iOS-only 清理后的证据
 
-## 安全与架构边界
+| 项目 | 结果 | 范围 |
+| --- | --- | --- |
+| 构建结构 | 通过 | 10 个模块；Kotlin 库仅 `iosArm64` / `iosSimulatorArm64`；旧平台模块及 source set 已移除 |
+| 模拟器 framework | 通过 | Debug `iosSimulatorArm64` 与 UIKit 宿主实际构建 |
+| 设备 framework / App | 通过 | Release、`generic/platform=iOS`、设备 `arm64` / `IOS` |
+| Native 回归 | **260 项通过** | campus 46、model 103、navigation 13、designsystem 27、home 21、schedule 45、score 5；无失败、错误或跳过 |
+| iPhone 14 / iOS 27.0 | 通过 | 清理后重新运行交互与 App 宿主 Keychain；合成输入，不访问学校 |
+| iPad Pro 13-inch (M4) / iPadOS 27.0 | 通过 | 清理后重新验证宽屏、输入限宽、键盘、主题、横屏与 App 宿主 Keychain |
+| 未签名设备 IPA | 通过 | 18,488,179 字节；ZIP 校验通过，新图标资源与构建一致；需本人重签 |
+| 远程 CI | 仅配置 | iOS 双架构、Native、iPhone / iPad 与可选设备 IPA；未推送或远程运行 |
+| 真机 / SideStore | 未验证 | 需要本人设备配对和签名 / 重签 |
+| 真实 CAS / WebVPN / 课表 / 成绩 | 未验证 | 由本人在 App 内正常登录并完成 MFA |
 
-[iosShared](../iosShared/build.gradle.kts) 只依赖选定的共享 UI、模型、导航、网络和新的 [shared:campus](../shared/campus/build.gradle.kts)，不引用 JVM 的 shared:data、core、data 或 server。设备直接访问学校，不要求桌面客户端、Node/JVM 服务或个人代理。
+Duo / iOS 27.1 的双屏横屏断言在前次移植验收中超时，当前不宣称支持该场景。常规 iPhone 与 iPad 是本次交互基线。
 
-账号密码、cookie、令牌和私有缓存存入 iOS Keychain；普通偏好不承担凭据存储。Darwin 引擎使用 ephemeral session，关闭系统 cookie 和 URLCache，保留系统 TLS 与 ATS 验证。cookie 以账号、路由、业务站及域/路径/安全标志/期限匹配；退出同时撤销旧缓存句柄并清理账号数据。协议日志不输出凭据或个人数据。
+## 架构与数据
 
-新协议层位于 commonMain，平台差异集中在引擎、RSA/CSPRNG 和凭据存储。原 Android/JVM 适配器暂时保留，避免在未完成真实 iOS 验收前替换成熟登录路径；共享模型、课表调整和 GPA 算法继续复用。后续应按 Source 逐项切换到该公共协议层，再删除旧适配器，不能长期独立修补两份同一业务协议。
+[iosShared](../iosShared/build.gradle.kts) 只连接选定的 UI、模型、导航、设计系统和 [shared:campus](../shared/campus/build.gradle.kts)。协议位于 `commonMain`，平台实现集中在 Darwin 引擎、Security.framework RSA / 随机数和 Keychain；保留的 `commonTest` 在 iOS 模拟器运行。Gradle 的 JDK 用于构建工具，不是额外应用平台。
 
-[构建说明](ios-build.md)、[SideStore 安装](ios-sidestore.md)、[源码审计与取舍](ios-port-plan.md)和[本次验收记录](ios-validation.md)包含命令、结果与未验证原因。
+账号凭据、Cookie、令牌与个人缓存进入 Keychain；普通偏好不存储凭据。Darwin 使用 ephemeral session，关闭系统共享 Cookie / URLCache，保留系统 TLS / ATS 验证。Cookie 按账号、路由、业务站、域、路径、Secure 标志和期限匹配。退出撤销旧缓存句柄并清理账号数据，拒绝旧任务写回。认证日志不输出凭据或个人数据。
+
+当前协议只有这一份 Native 共用实现，旧 Android / JVM 网络适配器及其他平台工程已从分支移除；上游版权与历史保留。命令、产物校验和最终结果见 [构建说明](ios-build.md)、[SideStore 指南](ios-sidestore.md) 和 [验收记录](ios-validation.md)。

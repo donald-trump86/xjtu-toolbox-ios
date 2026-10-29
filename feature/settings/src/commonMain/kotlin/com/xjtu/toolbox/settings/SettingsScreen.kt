@@ -415,9 +415,9 @@ fun SettingsScreen(
                 }
                 ArrowPreference(
                     title = "项目主页",
-                    summary = "GitHub · yeliqin666/xjtu-toolbox-android",
+                    summary = "GitHub · donald-trump86/xjtu-toolbox-ios",
                     startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
-                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios") }
                 )
                 ArrowPreference(
                     title = "用户协议与隐私政策",
@@ -432,45 +432,28 @@ fun SettingsScreen(
             SmallTitle("致谢")
             SettingsCard {
                 ArrowPreference(
+                    title = "岱宗盒子 by yeliqin666",
+                    summary = "本 Fork 的上游 · 界面与校园协议基础 · GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
+                )
+                ArrowPreference(
                     title = "XJTUToolBox by yan-xiaoo",
                     summary = "开源社区项目",
                     startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
                     onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
                 )
-            }
-            // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
-            // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
-            SmallTitle("小游戏的上游项目")
-            SettingsCard {
                 ArrowPreference(
-                    title = "suika-game by moonfloof",
-                    summary = "「合成西交大」的玩法与实现基础 · Unlicense",
+                    title = "MIUIX",
+                    summary = "Compose 界面组件 · Apache-2.0",
                     startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/moonfloof/suika-game") }
+                    onClick = { host.onOpenUrl("https://github.com/compose-miuix-ui/miuix") }
                 )
                 ArrowPreference(
-                    title = "Matter.js by liabru",
-                    summary = "「合成西交大」的物理引擎 · MIT",
+                    title = "第三方代码与资源声明",
+                    summary = "完整来源与许可证",
                     startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/liabru/matter-js") }
-                )
-                ArrowPreference(
-                    title = "chinese-chess-fish-android by zfdang",
-                    summary = "象棋规则引擎 · MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/zfdang/chinese-chess-fish-android") }
-                )
-                ArrowPreference(
-                    title = "Etoile by JoyinJoester",
-                    summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/JoyinJoester/Etoile") }
-                )
-                ArrowPreference(
-                    title = "blackstone by haslam22",
-                    summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/haslam22/blackstone") }
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/feat/ios-port/THIRD_PARTY_NOTICES.md") }
                 )
             }
         }

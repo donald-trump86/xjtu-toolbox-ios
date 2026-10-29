@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       package_unsigned_ipa:
-        description: Build an unsigned device IPA for local SideStore re-signing
+        description: Build a device IPA for SideStore re-signing
         type: boolean
         default: false
   pull_request:
@@ -15,8 +15,10 @@ on:
       - 'feature/**'
       - 'build-logic/**'
       - 'gradle/**'
-      - 'settings.gradle.kts'
-      - 'scripts/*ios*'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - 'scripts/**'
+      - 'artwork/app-icon-master.png'
       - '.github/workflows/ios.yml'
 
 permissions:
@@ -27,9 +29,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unsigned-validation:
-    # The official Xcode 27 arm64 image is currently a public preview.
-    # See docs/ios-build.md; no remote CI run is claimed by the local port.
+  native-validation:
+    # Official Xcode 27 arm64 image; currently a public preview.
     runs-on: xcode-27
     timeout-minutes: 90
     env:
@@ -40,10 +41,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK used during Gradle configuration
-        run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0' 'build-tools;36.0.0'
-      - name: Prepare XcodeGen and show exact toolchain
+      - name: Prepare XcodeGen and show the toolchain
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
           test "$(uname -m)" = arm64
@@ -51,15 +49,6 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           java -version
           sh scripts/gradle-ios.sh --version
-      - name: Compile Apple targets and run JVM and Android regression
-        run: >-
-          sh scripts/gradle-ios.sh
-          :iosShared:linkDebugFrameworkIosSimulatorArm64
-          :iosShared:linkReleaseFrameworkIosArm64
-          :shared:campus:jvmTest :shared:model:jvmTest
-          :feature:schedule:jvmTest :feature:score:jvmTest
-          :shared:data:jvmTest :app:assembleDebug
-          --console=plain --max-workers=4
       - name: Select installed iPhone and iPad simulators
         id: simulators
         run: |
@@ -75,38 +64,53 @@ jobs:
                   matches.sort(key=lambda d: ('Duo' in d['name'], 'Pro' not in d['name'], d['name']))
                   print(kind.lower() + '=' + matches[0]['udid'], file=output)
           PY
-      - name: Run Native protocol and Security framework tests
+      - name: Build both Apple frameworks and run Native tests
         run: >-
-          sh scripts/gradle-ios.sh :shared:campus:iosSimulatorArm64Test
-          -PiosSimulatorDevice=${{ steps.simulators.outputs.iphone }} --console=plain
-      - name: Test iPhone UI and app-hosted Keychain with a local identity
+          sh scripts/gradle-ios.sh
+          :iosShared:linkDebugFrameworkIosSimulatorArm64
+          :iosShared:linkReleaseFrameworkIosArm64
+          :shared:campus:iosSimulatorArm64Test
+          :shared:model:iosSimulatorArm64Test
+          :shared:navigation:iosSimulatorArm64Test
+          :shared:designsystem:iosSimulatorArm64Test
+          :feature:account:iosSimulatorArm64Test
+          :feature:home:iosSimulatorArm64Test
+          :feature:schedule:iosSimulatorArm64Test
+          :feature:score:iosSimulatorArm64Test
+          :feature:settings:iosSimulatorArm64Test
+          -PiosSimulatorDevice=${{ steps.simulators.outputs.iphone }}
+          --console=plain --max-workers=2
+      - name: Test iPhone UI and app-hosted Keychain
         run: sh scripts/test-ios-simulator.sh '${{ steps.simulators.outputs.iphone }}'
-      - name: Test iPad UI and app-hosted Keychain with a local identity
+      - name: Test iPad UI and app-hosted Keychain
         run: sh scripts/test-ios-simulator.sh '${{ steps.simulators.outputs.ipad }}'
-      - name: Compile device host without signing
+      - name: Build device host without signing
         run: >-
           xcodebuild -project iosApp/XJTUToolbox.xcodeproj -scheme XJTUToolbox
           -configuration Debug -destination 'generic/platform=iOS'
           -derivedDataPath build/ios/DeviceDerivedData
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
-      - name: Package unsigned device IPA on request
+      - name: Package device IPA on request
         if: github.event_name == 'workflow_dispatch' && inputs.package_unsigned_ipa
         run: sh scripts/build-ios-ipa.sh unsigned
       - name: Save build and test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-validation
+          name: ios-validation
           retention-days: 7
           if-no-files-found: warn
           path: |
             iosShared/build/bin/iosArm64/releaseFramework/
             iosShared/build/bin/iosSimulatorArm64/debugFramework/
-            shared/campus/build/reports/tests/
-            shared/campus/build/test-results/
+            shared/*/build/reports/tests/
+            shared/*/build/test-results/
+            feature/*/build/reports/tests/
+            feature/*/build/test-results/
             build/ios/*.xcresult
             build/ios/XJTUToolbox-unsigned.ipa
+            build/ios/XJTUToolbox-unsigned.ipa.sha256
             build/ios/device-platform.txt
 
-# Device signing is deliberately local: scripts/build-ios-ipa.sh signed.
-# No private signing material, account passwords, upstream push or public Release.
+# Real-device signing stays local: scripts/build-ios-ipa.sh signed.
+# Simulator tests use an ad-hoc identity; CI stores no private signing material.

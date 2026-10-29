@@ -1,79 +1,83 @@
 # iOS 构建与验证
 
-本 Fork 使用 UIKit SceneDelegate 承载 Compose Multiplatform，复用账号、首页、课表、成绩和设置页面。设备直接连接学校 CAS、教务和 WebVPN；不需要桌面端、本项目 server 或个人代理。源码审计见 [移植计划](ios-port-plan.md)，实现与验收范围见 [功能矩阵](ios-feature-matrix.md)。
+本分支仅维护 iOS / iPadOS。UIKit SceneDelegate 承载 Compose Multiplatform 界面，Kotlin 库只声明 `iosArm64` 与 `iosSimulatorArm64`；账号、课表、成绩、首页和设置共用 `commonMain`。设备直接连接学校系统，功能与验收边界见 [功能矩阵](ios-feature-matrix.md)。
 
 ## 环境
 
-- Apple Silicon Mac、Xcode 27.1、iOS SDK 和 Command Line Tools。
-- JDK 21。仓库固定 Gradle 9.6.1、Kotlin 2.4.20、Compose 1.12.1、Ktor 3.6.0。
-- Android SDK Platform 37.0、Build Tools 37.0.0；AGP 在本次构建中还安装了默认的 Build Tools 36.0.0。根工程会配置 Android 模块，iOS 编译也应准备 SDK。
-- 运行测试前安装兼容的模拟器运行时。纯设备 framework 编译不要求运行时。
-- XcodeGen 用于重新生成宿主工程和运行模拟器测试脚本；生成后的工程也保存在仓库中。
+- Apple Silicon Mac、Xcode **27.1**（本次为 27A9275）、iOS SDK 和 Command Line Tools。
+- **JDK 21**，供 Gradle 构建工具运行。仓库固定 Gradle 9.6.1、Kotlin 2.4.20、Compose 1.12.1、Ktor 3.6.0、Ksoup 0.2.6。
+- **XcodeGen**，用于生成 UIKit 宿主工程；`brew install xcodegen`。
+- 运行测试时需要兼容的 iPhone / iPad 模拟器运行时。编译设备 framework 和未签名 IPA 不要求模拟器运行时。
 
-[gradle-ios.sh](../scripts/gradle-ios.sh) 保留调用者设置的 JAVA_HOME、GRADLE_USER_HOME、KONAN_DATA_DIR、ANDROID_USER_HOME 和 ANDROID_HOME。未设置时优先使用仓库内的可选工具链与忽略目录，不改写 HOME。
+[gradle-ios.sh](../scripts/gradle-ios.sh) 保留调用者的 `JAVA_HOME`、`GRADLE_USER_HOME` 和 `KONAN_DATA_DIR`。未指定 JDK 时会使用仓库内可选的 JDK 21；缓存默认放在 `.gradle-user-home/` 和 `build/konan/`，不改写 `HOME`。干净克隆可按下列方式使用已安装的 JDK：
 
 ```sh
 export JAVA_HOME=$(/usr/libexec/java_home -v 21)
-export ANDROID_HOME="$HOME/Library/Android/sdk"
 sh scripts/gradle-ios.sh :iosShared:tasks --all
 ```
 
-## framework 与协议测试
+## 两种 Apple 架构
 
 ```sh
 sh scripts/gradle-ios.sh \
   :iosShared:linkDebugFrameworkIosSimulatorArm64 \
   :iosShared:linkReleaseFrameworkIosArm64
-sh scripts/gradle-ios.sh \
-  :shared:campus:jvmTest :shared:model:jvmTest \
-  :feature:schedule:jvmTest :feature:score:jvmTest :shared:data:jvmTest
 ```
 
-两个 framework 分别面向模拟器 arm64 和设备 arm64，不能互换。JVM MockEngine/fixture 测试不连接学校，不使用个人凭据，只证明样本解析、状态机与回归结果。
+两者都生成 `ToolboxShared` 静态 framework，分别面向模拟器和 iOS 设备，不能互换。工程只包含 `iosShared`、四个 `shared` 库和五个 `feature` 库。
 
-原生协议及 Security.framework RSA/CSPRNG 测试使用指定的模拟器：
+## Native 协议与逻辑测试
+
+先选择一个已安装的常规模拟器：
 
 ```sh
 xcrun simctl list devices available
-SIMULATOR_UDID='<已安装模拟器的 UDID>'
-sh scripts/gradle-ios.sh :shared:campus:iosSimulatorArm64Test \
+SIMULATOR_UDID='<iPhone 模拟器的 UDID>'
+sh scripts/gradle-ios.sh \
+  :shared:campus:iosSimulatorArm64Test \
+  :shared:model:iosSimulatorArm64Test \
+  :shared:navigation:iosSimulatorArm64Test \
+  :shared:designsystem:iosSimulatorArm64Test \
+  :feature:account:iosSimulatorArm64Test \
+  :feature:home:iosSimulatorArm64Test \
+  :feature:schedule:iosSimulatorArm64Test \
+  :feature:score:iosSimulatorArm64Test \
+  :feature:settings:iosSimulatorArm64Test \
   -PiosSimulatorDevice="$SIMULATOR_UDID"
 ```
 
-Keychain 必须在具备应用身份的宿主中测试。裸 Native 命令行进程曾返回 `-25291`，完全禁用签名的宿主曾返回 `-34018`；这两种执行方式不能替代 App 的 Keychain 验证。Keychain 往返、跨实例恢复、类型、删除与命名空间隔离由下面的 App 宿主 XCTest 覆盖。
+测试在 iOS 模拟器中运行，包括 Ktor MockEngine 合成校园站、DOM 解析、CAS/MFA、WebVPN、cookie、课表、成绩、退出与并发缓存，以及领域算法和页面状态。本次保留模块共 **260 项通过**。测试不会连接学校或提交真实凭据。
 
-## Xcode 宿主与模拟器交互
+Keychain 需要具备应用身份的宿主。裸 Native 命令行进程曾返回 `-25291`，完全不签名的宿主曾返回 `-34018`；下面的宿主 XCTest 才用于验证实际 Keychain 往返、跨实例恢复、类型、删除和命名空间隔离。
 
-用 Xcode 打开 [宿主工程](../iosApp/XJTUToolbox.xcodeproj/project.pbxproj)，选择 XJTUToolbox scheme 和 iPhone/iPad 模拟器。最低系统为 iOS/iPadOS 16.0，支持两个设备系列。UIKit 使用 scene 生命周期；构建阶段调用 embedAndSignAppleFrameworkForXcode 同步静态 framework 和 Compose 资源。
+## Xcode 宿主、Keychain 与交互测试
 
-只验证宿主编译时可以关闭签名：
+可用 Xcode 打开 [宿主工程](../iosApp/XJTUToolbox.xcodeproj/project.pbxproj)，选择 `XJTUToolbox` scheme 和 iPhone / iPad 模拟器。最低系统为 **iOS / iPadOS 16.0**。构建阶段调用 `embedAndSignAppleFrameworkForXcode`，同步静态 framework 与 Compose 资源。
 
-```sh
-xcodegen generate --spec iosApp/project.yml
-xcodebuild -project iosApp/XJTUToolbox.xcodeproj -scheme XJTUToolbox \
-  -configuration Debug -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath build/ios/SimulatorDerivedData CODE_SIGNING_ALLOWED=NO build
-```
-
-运行交互与 Keychain 测试使用 [test-ios-simulator.sh](../scripts/test-ios-simulator.sh)：
+也可运行 [模拟器测试脚本](../scripts/test-ios-simulator.sh)：
 
 ```sh
 sh scripts/test-ios-simulator.sh "$SIMULATOR_UDID"
 ```
 
-脚本启动所选模拟器，使用本地 ad-hoc 身份并保留带时间戳的 xcresult。仅 iphonesimulator SDK 使用 [Simulator.entitlements](../iosApp/Simulator.entitlements) 的 `local.` 访问组，不需要 Apple Account、开发者证书或真实 Team ID。该身份不用于设备归档。脚本关闭失败时耗时的系统 sysdiagnose 收集，保留测试断言、日志和显式截图。
+脚本生成工程、启动模拟器，使用本地 ad-hoc 身份并保存带时间戳的 xcresult。[Simulator.entitlements](../iosApp/Simulator.entitlements) 的 `local.` 访问组仅用于 `iphonesimulator` SDK，无需 Apple Account、真实 Team ID 或开发者证书，也不用于设备归档。
 
-[交互测试](../iosApp/UITests/XJTUToolboxSmokeTests.swift) 使用合成输入且不提交登录；[Keychain 宿主测试](../iosApp/Tests/CampusKeychainHostTests.swift) 只访问随机测试命名空间。真实密码、短信验证码、cookie 和令牌不要放入命令、测试日志或聊天。
+[交互测试](../iosApp/UITests/XJTUToolboxSmokeTests.swift) 检查中文导航、输入限宽、键盘、合成账号、密码遮罩、浅深色切换与实际横屏尺寸，使用屏幕级截图保留证据。[Keychain 宿主测试](../iosApp/Tests/CampusKeychainHostTests.swift) 只访问随机测试命名空间。密码、短信验证码、Cookie 和令牌不要放进命令或日志。
 
-## 设备 IPA
+只检查宿主编译时可使用 `CODE_SIGNING_ALLOWED=NO build`，但不能据此宣称 Keychain 可用。
+
+## 设备 IPA 与校验文件
 
 ```sh
 sh scripts/build-ios-ipa.sh unsigned
 ```
 
-[打包脚本](../scripts/build-ios-ipa.sh) 用 Release、generic/platform=iOS 和关闭签名构建设备应用，再检查可执行文件为 arm64、平台为 IOS。检查通过后才输出 `build/ios/XJTUToolbox-unsigned.ipa`。该包需要 SideStore 重新签名；模拟器应用不能用于设备安装。
+[打包脚本](../scripts/build-ios-ipa.sh) 先运行 XcodeGen，再以 Release、`generic/platform=iOS` 和关闭签名构建设备应用。检查可执行文件为 `arm64` 且 Mach-O 平台为 `IOS` 后输出：
 
-本人已有开发者团队和导出配置时，也可在本机签名：
+- `build/ios/XJTUToolbox-unsigned.ipa`
+- `build/ios/XJTUToolbox-unsigned.ipa.sha256`
+
+这是设备包，仍需通过 [SideStore](ios-sidestore.md) 重签后安装。已有开发者团队与本机导出配置时，可在本机归档签名：
 
 ```sh
 export DEVELOPMENT_TEAM='<本机团队 ID>'
@@ -81,14 +85,26 @@ export EXPORT_OPTIONS_PLIST='<本机 ExportOptions.plist 的绝对路径>'
 sh scripts/build-ios-ipa.sh signed
 ```
 
-证书、私钥、描述文件、本地团队设置与打包产物不提交。Apple Account 由本人在 Xcode/SideStore 中处理。[iOS CI](../.github/workflows/ios.yml) 使用官方 [Xcode 27 arm64 镜像](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)，固定 `DEVELOPER_DIR=/Applications/Xcode_27.1.app/Contents/Developer`。该镜像当前为 public preview；本次没有推送或运行远程 CI。配置包含双目标、JVM/Android、Native 与 iPhone/iPad 的 App 宿主/交互测试；未签名 IPA artifact 由手动输入选择。本地签名独立，不创建公开 Release。
+证书、私钥、描述文件、团队本地设置与构建产物不提交。Apple Account 由本人在相应工具中处理。
 
-## 数据、退出与验证边界
+## 应用图标
 
-[CampusSession](../shared/campus/src/commonMain/kotlin/com/xjtu/toolbox/campus/CampusSession.kt) 分离账号、直连/WebVPN 路由和业务站点的 cookie、令牌与认证状态。iOS 凭据、会话及私有缓存进入 [Keychain](../shared/campus/src/iosMain/kotlin/com/xjtu/toolbox/campus/CampusPlatform.ios.kt)，要求解锁且不跨设备同步。设置使用非敏感偏好存储。网络采用系统 TLS，不配置 ATS 全局放行；Darwin 引擎关闭系统共享 cookie 和 URLCache，应用自管 cookie jar。
+母版为 [app-icon-master.png](../artwork/app-icon-master.png)。通过 CoreGraphics / ImageIO 生成 1024 × 1024、不透明 sRGB 图标：
 
-退出先撤销旧账号缓存写入权限、清理 ViewModel 和缓存，再删除会话。成绩缓存也绑定账号与会话代数，拒绝退出后的迟到写入。普通关页保留离线数据。锁定或不可用的 Keychain 读取会显示可恢复错误，不应导致启动崩溃。
+```sh
+swift scripts/generate-ios-icons.swift \
+  artwork/app-icon-master.png \
+  iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+```
 
-编译、模拟器运行、设备运行、SideStore 安装与真实校园账号分别记录在 [功能矩阵](ios-feature-matrix.md)。真实短信、校园网/校外路由、掉线恢复和重签后的 Keychain 仍需目标设备验证。卸载或更换签名团队后不保证旧 Keychain 状态可恢复。
+图标以蓝色背景、腾飞塔与展开书页构成，未预切圆角。造型参考及第三方资源声明见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)。
 
-本 Fork 保留原版权与 [GPL-3.0](../LICENSE)。分发 IPA 时需提供相应源码、许可证和修改说明。
+## CI、隐私与验证边界
+
+[iOS CI](../.github/workflows/ios.yml) 使用官方 [Xcode 27 arm64 镜像](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)，固定 Xcode 27.1；镜像当前为 public preview。配置包含双架构 framework、Native 测试、iPhone / iPad 宿主与交互测试、设备构建和可选未签名 IPA artifact。本次未推送或执行远程 CI，未配置公开 Release 或证书签名流水线。
+
+[CampusSession](../shared/campus/src/commonMain/kotlin/com/xjtu/toolbox/campus/CampusSession.kt) 分离账号、直连 / WebVPN 路由及业务站会话。[Keychain 实现](../shared/campus/src/iosMain/kotlin/com/xjtu/toolbox/campus/CampusPlatform.ios.kt) 要求设备解锁且不跨设备同步。Darwin 使用 ephemeral session，关闭系统共享 Cookie 与 URLCache，保留系统 TLS / ATS 验证。退出撤销旧缓存句柄、清理 ViewModel 与私有缓存，再删除会话，拒绝迟到请求写回。
+
+编译、模拟器、真机、SideStore 和真实校园账号分别记录在 [验证记录](ios-validation.md)。真实 MFA、校外网络、掉线恢复、缓存容量和重签后的 Keychain 仍需目标设备验收；卸载或更换签名团队后不保证旧状态可恢复。
+
+本 Fork 保留上游版权与 [GPL-3.0](../LICENSE)。分发 IPA 时应同时提供对应源码、许可证与修改说明。

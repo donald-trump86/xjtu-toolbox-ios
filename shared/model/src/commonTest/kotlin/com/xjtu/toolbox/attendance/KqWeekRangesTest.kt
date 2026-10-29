@@ -13,7 +13,7 @@ class KqWeekRangesTest {
     }
 
     @Test
-    fun `blank or malformed segments are skipped, not fatal`() {
+    fun malformedSegmentsAreSkippedWithoutFailure() {
         assertEquals(emptySet<Int>(), KqWeekRanges.parse(""))
         assertEquals(setOf(1, 2), KqWeekRanges.parse("1-2,,garbage,-,3-1"))
     }
@@ -29,7 +29,7 @@ class KqWeekRangesTest {
     }
 
     @Test
-    fun `weeks beyond maxWeekNum are dropped, not out of bounds`() {
+    fun weeksPastMaximumAreDroppedWithoutOverflow() {
         val bits = KqWeekRanges.mergeToBits(listOf("1-20"), 16)
         assertEquals(16, bits.length)
         assertEquals('1', bits[15])

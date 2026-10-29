@@ -1,35 +1,40 @@
-name: 缺陷反馈
-description: 闪退、报错、显示不对、数据对不上
-title: "[Bug] "
+name: iOS 缺陷反馈
+description: 岱宗盒子 iPhone / iPad 的崩溃、请求或显示问题
+title: "[iOS] "
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        学校系统本身挂了请用「校园系统状态」。别贴密码、Cookie、完整学号，截图记得打码。
+        请说明设备、安装方式和复现步骤。请勿提交密码、验证码、Cookie、令牌、配对文件、证书或完整个人课表/成绩，截图请先脱敏。
   - type: textarea
-    id: what-happened
+    id: reproduction
     attributes:
-      label: 出了什么问题
-      description: 在哪个页面、做了什么、看到了什么。能稳定复现的话顺手写下步骤。
+      label: 问题与复现步骤
+      description: 所在页面、具体操作、预期结果与实际结果；若为请求问题，请说明校园直连还是学校 WebVPN。
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: 应用版本
-      description: 设置 → 关于 里能看到
-      placeholder: 例如 5.2.1 或 5.2.1-dev.225
+      label: 应用版本或构建 commit
+      placeholder: 例如 0.1.0（1）或构建源码的 commit
     validations:
       required: true
   - type: input
     id: device
     attributes:
       label: 机型与系统
-      placeholder: 例如 小米 15，Android 16
-  - type: textarea
-    id: log
+      placeholder: 例如 iPhone 14 / iOS 27.0，或 iPad Pro / iPadOS 27.0
+    validations:
+      required: true
+  - type: input
+    id: installation
     attributes:
-      label: 崩溃日志或报错原文
-      description: 没有就空着
-      render: text
+      label: 安装与签名方式
+      placeholder: 例如 SideStore 版本、是否最近刷新或更换过签名账号；无需提供账号本身
+  - type: textarea
+    id: error
+    attributes:
+      label: 脱敏错误文字或截图
+      description: 保留错误码和发生时间，去除个人信息；没有可留空。
