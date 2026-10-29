@@ -1,5 +1,9 @@
 # 岱宗盒子
 
+> 本 Fork 增加独立运行的 **iOS / iPadOS 16+** 客户端，入口为 UIKit + Compose Multiplatform。它复用现有账号、首页、课表、成绩和设置页面，使用 Ktor Darwin 直接连接学校，凭据与私有缓存保存在 Keychain。
+>
+> iOS 构建和 arm64 IPA 打包见 [构建说明](docs/ios-build.md)，SideStore 安装见 [安装说明](docs/ios-sidestore.md)。[功能矩阵](docs/ios-feature-matrix.md) 分别记录代码实现、编译、模拟器、真机及真实账号的验证状态。下方保留上游 Android 介绍，其完整功能列表不代表 iOS 已全部支持。
+
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" alt="Android" />
   <img src="https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue" alt="minSdk 31" />

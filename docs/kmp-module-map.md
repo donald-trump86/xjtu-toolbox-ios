@@ -350,3 +350,13 @@
 | `data/src/jvmTest/…/platform/` | `:shared:data` | `shared/data/src/jvmTest/…/platform/` | 4 |
 | `data/src/jvmTest/…/schedule/` | `:shared:data` | `shared/data/src/jvmTest/…/schedule/` | 2 |
 | `data/src/jvmTest/…/score/` | `:shared:data` | `shared/data/src/jvmTest/…/score/` | 2 |
+
+## iOS Fork 的新增边界
+
+| 模块 | Apple 目标 | 职责 |
+|---|---|---|
+| `:shared:campus` | iosArm64、iosSimulatorArm64（另有 JVM 离线测试） | Ktor 校园直连、CAS/SMS/WebVPN 状态机、隔离 cookie、Keychain、课表和成绩 Source；复用 `:shared:model` 的模型与纯算法 |
+| `:iosShared` | iosArm64、iosSimulatorArm64 | 静态 `ToolboxShared.framework`；Compose 根导航、账号生命周期、Source 注入和页面组合 |
+| `iosApp` | Xcode iPhone / iPad 应用 | UIKit 窗口、图标、系统元数据、Gradle framework 集成和 XCTest 宿主 |
+
+iOS 同时使用 `:shared:model/navigation/designsystem/network` 和 `:feature:account/home/schedule/score/settings` 的 Apple targets。现有 `:core` 转发全部功能，因此 iOS 不依赖它；`toolbox.kmp.jvm-android`、`:data` 与 `:shared:data` 仍维持原有 Android/JVM 目标，未把 Java、OkHttp 或 Jsoup 编入 Apple framework。完整审计和后续迁移约束见 [iOS 移植计划](ios-port-plan.md)。
