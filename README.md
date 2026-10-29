@@ -4,7 +4,7 @@
 
 # XJTU Toolbox for iOS
 
-**这个 Fork 主要为了在 iPhone 和 iPad 上使用 XJTU Toolbox（岱宗盒子）。** 它基于 [yeliqin666/xjtu-toolbox-android](https://github.com/yeliqin666/xjtu-toolbox-android)，复用 Kotlin / Compose 页面与领域逻辑，使用轻量 UIKit 宿主。当前分支只维护 iOS / iPadOS，最低系统版本为 **16.0**。
+**这个 Fork 主要为了在 iPhone 和 iPad 上使用 XJTU Toolbox（岱宗盒子）。** 它基于 [yeliqin666/xjtu-toolbox-android](https://github.com/yeliqin666/xjtu-toolbox-android)，复用 Kotlin / Compose 页面与领域逻辑，使用轻量 UIKit 宿主。当前主分支 `main` 只维护 iOS / iPadOS，最低系统版本为 **16.0**。
 
 课表、成绩和校园认证直接连接学校系统。凭据、会话与个人缓存保存在设备 Keychain，运行时不需要自建后端。
 
@@ -38,7 +38,7 @@
 需要 Apple Silicon Mac、**Xcode 27.1、JDK 21、XcodeGen**。首次构建会下载 Gradle 和 Kotlin/Native 依赖。
 
 ```sh
-git clone --branch feat/ios-port https://github.com/donald-trump86/xjtu-toolbox-ios.git
+git clone --branch main https://github.com/donald-trump86/xjtu-toolbox-ios.git
 cd xjtu-toolbox-ios
 export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 brew install xcodegen

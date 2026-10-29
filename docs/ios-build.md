@@ -101,7 +101,7 @@ swift scripts/generate-ios-icons.swift \
 
 ## CI、隐私与验证边界
 
-[iOS CI](../.github/workflows/ios.yml) 使用官方 [Xcode 27 arm64 镜像](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)，固定 Xcode 27.1；镜像当前为 public preview。配置包含双架构 framework、Native 测试、iPhone / iPad 宿主与交互测试、设备构建和可选未签名 IPA artifact。本次未推送或执行远程 CI，未配置公开 Release 或证书签名流水线。
+[iOS CI](../.github/workflows/ios.yml) 使用官方 [Xcode 27 arm64 镜像](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)，固定 Xcode 27.1；镜像当前为 public preview。配置包含双架构 framework、Native 测试、iPhone / iPad 宿主与交互测试、设备构建和可选未签名 IPA artifact。尚未执行远程 CI，未配置公开 Release 或证书签名流水线。
 
 [CampusSession](../shared/campus/src/commonMain/kotlin/com/xjtu/toolbox/campus/CampusSession.kt) 分离账号、直连 / WebVPN 路由及业务站会话。[Keychain 实现](../shared/campus/src/iosMain/kotlin/com/xjtu/toolbox/campus/CampusPlatform.ios.kt) 要求设备解锁且不跨设备同步。Darwin 使用 ephemeral session，关闭系统共享 Cookie 与 URLCache，保留系统 TLS / ATS 验证。退出撤销旧缓存句柄、清理 ViewModel 与私有缓存，再删除会话，拒绝迟到请求写回。
 
