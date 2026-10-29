@@ -20,7 +20,13 @@ dependencyResolutionManagement {
     // 不用 FAIL_ON_PROJECT_REPOS：KGP 会以工程级仓库加 Node/Yarn 发行包且无法关掉；PREFER_SETTINGS 下工程级仓库被忽略。
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
-        google()
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
         mavenCentral()
         // Node / Yarn 发行包，includeModule 锁死到这两个构件；Yarn 在 GitHub Releases，校园网要走代理。
         ivy("https://nodejs.org/dist") {
@@ -81,4 +87,8 @@ include(":feature:schedule")
 include(":feature:score")
 include(":feature:settings")
 include(":feature:webvpn")
+
+// 独立 iOS 客户端：只复用 portable 层，运行时不依赖 :server / :data。
+include(":shared:campus")
+include(":iosShared")
 

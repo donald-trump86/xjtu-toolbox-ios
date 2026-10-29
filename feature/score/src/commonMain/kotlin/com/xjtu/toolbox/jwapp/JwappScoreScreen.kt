@@ -95,7 +95,7 @@ fun JwappScoreScreen(
     source: JwappScoreSource?,
     studentId: String = "",
     onBack: () -> Unit,
-    onOpenReport: () -> Unit = {},
+    onOpenReport: (() -> Unit)? = null,
     /** 电子成绩单入口；只有本科生传，研究生不传就不显示。 */
     onOpenTranscript: (() -> Unit)? = null,
     jwxt: JwxtScoreSupplement? = null,
@@ -223,8 +223,10 @@ fun JwappScoreScreen(
                 },
                 actions = {
                     // 成绩报表（FR 报表，含加权 GPA）——此前无入口，补回右上角
-                    IconButton(onClick = onOpenReport) {
-                        Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
+                    onOpenReport?.let { openReport ->
+                        IconButton(onClick = openReport) {
+                            Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
+                        }
                     }
                     // GPA 映射表
                     IconButton(onClick = { showGpaTips.value = true }) {

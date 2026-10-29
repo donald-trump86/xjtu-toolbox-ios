@@ -46,6 +46,16 @@ internal fun Project.configureKmpLibrary(wasm: Boolean) {
     kmp.jvm()
 
     if (wasm) kmp.wasmBrowser()
+    // iOS 首阶段仅启用实际复用模块，不给 JVM-only 数据层或尚未移植的功能创建空目标。
+    val appleModules = setOf(
+        ":shared:model", ":shared:navigation", ":shared:designsystem", ":shared:network",
+        ":feature:account", ":feature:home", ":feature:schedule", ":feature:score", ":feature:settings",
+    )
+    if (path in appleModules) {
+        kmp.iosArm64()
+        kmp.iosSimulatorArm64()
+        kmp.applyDefaultHierarchyTemplate()
+    }
 
     val catalog = libs
     kmp.sourceSets.getByName("commonMain").dependencies {
@@ -71,6 +81,7 @@ internal fun Project.configureKmpLibrary(wasm: Boolean) {
             val root = layout.buildDirectory.dir("testStoreRoot")
             doFirst { root.get().asFile.deleteRecursively() }
             systemProperty("xjtu.toolbox.keyValueRoot", root.get().asFile.absolutePath)
+            systemProperty("skiko.data.path", layout.buildDirectory.dir("skiko").get().asFile.absolutePath)
         }
     }
 }

@@ -452,8 +452,9 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
             host.onScheduleSynced()
             if (contentChanged && cachedOptimized != null) send(ScheduleEvent.Message("日程有更新"))
             // 用未过滤节假日的课表比，否则放假会被误判成「课被取消了」
-            ScheduleDiff.summarize(ScheduleDiff.diffAndStore(scheduleDiffStore(), termCode, freshCourses, lastServedSourceKey))?.let { msg ->
-                ScheduleDiff.setPending(scheduleDiffStore(), msg)
+            val changeStore = host.changeStore ?: scheduleDiffStore()
+            ScheduleDiff.summarize(ScheduleDiff.diffAndStore(changeStore, termCode, freshCourses, lastServedSourceKey))?.let { msg ->
+                ScheduleDiff.setPending(changeStore, msg)
                 // 屁岱气泡：只有本端有统一消息那一档时才冒（见 ScheduleCapability.SCHEDULE_CHANGE_BUBBLE）
                 if (ScheduleCapability.SCHEDULE_CHANGE_BUBBLE in host.honored) host.postScheduleChange(msg)
                 send(ScheduleEvent.Message(msg, long = true))
@@ -643,6 +644,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
      * 登录过期也不弹回登录——用户只是点开了一门课。两条路径都先上缓存。
      */
     private fun loadTextbooks(termCode: String, background: Boolean = false) {
+        if (!host.supportsTextbooks) return
         val jw = activeSource
         val blocked = when {
             jw == null -> "尚未登录教务系统"

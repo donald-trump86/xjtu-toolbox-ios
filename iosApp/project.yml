@@ -1,0 +1,83 @@
+name: XJTUToolbox
+options:
+  bundleIdPrefix: me.luvch1nabest
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "27.1"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+configs:
+  Debug: debug
+  Release: release
+targets:
+  XJTUToolbox:
+    type: application
+    platform: iOS
+    supportedDestinations: [iOS]
+    sources:
+      - path: Sources
+      - path: Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.luvch1nabest.xjtutoolbox
+        PRODUCT_NAME: XJTUToolbox
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../iosShared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -framework ToolboxShared"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": Simulator.entitlements
+    preBuildScripts:
+      - name: Build Kotlin Compose framework
+        script: |
+          if [ "${SKIP_KOTLIN_BUILD:-NO}" != "YES" ]; then
+            sh "$SRCROOT/../scripts/gradle-ios.sh" :iosShared:embedAndSignAppleFrameworkForXcode
+          fi
+        basedOnDependencyAnalysis: false
+  XJTUToolboxHostTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: XJTUToolbox
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.luvch1nabest.xjtutoolbox.hosttests
+        GENERATE_INFOPLIST_FILE: YES
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../iosShared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+  XJTUToolboxUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: XJTUToolbox
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.luvch1nabest.xjtutoolbox.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  XJTUToolbox:
+    build:
+      targets:
+        XJTUToolbox: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - XJTUToolboxHostTests
+        - XJTUToolboxUITests
+    archive:
+      config: Release

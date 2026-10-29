@@ -54,6 +54,9 @@ interface ScheduleHost {
     /** 按账号开一份课表族缓存。 */
     fun cache(accountId: String?): ScheduleCacheStore
 
+    /** 可注入账号作用域的变更快照；未提供时沿用现有平台存储。 */
+    val changeStore: com.xjtu.toolbox.platform.KeyValueStore? get() = null
+
     /** 自建日程那张表（见 [CustomCourseStore]）：`:app` = Room，桌面 = 键值文件。 */
     val customCourses: CustomCourseStore
 
@@ -62,6 +65,9 @@ interface ScheduleHost {
 
     /** 教务会话：取数口、登录态、登录/重认证、按来源取整学期课表。 */
     val session: ScheduleSession
+
+    /** 没有教材接口的宿主不发请求，也不显示教材加载失败。 */
+    val supportsTextbooks: Boolean get() = true
 
     /** 全国节假日（放假的课要隐掉）。 */
     val holidays: HolidaySource

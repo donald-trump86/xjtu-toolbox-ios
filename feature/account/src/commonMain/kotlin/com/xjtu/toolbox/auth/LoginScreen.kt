@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -60,9 +61,9 @@ fun LoginScreen(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                // 竖屏手机上占满、桌面窗口里限宽 —— 桌面窗口比手机宽得多，不限宽输入框会拉成一条线
+                // 先约束宽度，再填充；反序会把最小宽度固定为整个 iPad/桌面窗口。
                 .widthIn(max = 420.dp)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -83,7 +84,7 @@ fun LoginScreen(
                 label = "学号 / 手机号",
                 singleLine = true,
                 enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("login-username"),
             )
             TextField(
                 value = password,
@@ -92,7 +93,7 @@ fun LoginScreen(
                 singleLine = true,
                 enabled = !busy,
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("login-password"),
             )
 
             (state as? LoginUiState.Failed)?.let { failed ->

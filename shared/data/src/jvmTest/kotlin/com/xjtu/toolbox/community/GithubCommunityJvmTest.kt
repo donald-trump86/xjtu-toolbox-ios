@@ -16,7 +16,8 @@ import kotlinx.coroutines.runBlocking
 class GithubCommunityJvmTest {
 
     /** 按老存储名 `github_community` 直接开一份：刻意写字符串而不引用常量，存储名被改时这条断言会拦住。 */
-    private val store = secureKeyValueStore("github_community")
+    // setUp 安装临时数据根后才打开存储，保持夹具与桌面用户目录隔离。
+    private val store by lazy { secureKeyValueStore("github_community") }
 
     private lateinit var fake: FakeCampusProxy
 

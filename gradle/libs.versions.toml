@@ -105,6 +105,7 @@ ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serializatio
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-js = { group = "io.ktor", name = "ktor-client-js", version.ref = "ktor" }
 ktor-client-darwin = { group = "io.ktor", name = "ktor-client-darwin", version.ref = "ktor" }
+ksoup = { group = "com.fleeksoft.ksoup", name = "ksoup", version = "0.2.6" }
 ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 # Ktor 服务端与客户端同版本；引擎用 CIO。
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }

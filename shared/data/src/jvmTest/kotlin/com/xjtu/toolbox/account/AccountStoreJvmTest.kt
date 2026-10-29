@@ -17,7 +17,8 @@ import kotlin.test.assertTrue
 class AccountStoreJvmTest {
 
     /** 按老存储名 `xjtu_accounts` 直接开一份，确认老数据仍读得到。 */
-    private val raw = secureKeyValueStore("xjtu_accounts")
+    // setUp 先安装隔离根目录，再创建进程级存储，避免触碰桌面用户数据。
+    private val raw by lazy { secureKeyValueStore("xjtu_accounts") }
 
     @BeforeTest
     fun setUp() {
