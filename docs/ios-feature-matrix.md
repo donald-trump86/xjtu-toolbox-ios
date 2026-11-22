@@ -32,8 +32,8 @@
 | 设备 framework / App | 通过 | Release、`generic/platform=iOS`、设备 `arm64` / `IOS` |
 | Native 回归 | **260 项通过** | 分支整理验收时的基线：campus 46、model 103、navigation 13、designsystem 27、home 21、schedule 45、score 5；无失败、错误或跳过 |
 | Native 回归（v0.2.0 复跑） | **262 项通过** | 同步上游后重跑同一设备：model 104、designsystem 28，其余同基线；多出的 2 项是随首页背景模糊 / 亮度补的持久化与摘要断言 |
-| iPhone 14 / iOS 27.0 | 通过 | 清理后重新运行交互与 App 宿主 Keychain；合成输入，不访问学校。v0.2.0 同步后在 HEAD 上复跑，同样 `** TEST SUCCEEDED **` |
-| iPad Pro 13-inch (M4) / iPadOS 27.0 | 通过 | 清理后重新验证宽屏、输入限宽、键盘、主题、横屏与 App 宿主 Keychain。v0.2.0 同步后在 HEAD 上复跑，同样 `** TEST SUCCEEDED **` |
+| iPhone 14 / iOS 27.0 | 通过 | 清理后重新运行交互与 App 宿主 Keychain；合成输入，不访问学校。v0.2.0 同步后与最终 HEAD 上各复跑一次，均 `** TEST SUCCEEDED **` |
+| iPad Pro 13-inch (M4) / iPadOS 27.0 | 通过 | 清理后重新验证宽屏、输入限宽、键盘、主题、横屏与 App 宿主 Keychain。v0.2.0 同步后与最终 HEAD 上各复跑一次，均 `** TEST SUCCEEDED **` |
 | 未签名设备 IPA | 通过 | v0.2.0 (2) 重新打包：17,281,827 字节，ZIP 校验通过，`Info.plist` 版本 `0.2.0` / `2`，`Assets.car` 含 1024 × 1024 `AppIcon`（phone 与 pad 各一份）；未签名，需本人重签。0.1.0 (1) 的历史产物为 18,488,179 字节，SHA-256 `b3adb189a33c5ce172f2d6783ac604a2fed26e66e932c5389fb2935ebbc9fb07` |
 | 远程 CI | 仅配置 | iOS 双架构、Native、iPhone / iPad 与可选设备 IPA；只在手动触发或 `pull_request` 时运行，无对应本版本的远程运行记录 |
 | 真机 / SideStore | 未验证 | 需要本人设备配对和签名 / 重签 |
