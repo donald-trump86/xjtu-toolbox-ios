@@ -8,7 +8,7 @@
 - 保留 **10 个模块**：`iosShared`，`shared` 下的 campus / model / navigation / designsystem，以及 account / home / schedule / score / settings 五个功能库。
 - Kotlin 应用库仅声明 `iosArm64` 与 `iosSimulatorArm64`。其他平台工程、source set、旧 JVM 数据层、无用业务页与素材、旧工作流和历史文档已移除；Gradle 的 JDK 仅为构建工具所需。
 - 复用现有 Compose 页面和必要的间接模型。原 JVM 的课表、成绩和缓存测试中可复用的断言已迁到 `commonTest`；移除仅能依赖 Swing / AWT 的测试，不为它保留另一应用平台。
-- 应用图标沿用上游「交小西」Q 版形象，替换原图标：母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512 出血构图），放大为 1024 × 1024 不透明资源，由 iOS 自行裁切圆角。版权与授权见 [第三方声明](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节；该形象不属于本仓库 GPL-3.0 范围。应用内项目主页、致谢和隐私正文同步为本 Fork 的实际实现。
+- 应用图标沿用上游「交小西」Q 版形象，替换原图标：母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512），放大为 1024 × 1024 不透明资源，圆角由 iOS 裁切。源图本身带烘焙圆角：左上、右上、右下三处露出浅灰底（#E5E5E5，各角块约 60%），左下齐边；烘焙半径约 116 px（22.7%）与 iOS 的 22.4% 几乎重合，遮罩后圆角外缘残留的灰边在 1024 尺度上约 2 px。版权与授权见 [第三方声明](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节；该形象不属于本仓库 GPL-3.0 范围。应用内项目主页、致谢和隐私正文同步为本 Fork 的实际实现。
 
 ## 本机构建环境与命令
 
