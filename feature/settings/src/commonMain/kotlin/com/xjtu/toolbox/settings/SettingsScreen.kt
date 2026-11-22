@@ -25,6 +25,11 @@ import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
 import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.platform.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -83,12 +88,39 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/** 设置屏。 */
+/**
+ * 设置屏。致谢二级页叠在主页上滑入，主页整页留在组合里不重建，
+ * 返回时滚动位置（[rememberScrollState]）原样还在。
+ */
 @Composable
 fun SettingsScreen(
     store: SettingsStore,
     host: SettingsHost,
     onBack: () -> Unit,
+) {
+    // 二级页开没开属于界面状态，跟随 SavedState，不落 SettingsStore
+    var showCredits by rememberSaveable { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        SettingsHome(store, host, onBack, onOpenCredits = { showCredits = true })
+        AnimatedVisibility(
+            visible = showCredits,
+            enter = slideInHorizontally { it / 3 } + fadeIn(),
+            exit = slideOutHorizontally { it / 3 } + fadeOut(),
+        ) {
+            // 二级页不在组合里时这段也没了，返回手势自然落回设置主页，不用手动开关
+            BackHandler { showCredits = false }
+            CreditsScreen(host = host, onBack = { showCredits = false })
+        }
+    }
+}
+
+/** 设置主页。分组平铺或宽屏左右两栏，二级页从外面盖上来。 */
+@Composable
+private fun SettingsHome(
+    store: SettingsStore,
+    host: SettingsHost,
+    onBack: () -> Unit,
+    onOpenCredits: () -> Unit,
 ) {
 
     val showDarkMode = SettingsRow.DARK_MODE in host.honoredRows
@@ -167,7 +199,6 @@ fun SettingsScreen(
     val cGreen = Color(0xFF66BB6A)
     val cOrange = Color(0xFFFFA726)
     val cPink = Color(0xFFEC407A)
-    val cLime = Color(0xFF9CCC65)
 
     val versionText = host.versionText
 
@@ -420,40 +451,15 @@ fun SettingsScreen(
                     onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios") }
                 )
                 ArrowPreference(
+                    title = CREDITS_TITLE,
+                    summary = "贡献者、上游项目与许可证",
+                    startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
+                    onClick = onOpenCredits
+                )
+                ArrowPreference(
                     title = "用户协议与隐私政策",
                     startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
                     onClick = { showEula = true }
-                )
-            }
-        }
-
-        val creditsGroup: @Composable () -> Unit = {
-            // ── 致谢 ──
-            SmallTitle("致谢")
-            SettingsCard {
-                ArrowPreference(
-                    title = "岱宗盒子 by yeliqin666",
-                    summary = "本 Fork 的上游 · 界面与校园协议基础 · GPL-3.0",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
-                )
-                ArrowPreference(
-                    title = "XJTUToolBox by yan-xiaoo",
-                    summary = "开源社区项目",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
-                )
-                ArrowPreference(
-                    title = "MIUIX",
-                    summary = "Compose 界面组件 · Apache-2.0",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/compose-miuix-ui/miuix") }
-                )
-                ArrowPreference(
-                    title = "第三方代码与资源声明",
-                    summary = "完整来源与许可证",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/feat/ios-port/THIRD_PARTY_NOTICES.md") }
                 )
             }
         }
@@ -479,7 +485,6 @@ fun SettingsScreen(
                 add(SettingsGroup("更新", Icons.Default.Star, cGreen, it))
             }
             add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
-            add(SettingsGroup("致谢", Icons.Default.Star, cPurple, creditsGroup))
         }
 
         // 宽屏：左栏组名列表 + 右栏选中组。选中项 rememberSaveable，跨旋转不丢。
@@ -641,6 +646,124 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
         ) {
             com.xjtu.toolbox.legal.Eula.Body()
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+private const val CREDITS_TITLE = "致谢与开源许可"
+
+/**
+ * 致谢二级页：贡献者、许可证、上游项目与应用图标的授权出处。
+ *
+ * 这些内容原来平铺在设置分组里，iOS 上会把设置一屏塞满；收进二级页后设置页只留一行入口。
+ * 许可证全文放仓库根目录，这里只给跳转，不在 App 里复制几千字。
+ */
+@Composable
+private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
+    val cBlue = Color(0xFF42A5F5)
+    val cPurple = Color(0xFF7E57C2)
+    val cLime = Color(0xFF9CCC65)
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 每页自己一份采样源：借主页那份会把被盖住的主页录进来
+    val glass = rememberPageGlass()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = CREDITS_TITLE,
+                largeTitle = CREDITS_TITLE,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
+                scrollBehavior = scrollBehavior,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // 采样源挂在滚动之前，理由同设置主页
+                .glassSource(glass)
+                .background(MiuixTheme.colorScheme.surface)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .padding(padding.withoutTop(glass))
+        ) {
+            Spacer(Modifier.height(padding.glassTop(glass)))
+            SmallTitle("贡献者")
+            SettingsCard {
+                ArrowPreference(
+                    title = "项目贡献者",
+                    summary = "GitHub 上的贡献者列表",
+                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/graphs/contributors") }
+                )
+            }
+            SmallTitle("许可证")
+            SettingsCard {
+                ArrowPreference(
+                    title = "岱宗盒子（上游）",
+                    summary = "本 Fork 的上游项目 · GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/LICENSE") }
+                )
+                ArrowPreference(
+                    title = "本 Fork 许可",
+                    summary = "GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/main/LICENSE") }
+                )
+                ArrowPreference(
+                    title = "第三方声明",
+                    summary = "第三方代码、资源与许可证全文",
+                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/main/THIRD_PARTY_NOTICES.md") }
+                )
+            }
+            SmallTitle("致谢")
+            SettingsCard {
+                ArrowPreference(
+                    title = "岱宗盒子 by yeliqin666",
+                    summary = "本 Fork 的上游 · 界面与校园协议基础 · GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
+                )
+                ArrowPreference(
+                    title = "XJTUToolBox by yan-xiaoo",
+                    summary = "开源社区项目",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
+                )
+                ArrowPreference(
+                    title = "MIUIX",
+                    summary = "Compose 界面组件 · Apache-2.0",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/compose-miuix-ui/miuix") }
+                )
+                ArrowPreference(
+                    title = "第三方代码与资源声明",
+                    summary = "完整来源与许可证",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/main/THIRD_PARTY_NOTICES.md") }
+                )
+            }
+            // 应用图标用的是上游「交小西」形象，授权来自上游项目；版权方是交小西制作组，
+            // 这里给出归属与出处，完整的授权范围见 THIRD_PARTY_NOTICES.md「美术素材」。
+            SmallTitle("图标授权")
+            SettingsCard {
+                ArrowPreference(
+                    title = "交小西",
+                    summary = "应用图标形象 · 版权归交小西制作组 · 上游已获授权",
+                    startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
+                    onClick = { host.onOpenUrl("https://space.bilibili.com/3494379805215567") }
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }
