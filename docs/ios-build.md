@@ -89,7 +89,13 @@ sh scripts/build-ios-ipa.sh signed
 
 ## 应用图标
 
-母版为 [app-icon-master.png](../artwork/app-icon-master.png)。通过 CoreGraphics / ImageIO 生成 1024 × 1024、不透明 sRGB 图标：
+母版为 [app-icon-master.png](../artwork/app-icon-master.png)。它取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512）。这条命令要求本地 git 对象库里已有上游提交 c69dd0b9；新克隆的仓库没有该对象，需先 `git fetch upstream`，取回后可离线重复执行：
+
+```sh
+git show c69dd0b9:web/src/wasmJsMain/resources/icons/icon-512.png > artwork/app-icon-master.png
+```
+
+再由母版生成 1024 × 1024、不透明 sRGB 图标：
 
 ```sh
 swift scripts/generate-ios-icons.swift \
@@ -97,7 +103,7 @@ swift scripts/generate-ios-icons.swift \
   iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 ```
 
-图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，未预切圆角，由 iOS 自行裁切。母版取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（人物出血构图；`maskable-512.png` 反而带烘死的浅灰圆角背景，放大后会跟着变大）。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
+图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，由 iOS 自行裁切圆角。源图本身带烘焙圆角：左上、右上、右下三处露出浅灰底（#E5E5E5，各角块约 60%），左下齐边。烘焙圆角半径约 116 px（22.7%），与 iOS 的 22.4% 几乎重合，按 iOS 遮罩裁切后，圆角外缘残留的灰边在 1024 尺度上约 2 px。`maskable-512.png` 是白卡片内缩、四周露出浅灰底，放大即可见灰色边框，故未采用。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
 
 ## CI、隐私与验证边界
 
