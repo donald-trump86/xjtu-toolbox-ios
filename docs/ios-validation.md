@@ -1,6 +1,6 @@
 # iOS-only 分支整理验收记录
 
-日期：2026-10-29。验收时分支：`feat/ios-port`，现已并入主分支 `main`。本次整理从 `159c7f17` 开始，保留先前 iOS 移植与上游版权，按新的分支范围移除其他平台。以下只记录实际执行结果；模拟器成功不等于真机、SideStore 或真实校园账号成功。
+日期：2026-10-29，v0.2.0 同步复跑补记于 2026-11-23。验收时分支：`feat/ios-port`，现已并入主分支 `main`。整理从 `159c7f17` 开始，保留先前 iOS 移植与上游版权，按新的分支范围移除其他平台。以下只记录实际执行结果；模拟器成功不等于真机、SideStore 或真实校园账号成功。
 
 ## 文件与构建范围
 
@@ -8,7 +8,7 @@
 - 保留 **10 个模块**：`iosShared`，`shared` 下的 campus / model / navigation / designsystem，以及 account / home / schedule / score / settings 五个功能库。
 - Kotlin 应用库仅声明 `iosArm64` 与 `iosSimulatorArm64`。其他平台工程、source set、旧 JVM 数据层、无用业务页与素材、旧工作流和历史文档已移除；Gradle 的 JDK 仅为构建工具所需。
 - 复用现有 Compose 页面和必要的间接模型。原 JVM 的课表、成绩和缓存测试中可复用的断言已迁到 `commonTest`；移除仅能依赖 Swing / AWT 的测试，不为它保留另一应用平台。
-- 新图标为腾飞塔与展开书页的蓝白 / 米金色设计，替换原图标。应用内项目主页、致谢和隐私正文同步为本 Fork 的实际实现。
+- 应用图标沿用上游「交小西」Q 版形象，替换原图标：母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512 出血构图），放大为 1024 × 1024 不透明资源，由 iOS 自行裁切圆角。版权与授权见 [第三方声明](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节；该形象不属于本仓库 GPL-3.0 范围。应用内项目主页、致谢和隐私正文同步为本 Fork 的实际实现。
 
 ## 本机构建环境与命令
 
@@ -58,6 +58,20 @@ XML 结果合计 **260 项、零失败、零错误、零跳过**。account 与 s
 
 协议断言包括两种 CAS 短信分支、Safety 原地址 / Referer、错误 / 超时 / 次数限制、后台不触发 MFA、站点独立认证、网关合法代理落地、过期恢复、一次重放、严格重定向与 Cookie 范围、课表与成绩解析、无明细、退出清理、跨实例索引并发、失败写入和迟到写入。RSA / CSPRNG 使用真实 Security.framework；学校响应和密钥均为合成 fixture。
 
+## v0.2.0 上游同步复跑
+
+2026-11-23 同步上游 `23b835c5..53085677` 中的可移植改动后，用同一台机器、同一模拟器设备 `D2376C90-F526-4ED5-B227-4CD67486B388` 重跑 Native 测试并重新编译 `iosShared`：
+
+| 项目 | 结果 |
+| --- | --- |
+| Native 测试 | **262 项通过**：campus 46、model 104、navigation 13、designsystem 28、home 21、schedule 45、score 5；零失败、零错误、零跳过 |
+| 与本次同步前基线之差 | +2。同步前基线为 260 项（model 103、designsystem 27），新增的 2 项是同步时随首页背景模糊 / 亮度功能补的持久化与摘要断言 |
+| `:iosShared:compileKotlinIosSimulatorArm64` | 通过 |
+
+本轮只执行上述 Gradle 任务，没有重新构建 IPA、没有启动模拟器跑交互测试。课表排版、「更多」菜单顺序、首页头卡外观对话框、致谢二级页转场与图标替换的界面表现因此只有编译与代码层证据，未做设备目视验收。
+
+iOS 未实现 `ScheduleCapability.SHARE_FILE`，课表「更多」菜单里没有「导出日历 (ICS)」一项；这是既有行为，不是本次同步的回归。电子成绩单入口需要宿主传 `onOpenTranscript` 才绘制，iOS 未接入该入口，因此新副标题只体现为文案与上游一致，界面上不显示。
+
 ## 最终 iPhone / iPad 宿主回归
 
 | 设备 | Keychain 宿主测试 | 完整交互测试 | 结果 |
@@ -84,7 +98,9 @@ Keychain 测试覆盖真实存储往返、跨实例读取、字符串 / 整数 /
 b3adb189a33c5ce172f2d6783ac604a2fed26e66e932c5389fb2935ebbc9fb07
 ```
 
-脚本同时输出 `build/ios/XJTUToolbox-unsigned.ipa.sha256`。独立核查确认 ZIP CRC 正常、可执行文件为设备 `arm64` / `IOS`、最低系统 `16.0`、设备系列 `[1, 2]`、显示名称“岱宗盒子”、bundle ID `me.luvch1nabest.xjtutoolbox`。包内 `Assets.car` 与新图标设备构建一致，未附带证书或描述文件。
+脚本同时输出 `build/ios/XJTUToolbox-unsigned.ipa.sha256`。独立核查确认 ZIP CRC 正常、可执行文件为设备 `arm64` / `IOS`、最低系统 `16.0`、设备系列 `[1, 2]`、显示名称“岱宗盒子”、bundle ID `me.luvch1nabest.xjtutoolbox`。包内 `Assets.car` 与当时的图标设备构建一致，未附带证书或描述文件。
+
+这两个数字来自 0.1.0 (1) 的分支整理验收。v0.2.0 (2) 把版本号升到 0.2.0 / build 2，本轮没有重新构建设备包，因此上面的字节数与 SHA-256 不能当作 v0.2.0 产物的校验值；重新打包后需按脚本输出重新记录。
 
 这是等待重签的设备 IPA；需要本人使用 SideStore 或本机开发者身份签名。设备构建不等于真机启动。
 
@@ -92,6 +108,8 @@ b3adb189a33c5ce172f2d6783ac604a2fed26e66e932c5389fb2935ebbc9fb07
 
 README 已改为 iOS Fork 定位、功能、获取 IPA 与构建入口；[SideStore 指南](ios-sidestore.md) 覆盖 iloader 首次安装、LocalDevVPN、开发者信任与模式、IPA 导入、校园登录、7 天续签、覆盖更新、额度和故障排查。[第三方声明](../THIRD_PARTY_NOTICES.md) 保留 GPL 上游、Kyant Apache-2.0、OpenStreetMap ODbL、实际依赖与图像来源；新图标不是学校官方标识。
 
-[iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。**本次未推送、未运行远程 CI、未创建公开 Release。**
+[iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。上面的本地结果全部来自本机直接执行，不是远程 CI 产物：CI 只在手动触发或 `pull_request` 时运行，本次同步没有对应的远程运行记录。随 v0.2.0 发布的产物是未签名 IPA，不附带证书、描述文件或公证；分发时同时提供对应源码、修改说明和许可证。
+
+v0.2.0 的发布动作与本文记录分开：本文只覆盖本机构建、测试与设备包的核查结果；tag、GitHub Release 与 artifact 的上传由维护者在全部同步任务完成后统一执行，本文不预先把它们写成已完成。
 
 尚未完成真实设备配对、SideStore 重签安装 / 刷新、真实 CAS / MFA / WebVPN、个人课表与成绩验收。校园密码与短信应由本人在 App 内输入。当前身份仅显示 NetID；姓名、学号、院系及其他未接入功能见 [功能矩阵](ios-feature-matrix.md)。

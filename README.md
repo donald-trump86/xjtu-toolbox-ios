@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="112" alt="腾飞塔与书页组成的应用图标" />
+  <img src="iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="112" alt="应用图标：交小西 Q 版形象" />
 </p>
 
 # XJTU Toolbox for iOS
@@ -33,6 +33,21 @@
 
 学校接口可能调整。模拟器和离线样本测试不等同于真实账号验证；真机、SideStore 重签、校园认证和个人数据的实际可用性分别记录在 [功能矩阵](docs/ios-feature-matrix.md)。上游的其他功能不自动属于 iOS 版本。
 
+## 与上游的同步
+
+本 Fork 从上游 tag `v5.2.1`（提交 `23b835c5`）分出，之后只维护 iOS / iPadOS。v0.2.0（build 2）重新同步了一批上游可移植的改动，逐项对应如下。左列是上游提交，中间是同步的内容摘要，右列是该改动在本分支的实际表现。
+
+| 上游提交 | 内容 | iPhone / iPad 上能看到的变化 |
+| --- | --- | --- |
+| `1b0be2dc`、`1ff1d66d` | 课表左轴改「周一…周日」、日期改「9/1」，没课的节次不再压扁，午休 / 晚休空着时整行消失；「更多」菜单把「切换学期」移到最后一行 | 课表页与周视图排版随之变化 |
+| `12b1070d` | 屁岱卡右下角增加「关闭」与「不再提示」 | 代码已同步；iOS 版没有接入洞察数据源，卡片不会出现，界面上看不到这两个按钮 |
+| `f7f23fe1`、`f0cfad9d` | 首页自定义背景可调模糊（0–10）与亮度（20–100%）；宽屏弹窗被限高时先压列表、不裁底部按钮 | 长按首页头卡进入的外观对话框可调模糊与亮度，横屏平板上按钮完整；底栏配置入口 iOS 未开放，那处修正界面上看不到 |
+| `f5b5fc85`、`943e1c5e`、`a40ccb34` | 致谢移入二级页并补贡献者、许可证与图标授权分组，加滑入滑出过渡（上游同时把小游戏一并移入） | 设置 →「关于」→「致谢与开源许可」；本 Fork 没有小游戏模块，只同步致谢部分 |
+| `c69dd0b9`、`8a512f6a` | 应用图标换成「交小西」Q 版形象，补授权声明与 GPL 边界说明 | 桌面图标；授权说明见[第三方声明](THIRD_PARTY_NOTICES.md) |
+| `5dec9789` | 电子成绩单入口副标题改为说明用途，去掉「下载分享」 | 只有文案对齐；iOS 版未接入该入口，界面不新增内容 |
+
+同步范围以 iOS 界面能落地的部分为限。课表「更多」菜单里的桌面壁纸、上课自动勿扰和「导出日历 (ICS)」依赖本分支没有实现的能力（`ScheduleCapability` 未 honor），iOS 界面照旧不画这些入口，详情见 [功能矩阵](docs/ios-feature-matrix.md)。
+
 ## 自行构建 IPA
 
 需要 Apple Silicon Mac、**Xcode 27.1、JDK 21、XcodeGen**。首次构建会下载 Gradle 和 Kotlin/Native 依赖。
@@ -65,9 +80,11 @@ docs/                iOS 使用、构建、功能和验证说明
 
 Kotlin 库仅声明 `iosArm64` 与 `iosSimulatorArm64`。`commonMain` / `commonTest` 用于这两个架构共用的逻辑；Gradle 本身使用 JDK 运行。校园协议测试采用合成 fixture 和 Ktor MockEngine，不访问真实账号。
 
-## 图标
+## 图标与授权
 
-图标将西交兴庆校区的**腾飞塔**与展开的书页合为一体，采用蓝、米白和少量金色。它为本 Fork 重新绘制，非学校官方标识。母版位于 [artwork/app-icon-master.png](artwork/app-icon-master.png)，生成应用资源的命令见 [构建说明](docs/ios-build.md#应用图标)。
+图标沿用上游的「交小西」Q 版形象，不是学校官方标识，也不由交小西制作组出品。形象版权归交小西制作组所有；上游项目声明已获授权，本 Fork 沿用上游图标素材与同一授权的范围（保持开源、免费、无广告、无内购）。该形象不属于本仓库 GPL-3.0 的授权范围。
+
+母版为 [artwork/app-icon-master.png](artwork/app-icon-master.png)，取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512 出血构图），放大到 1024 × 1024 不透明资源后由 iOS 自行切圆角；生成命令见 [构建说明](docs/ios-build.md#应用图标)。授权细节见 [第三方声明](THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
 
 ## 隐私与反馈
 

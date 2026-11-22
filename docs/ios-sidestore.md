@@ -56,7 +56,7 @@ shasum -a 256 -c XJTUToolbox-unsigned.ipa.sha256
 2. 在“文件”应用中确认 IPA 已完整下载到本地，而不是仍显示云端下载图标。
 3. 打开 SideStore，进入 **My Apps / 我的应用**，点 **+**。
 4. 选择 `XJTUToolbox-unsigned.ipa`，等待 SideStore 完成签名和安装。
-5. 回到主屏幕，打开新蓝色腾飞塔图标的 **岱宗盒子**。
+5. 回到主屏幕，打开新图标（「交小西」Q 版形象）的 **岱宗盒子**。
 6. 若再次出现开发者信任或开发者模式提示，按上一节对应步骤完成后再打开。
 
 SideStore 使用 Apple Account 为 IPA 重签；校园账号此时尚未参与任何认证。

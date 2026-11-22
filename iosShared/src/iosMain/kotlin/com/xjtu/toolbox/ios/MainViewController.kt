@@ -95,7 +95,7 @@ private fun IosApp() {
             }
             val settingsHost = remember {
                 object : SettingsHost {
-                    override val versionText = "iOS 0.1.0 (1)"
+                    override val versionText = "iOS 0.2.0 (2)"
                     override val honoredRows = setOf(SettingsRow.DARK_MODE, SettingsRow.HAPTICS)
                     override val changelog = emptyList<ChangelogEntry>()
                     override val scheduleSourceOptions = emptyList<ScheduleSourceOption>()
