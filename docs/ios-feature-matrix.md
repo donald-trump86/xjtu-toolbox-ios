@@ -7,7 +7,7 @@
 | 功能 | 已实现与证据 | 验收边界 |
 | --- | --- | --- |
 | UIKit 与 Compose | SceneDelegate 承载 ComposeUIViewController；账号、首页、课表、成绩和设置共用 Compose / MIUIX 页面 | 真机触感、分屏与内存压力待验证 |
-| 应用图标 | 沿用上游「交小西」Q 版形象；母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512），放大为 1024 × 1024 不透明资源，已提交到 `AppIcon.appiconset`。源图带烘焙圆角（左上、右上、右下露出 #E5E5E5 浅灰底、各角块约 60%，左下齐边；半径约 116 px ≈ 22.7%，与 iOS 的 22.4% 几乎重合），遮罩后圆角外缘残留约 2 px 灰边。打进 `Assets.car` 只在 0.1.0 (1) 的设备包上核对过 | 版权归交小西制作组所有，上游声明已获授权，见[第三方声明](../THIRD_PARTY_NOTICES.md)；非学校官方标识 |
+| 应用图标 | 沿用上游「交小西」Q 版形象；母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512），放大为 1024 × 1024 不透明资源，已提交到 `AppIcon.appiconset`。源图带烘焙圆角（左上、右上、右下露出 #E5E5E5 浅灰底、取 1/8 边长角块统计约 60%，左下齐边；半径约 116 px ≈ 22.7%，与 iOS 的 22.4% 几乎重合），遮罩后圆角外缘残留约 2 px 灰边。打进 `Assets.car` 只在 0.1.0 (1) 的设备包上核对过 | 版权归交小西制作组所有，上游声明已获授权，见[第三方声明](../THIRD_PARTY_NOTICES.md)；非学校官方标识 |
 | CAS / RSA | 设备直连、Ksoup DOM 表单、标准 RSA / PKCS#1；Native fixture 与 Security.framework 测试通过 | 真实校园登录待验证 |
 | 短信 MFA | detect 与 safety 分支；gid、原地址 / Referer、三次 / 150 秒限制；后台不主动发送短信 | 真实短信与学校风控待验证 |
 | 直连 / WebVPN | 用户选择路由；网关与业务认证分离；合法代理落地、过期恢复和一次重放有回归 | 校内 / 校外网络待验证；无自动路由切换 |

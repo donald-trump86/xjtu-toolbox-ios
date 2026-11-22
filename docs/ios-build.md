@@ -89,11 +89,15 @@ sh scripts/build-ios-ipa.sh signed
 
 ## 应用图标
 
-母版为 [app-icon-master.png](../artwork/app-icon-master.png)。它取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512）。这条命令要求本地 git 对象库里已有上游提交 c69dd0b9；新克隆的仓库没有该对象，需先 `git fetch upstream`，取回后可离线重复执行：
+母版为 [app-icon-master.png](../artwork/app-icon-master.png)。它取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512）。这条命令要求本地已有上游远端和提交 c69dd0b9；只克隆了本 Fork 的仓库两样都没有，需先补远端再取回，之后可离线重复执行：
 
 ```sh
-git show c69dd0b9:web/src/wasmJsMain/resources/icons/icon-512.png > artwork/app-icon-master.png
+git remote add upstream https://github.com/yeliqin666/xjtu-toolbox-android.git
+git fetch upstream
+git cat-file -e c69dd0b9 && git show c69dd0b9:web/src/wasmJsMain/resources/icons/icon-512.png > artwork/app-icon-master.png
 ```
+
+`git cat-file -e` 是必要的：重定向会先清空目标文件，若对象不存在，失败后母版会变成 0 字节。
 
 再由母版生成 1024 × 1024、不透明 sRGB 图标：
 
@@ -103,7 +107,7 @@ swift scripts/generate-ios-icons.swift \
   iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 ```
 
-图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，圆角由 iOS 的遮罩裁切。源图本身带烘焙圆角：左上、右上、右下三处露出浅灰底（#E5E5E5，各角块约 60%），左下齐边。烘焙圆角半径约 116 px（22.7%），与 iOS 的 22.4% 几乎重合，按 iOS 遮罩裁切后，圆角外缘残留的灰边在 1024 尺度上约 2 px。`maskable-512.png` 是白卡片内缩、四周露出浅灰底，放大即可见灰色边框，故未采用。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
+图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，圆角由 iOS 的遮罩裁切。源图本身带烘焙圆角：左上、右上、右下三处露出浅灰底（#E5E5E5；取边长为图标 1/8 的角块统计，三处各约 60%），左下齐边。烘焙圆角半径约 116 px（22.7%），与 iOS 的 22.4% 几乎重合，按 iOS 遮罩裁切后，圆角外缘残留的灰边在 1024 尺度上约 2 px。`maskable-512.png` 是白卡片内缩、四周露出浅灰底，放大即可见灰色边框，故未采用。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
 
 ## CI、隐私与验证边界
 
