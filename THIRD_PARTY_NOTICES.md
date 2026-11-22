@@ -4,6 +4,17 @@
 
 以下记录当前 iOS 分支实际保留的第三方内容。各依赖的原始版权、许可证及传递依赖声明应随其发布元数据或发行包保留。
 
+## 美术素材
+
+### 应用图标中的「交小西」形象
+
+- **版权**：图标形象版权归交小西制作组所有（[B 站主页](https://space.bilibili.com/3494379805215567)）。
+- **授权**：上游项目「岱宗盒子」声明已获得交小西制作组授权；本 Fork 沿用上游图标素材，
+  沿用同一授权的范围与限制。
+- **出品关系**：本应用为开源项目，不由交小西制作组出品。
+- **授权条件**：项目保持开源、免费、无广告、无内购；项目性质变更时授权失效，须重新协商。
+- **许可边界**：该形象**不属于**本仓库 GPL-3.0 的授权范围。若版权方提出要求，本 Fork 将更换图标。
+
 ## Compose、网络及基础库
 
 | 项目 | 用途 | 许可 |
@@ -41,8 +52,7 @@ Copyright 2025 Kyant. Licensed under the Apache License, Version 2.0；[许可�
 
 ## 图像资源
 
-- **应用图标**：本 Fork 通过图像生成工具重新绘制，设计为蓝色背景、腾飞塔几何轮廓与展开书页。母版为 [app-icon-master.png](artwork/app-icon-master.png)，由 [图标生成脚本](scripts/generate-ios-icons.swift) 转为不透明的 iOS 资源。图标随本 Fork 发布，不是学校官方标识。
-- **造型参考**：参考了学校官网的 [腾飞塔校园照片](https://wmw.xjtu.edu.cn/images/19/09/09/1knw9i35ug/023.jpg) 和 [蓝白校旗说明](https://www.xjtu.edu.cn/info/1024/1004.htm)。原照片与校徽未打包进应用或提交到本分支。
+- **应用图标**：沿用上游的「交小西」Q 版形象，取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512，人物出血构图，没有烘死的圆角），存为母版 [app-icon-master.png](artwork/app-icon-master.png)，再由 [图标生成脚本](scripts/generate-ios-icons.swift) 放大为 1024 × 1024、不透明的 iOS 资源，圆角交给 iOS 自行裁切。形象的版权与授权见上文「美术素材」一节。
 - **森林背景**：`shared/designsystem/src/iosMain/composeResources/drawable/hero_forest.webp` 为上游已有资源，随其余上游代码保留。iOS 的 `HeroForest` 平台实现仍引用它。
 
-学校名称、地标及有关标识归相应权利方所有；保留来源不表示学校为本 Fork 背书。
+学校名称、地标及有关标识归相应权利方所有；保留来源不表示学校为本 Fork 背书，也不表示交小西制作组为本 Fork 背书。

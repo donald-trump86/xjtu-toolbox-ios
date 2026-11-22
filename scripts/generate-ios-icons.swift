@@ -3,7 +3,10 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
-// Render the fork's original Tengfei Tower / open-book artwork into the iOS asset.
+// Render the upstream "交小西" chibi artwork into the iOS asset.
+// Source: upstream web/src/wasmJsMain/resources/icons/icon-512.png (512x512, full-bleed);
+// upscaling to 1024 here leaves the corner radius to iOS. Artwork copyright and licence:
+// see THIRD_PARTY_NOTICES.md, section 美术素材.
 // ImageIO works without AppKit or WindowServer.
 let args = CommandLine.arguments
 precondition(args.count == 3, "Usage: swift generate-ios-icons.swift source.png output.png")

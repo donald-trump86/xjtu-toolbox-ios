@@ -97,7 +97,7 @@ swift scripts/generate-ios-icons.swift \
   iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 ```
 
-图标以蓝色背景、腾飞塔与展开书页构成，未预切圆角。造型参考及第三方资源声明见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)。
+图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，未预切圆角，由 iOS 自行裁切。母版取自上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（人物出血构图；`maskable-512.png` 反而带烘死的浅灰圆角背景，放大后会跟着变大）。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
 
 ## CI、隐私与验证边界
 
