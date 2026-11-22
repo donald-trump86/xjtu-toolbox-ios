@@ -68,7 +68,7 @@ XML 结果合计 **260 项、零失败、零错误、零跳过**。account 与 s
 | 与本次同步前基线之差 | +2。同步前基线为 260 项（model 103、designsystem 27），新增的 2 项是同步时随首页背景模糊 / 亮度功能补的持久化与摘要断言 |
 | `:iosShared:compileKotlinIosSimulatorArm64` | 通过 |
 
-本轮只执行上述 Gradle 任务，没有重新构建 IPA、没有启动模拟器跑交互测试。课表排版、「更多」菜单顺序、首页头卡外观对话框、致谢二级页转场与图标替换的界面表现因此只有编译与代码层证据，未做设备目视验收。
+本轮除上述 Gradle 任务外只重新构建了未签名设备包，没有启动模拟器跑交互测试。课表排版、「更多」菜单顺序、首页头卡外观对话框、致谢二级页转场与图标替换的界面表现因此只有编译与代码层证据，未做设备目视验收。
 
 iOS 未实现 `ScheduleCapability.SHARE_FILE`，课表「更多」菜单里没有「导出日历 (ICS)」一项；这是既有行为，不是本次同步的回归。电子成绩单入口需要宿主传 `onOpenTranscript` 才绘制，iOS 未接入该入口，因此新副标题只体现为文案与上游一致，界面上不显示。
 
@@ -92,15 +92,13 @@ Keychain 测试覆盖真实存储往返、跨实例读取、字符串 / 整数 /
 
 ## 最终设备产物
 
-文件：`build/ios/XJTUToolbox-unsigned.ipa`，**18,488,179 字节**。SHA-256：
+文件：`build/ios/XJTUToolbox-unsigned.ipa`，**17,283,703 字节**。SHA-256：
 
 ```text
-b3adb189a33c5ce172f2d6783ac604a2fed26e66e932c5389fb2935ebbc9fb07
+1be6d785aa3c473030580c1210103102821cd73795815ad9c35a9c4dcbe26a8f
 ```
 
-脚本同时输出 `build/ios/XJTUToolbox-unsigned.ipa.sha256`。独立核查确认 ZIP CRC 正常、可执行文件为设备 `arm64` / `IOS`、最低系统 `16.0`、设备系列 `[1, 2]`、显示名称“岱宗盒子”、bundle ID `me.luvch1nabest.xjtutoolbox`。包内 `Assets.car` 与当时的图标设备构建一致，未附带证书或描述文件。
-
-这两个数字来自 0.1.0 (1) 的分支整理验收。v0.2.0 (2) 把版本号升到 0.2.0 / build 2，本轮没有重新构建设备包，因此上面的字节数与 SHA-256 不能当作 v0.2.0 产物的校验值；重新打包后需按脚本输出重新记录。
+脚本同时输出 `build/ios/XJTUToolbox-unsigned.ipa.sha256`，内容与上表一致。解包核查：ZIP CRC 正常；`Info.plist` 的 `CFBundleShortVersionString` / `CFBundleVersion` 为 `0.2.0` / `2`，与 `SettingsHost.versionText` 及仓库内 Xcode 工程一致；最低系统 `16.0`；设备系列 `[1, 2]`；显示名称“岱宗盒子”；bundle ID `me.luvch1nabest.xjtutoolbox`；可执行文件为设备 `arm64` / `IOS`，SDK 27.2；未签名，包内无 `embedded.mobileprovision`。`Assets.car` 中的 `AppIcon` 为 1024 × 1024，phone 与 pad 两种 idiom 各一份，另含 `AppIcon60x60@2x.png` 与 `AppIcon76x76@2x~ipad.png`。
 
 这是等待重签的设备 IPA；需要本人使用 SideStore 或本机开发者身份签名。设备构建不等于真机启动。
 
@@ -108,7 +106,7 @@ b3adb189a33c5ce172f2d6783ac604a2fed26e66e932c5389fb2935ebbc9fb07
 
 README 已改为 iOS Fork 定位、功能、获取 IPA 与构建入口；[SideStore 指南](ios-sidestore.md) 覆盖 iloader 首次安装、LocalDevVPN、开发者信任与模式、IPA 导入、校园登录、7 天续签、覆盖更新、额度和故障排查。[第三方声明](../THIRD_PARTY_NOTICES.md) 保留 GPL 上游、Kyant Apache-2.0、OpenStreetMap ODbL、实际依赖与图像来源；新图标不是学校官方标识。
 
-[iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。上面的本地结果全部来自本机直接执行，不是远程 CI 产物：CI 只在手动触发或 `pull_request` 时运行，本次同步没有对应的远程运行记录。随 v0.2.0 发布的产物是未签名 IPA，不附带证书、描述文件或公证；分发时同时提供对应源码、修改说明和许可证。
+[iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。上面的本地结果全部来自本机直接执行，不是远程 CI 产物：CI 只在手动触发或 `pull_request` 时运行，本次同步没有对应的远程运行记录。随 v0.2.0 发布的产物是未签名 IPA（即上面记过校验值的 17,283,703 字节包），不附带证书、描述文件或公证；分发时同时提供对应源码、修改说明和许可证。
 
 v0.2.0 的发布动作与本文记录分开：本文只覆盖本机构建、测试与设备包的核查结果；tag、GitHub Release 与 artifact 的上传由维护者在全部同步任务完成后统一执行，本文不预先把它们写成已完成。
 

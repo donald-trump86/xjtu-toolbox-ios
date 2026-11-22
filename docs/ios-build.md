@@ -103,7 +103,7 @@ swift scripts/generate-ios-icons.swift \
   iosApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 ```
 
-图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，由 iOS 自行裁切圆角。源图本身带烘焙圆角：左上、右上、右下三处露出浅灰底（#E5E5E5，各角块约 60%），左下齐边。烘焙圆角半径约 116 px（22.7%），与 iOS 的 22.4% 几乎重合，按 iOS 遮罩裁切后，圆角外缘残留的灰边在 1024 尺度上约 2 px。`maskable-512.png` 是白卡片内缩、四周露出浅灰底，放大即可见灰色边框，故未采用。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
+图标为上游「交小西」Q 版形象，源图 512 × 512 放大到 1024，圆角由 iOS 的遮罩裁切。源图本身带烘焙圆角：左上、右上、右下三处露出浅灰底（#E5E5E5，各角块约 60%），左下齐边。烘焙圆角半径约 116 px（22.7%），与 iOS 的 22.4% 几乎重合，按 iOS 遮罩裁切后，圆角外缘残留的灰边在 1024 尺度上约 2 px。`maskable-512.png` 是白卡片内缩、四周露出浅灰底，放大即可见灰色边框，故未采用。图标的版权与授权见 [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md) 的「美术素材」一节。
 
 ## CI、隐私与验证边界
 
