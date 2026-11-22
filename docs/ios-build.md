@@ -46,7 +46,7 @@ sh scripts/gradle-ios.sh \
   -PiosSimulatorDevice="$SIMULATOR_UDID"
 ```
 
-测试在 iOS 模拟器中运行，包括 Ktor MockEngine 合成校园站、DOM 解析、CAS/MFA、WebVPN、cookie、课表、成绩、退出与并发缓存，以及领域算法和页面状态。本次保留模块共 **260 项通过**。测试不会连接学校或提交真实凭据。
+测试在 iOS 模拟器中运行，包括 Ktor MockEngine 合成校园站、DOM 解析、CAS/MFA、WebVPN、cookie、课表、成绩、退出与并发缓存，以及领域算法和页面状态。分支整理验收时为 **260 项通过**，v0.2.0 同步上游后为 **262 项通过**（model 多 1 项、designsystem 多 1 项）。测试不会连接学校或提交真实凭据。
 
 Keychain 需要具备应用身份的宿主。裸 Native 命令行进程曾返回 `-25291`，完全不签名的宿主曾返回 `-34018`；下面的宿主 XCTest 才用于验证实际 Keychain 往返、跨实例恢复、类型、删除和命名空间隔离。
 

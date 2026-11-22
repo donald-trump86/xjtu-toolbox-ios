@@ -60,7 +60,7 @@ XML 结果合计 **260 项、零失败、零错误、零跳过**。account 与 s
 
 ## v0.2.0 上游同步复跑
 
-2026-11-23 同步上游 `23b835c5..53085677` 中的可移植改动后，用同一台机器、同一模拟器设备 `D2376C90-F526-4ED5-B227-4CD67486B388` 重跑 Native 测试并重新编译 `iosShared`：
+2026-11-23 同步上游 `23b835c5..53085677` 中的可移植改动后，用同一台机器、同一模拟器设备 `D2376C90-F526-4ED5-B227-4CD67486B388` 重跑 Native 测试并重新编译 `iosShared`。这次复跑的环境与 2026-10-29 基线不同：Xcode 升到 27.2（27B52），JDK 用本机默认的 27（仓库固定的 Gradle 9.6.1 / Kotlin 2.4.20 版本不变，`gradle-daemon-jvm.properties` 仍按 Java 21 兼容目标启动）：
 
 | 项目 | 结果 |
 | --- | --- |
@@ -68,7 +68,7 @@ XML 结果合计 **260 项、零失败、零错误、零跳过**。account 与 s
 | 与本次同步前基线之差 | +2。同步前基线为 260 项（model 103、designsystem 27），新增的 2 项是同步时随首页背景模糊 / 亮度功能补的持久化与摘要断言 |
 | `:iosShared:compileKotlinIosSimulatorArm64` | 通过 |
 
-本轮除上述 Gradle 任务外只重新构建了未签名设备包，没有启动模拟器跑交互测试。课表排版、「更多」菜单顺序、首页头卡外观对话框、致谢二级页转场与图标替换的界面表现因此只有编译与代码层证据，未做设备目视验收。
+本轮除上述 Gradle 任务外重新构建了未签名设备包，并在同步完成后的 HEAD 上用同一套脚本重跑了 iPhone 14 与 iPad 的宿主 / 交互测试，两次均 `** TEST SUCCEEDED **`（结果见下一节 2026-11-23 两行）。课表排版、「更多」菜单顺序、首页头卡外观对话框、致谢二级页转场与图标替换的界面表现仍只有编译、代码层与冒烟测试证据，没有逐屏目视验收。
 
 iOS 未实现 `ScheduleCapability.SHARE_FILE`，课表「更多」菜单里没有「导出日历 (ICS)」一项；这是既有行为，不是本次同步的回归。电子成绩单入口需要宿主传 `onOpenTranscript` 才绘制，iOS 未接入该入口，因此新副标题只体现为文案与上游一致，界面上不显示。
 
@@ -78,6 +78,8 @@ iOS 未实现 `ScheduleCapability.SHARE_FILE`，课表「更多」菜单里没�
 | --- | ---: | ---: | --- |
 | iPhone 14 / iOS 27.0 | 0.018 秒 | 27.281 秒 | 通过 |
 | iPad Pro 13-inch (M4) / iPadOS 27.0 | 0.023 秒 | 27.032 秒 | 通过 |
+| iPhone 14 / iOS 27.0（2026-11-23 复跑） | 0.026 秒 | 26.332 秒 | 通过 |
+| iPad Pro 13-inch (M4) / iPadOS 27.0（2026-11-23 复跑） | 0.026 秒 | 30.034 秒 | 通过 |
 
 Keychain 测试覆盖真实存储往返、跨实例读取、字符串 / 整数 / 布尔 / 集合、删除与命名空间隔离。交互覆盖中文导航、输入框限宽、合成账号、密码遮罩、键盘、浅深色切换和实际横屏窗口尺寸，并保留屏幕级截图。
 
@@ -85,8 +87,9 @@ Keychain 测试覆盖真实存储往返、跨实例读取、字符串 / 整数 /
 
 - iPhone：`build/ios/xctest-D2376C90-F526-4ED5-B227-4CD67486B388-20261029-230028.xcresult`。
 - iPad：`build/ios/xctest-367B2A3A-C5B5-4254-8563-DF618D57A5DB-20261029-230444.xcresult`。
+- 2026-11-23 复跑：`build/ios/xctest-D2376C90-F526-4ED5-B227-4CD67486B388-20261123-032522.xcresult`、`build/ios/xctest-367B2A3A-C5B5-4254-8563-DF618D57A5DB-20261123-032746.xcresult`。
 
-日志为 `build/ios-only-validation.log`、`build/ios-only-tests-fixed.log`、`build/ios-only-ui-iphone14.log`、`build/ios-only-ui-ipad.log` 与 `build/ios-only-final-ipa-build.log`。首次批量测试中不兼容的 Kotlin/Native 测试函数名、CharArray 构造方式和已删功能的孤立测试已修正，受影响模块随后重跑成功。Xcode 的伪终端启动被沙箱拒绝时，使用获准的更广权限重跑同一命令后通过，未改用绕过路径。
+日志为 `build/ios-only-validation.log`、`build/ios-only-tests-fixed.log`、`build/ios-only-ui-iphone14.log`、`build/ios-only-ui-ipad.log` 与 `build/ios-only-final-ipa-build.log`；2026-11-23 复跑的日志为 `build/ios-rerun-ui-iphone14.log` 与 `build/ios-rerun-ui-ipad.log`。首次批量测试中不兼容的 Kotlin/Native 测试函数名、CharArray 构造方式和已删功能的孤立测试已修正，受影响模块随后重跑成功。Xcode 的伪终端启动被沙箱拒绝时，使用获准的更广权限重跑同一命令后通过，未改用绕过路径。
 
 此前移植阶段已解决 UIScene 启动要求、模拟器 Keychain 身份、退出迟到缓存写入、WebVPN 恢复和 iPad 限宽问题。本次清理后重新执行上述基线。Duo / iOS 27.1 的双屏横屏断言此前仍超时，当前不宣称支持该场景。
 
