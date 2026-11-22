@@ -272,13 +272,6 @@ fun ScheduleScreen(
                 ListPopupColumn {
                     // 视图切换已经提到工具栏上了，这里不再重复一份——
                     // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
-                    if (vm.termList.isNotEmpty()) {
-                        ScheduleMenuRow(
-                            icon = Icons.Default.SwapHoriz,
-                            text = "切换学期",
-                            onClick = { showExportMenu = false; termDropdownExpanded = true }
-                        )
-                    }
                     // 这一行只在「本端真能把文件交给系统」时才画（见 ScheduleCapability.SHARE_FILE）：
                     // 桌面端还没有分享面板，画出来就是点一下没反应。
                     if (ScheduleCapability.SHARE_FILE in host.honored) {
@@ -306,6 +299,16 @@ fun ScheduleScreen(
                                     }
                                 }
                             }
+                        )
+                    }
+                    // 切换学期放在最后一行：它点开是一长列学期（七八项），本身又只在开学前后用一次，
+                    // 摆在第一行会把更常用的「导出日历」往下挤。当前选中哪一学期在列表里有勾选，
+                    // 标题只写「切换学期」四个字就够。
+                    if (vm.termList.isNotEmpty()) {
+                        ScheduleMenuRow(
+                            icon = Icons.Default.SwapHoriz,
+                            text = "切换学期",
+                            onClick = { showExportMenu = false; termDropdownExpanded = true }
                         )
                     }
                 }
@@ -1035,7 +1038,6 @@ private fun ScheduleTabContent(
                         isCurrentWeek = (weekN == realCurrentWeek && selectedTermCode == currentTermCode),
                         weekDates = weekDates,
                         holidayNames = holidayDates,
-                        enableCompression = true,
                         bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                         slotBadge = { badgeOf(it, weekN) },
@@ -1060,7 +1062,6 @@ private fun ScheduleTabContent(
             ScheduleGrid(
                 courses, allNames,
                 showWeeks = true,
-                enableCompression = true,
                 bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                 onSlotClick = { item ->
