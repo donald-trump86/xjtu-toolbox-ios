@@ -95,13 +95,15 @@ Keychain 测试覆盖真实存储往返、跨实例读取、字符串 / 整数 /
 
 ## 最终设备产物
 
-文件：`build/ios/XJTUToolbox-unsigned.ipa`，**17,283,703 字节**。SHA-256：
+文件：`build/ios/XJTUToolbox-unsigned.ipa`，**17,281,827 字节**。SHA-256：
 
 ```text
-1be6d785aa3c473030580c1210103102821cd73795815ad9c35a9c4dcbe26a8f
+1b022c8a86f42fbd59aaa6c87c9994dfee6a6ed68ded2f924c85501694315abb
 ```
 
 脚本同时输出 `build/ios/XJTUToolbox-unsigned.ipa.sha256`，内容与上表一致。解包核查：ZIP CRC 正常；`Info.plist` 的 `CFBundleShortVersionString` / `CFBundleVersion` 为 `0.2.0` / `2`，与 `SettingsHost.versionText` 及仓库内 Xcode 工程一致；最低系统 `16.0`；设备系列 `[1, 2]`；显示名称“岱宗盒子”；bundle ID `me.luvch1nabest.xjtutoolbox`；可执行文件为设备 `arm64` / `IOS`，SDK 27.2；未签名，包内无 `embedded.mobileprovision`。`Assets.car` 中的 `AppIcon` 为 1024 × 1024，phone 与 pad 两种 idiom 各一份，另含 `AppIcon60x60@2x.png` 与 `AppIcon76x76@2x~ipad.png`。
+
+上面的字节数与校验值对应最终代码状态：致谢页「图标授权」一节补了「本 Fork 未单独授权」的说明和指向完整声明的入口之后，重新构建过一次设备包，所以与更早的中间产物数字不同。
 
 这是等待重签的设备 IPA；需要本人使用 SideStore 或本机开发者身份签名。设备构建不等于真机启动。
 
@@ -109,7 +111,7 @@ Keychain 测试覆盖真实存储往返、跨实例读取、字符串 / 整数 /
 
 README 已改为 iOS Fork 定位、功能、获取 IPA 与构建入口；[SideStore 指南](ios-sidestore.md) 覆盖 iloader 首次安装、LocalDevVPN、开发者信任与模式、IPA 导入、校园登录、7 天续签、覆盖更新、额度和故障排查。[第三方声明](../THIRD_PARTY_NOTICES.md) 保留 GPL 上游、Kyant Apache-2.0、OpenStreetMap ODbL、实际依赖与图像来源；新图标不是学校官方标识。
 
-[iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。上面的本地结果全部来自本机直接执行，不是远程 CI 产物：CI 只在手动触发或 `pull_request` 时运行，本次同步没有对应的远程运行记录。随 v0.2.0 发布的产物是未签名 IPA（即上面记过校验值的 17,283,703 字节包），不附带证书、描述文件或公证；分发时同时提供对应源码、修改说明和许可证。
+[iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。上面的本地结果全部来自本机直接执行，不是远程 CI 产物：CI 只在手动触发或 `pull_request` 时运行，本次同步没有对应的远程运行记录。随 v0.2.0 发布的产物是未签名 IPA（即上面记过校验值的 17,281,827 字节包），不附带证书、描述文件或公证；分发时同时提供对应源码、修改说明和许可证。
 
 v0.2.0 的发布动作与本文记录分开：本文只覆盖本机构建、测试与设备包的核查结果；tag、GitHub Release 与 artifact 的上传由维护者在全部同步任务完成后统一执行，本文不预先把它们写成已完成。
 

@@ -7,7 +7,7 @@
 | 功能 | 已实现与证据 | 验收边界 |
 | --- | --- | --- |
 | UIKit 与 Compose | SceneDelegate 承载 ComposeUIViewController；账号、首页、课表、成绩和设置共用 Compose / MIUIX 页面 | 真机触感、分屏与内存压力待验证 |
-| 应用图标 | 沿用上游「交小西」Q 版形象；母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512），放大为 1024 × 1024 不透明资源，已提交到 `AppIcon.appiconset`。源图带烘焙圆角（左上、右上、右下露出 #E5E5E5 浅灰底、取 1/8 边长角块统计约 60%，左下齐边；半径约 116 px ≈ 22.7%，与 iOS 的 22.4% 几乎重合），遮罩后圆角外缘残留约 2 px 灰边。打进 `Assets.car` 只在 0.1.0 (1) 的设备包上核对过 | 版权归交小西制作组所有，上游声明已获授权，见[第三方声明](../THIRD_PARTY_NOTICES.md)；非学校官方标识 |
+| 应用图标 | 沿用上游「交小西」Q 版形象；母版取上游 `web/src/wasmJsMain/resources/icons/icon-512.png`（512 × 512），放大为 1024 × 1024 不透明资源，已提交到 `AppIcon.appiconset`。源图带烘焙圆角（左上、右上、右下露出 #E5E5E5 浅灰底、取 1/8 边长角块统计约 60%，左下齐边；半径约 116 px ≈ 22.7%，与 iOS 的 22.4% 几乎重合），遮罩后圆角外缘残留约 2 px 灰边。v0.2.0 (2) 的设备包已解包核对 `Assets.car` 里的 `AppIcon`（phone 与 pad 各一份 1024 × 1024） | 版权归交小西制作组所有，上游声明已获授权，见[第三方声明](../THIRD_PARTY_NOTICES.md)；非学校官方标识 |
 | CAS / RSA | 设备直连、Ksoup DOM 表单、标准 RSA / PKCS#1；Native fixture 与 Security.framework 测试通过 | 真实校园登录待验证 |
 | 短信 MFA | detect 与 safety 分支；gid、原地址 / Referer、三次 / 150 秒限制；后台不主动发送短信 | 真实短信与学校风控待验证 |
 | 直连 / WebVPN | 用户选择路由；网关与业务认证分离；合法代理落地、过期恢复和一次重放有回归 | 校内 / 校外网络待验证；无自动路由切换 |
@@ -34,7 +34,7 @@
 | Native 回归（v0.2.0 复跑） | **262 项通过** | 同步上游后重跑同一设备：model 104、designsystem 28，其余同基线；多出的 2 项是随首页背景模糊 / 亮度补的持久化与摘要断言 |
 | iPhone 14 / iOS 27.0 | 通过 | 清理后重新运行交互与 App 宿主 Keychain；合成输入，不访问学校。v0.2.0 同步后在 HEAD 上复跑，同样 `** TEST SUCCEEDED **` |
 | iPad Pro 13-inch (M4) / iPadOS 27.0 | 通过 | 清理后重新验证宽屏、输入限宽、键盘、主题、横屏与 App 宿主 Keychain。v0.2.0 同步后在 HEAD 上复跑，同样 `** TEST SUCCEEDED **` |
-| 未签名设备 IPA | 通过 | v0.2.0 (2) 重新打包：17,283,703 字节，ZIP 校验通过，`Info.plist` 版本 `0.2.0` / `2`，`Assets.car` 含 1024 × 1024 `AppIcon`（phone 与 pad 各一份）；未签名，需本人重签。0.1.0 (1) 的历史产物为 18,488,179 字节，校验值见[验收记录](ios-validation.md) |
+| 未签名设备 IPA | 通过 | v0.2.0 (2) 重新打包：17,281,827 字节，ZIP 校验通过，`Info.plist` 版本 `0.2.0` / `2`，`Assets.car` 含 1024 × 1024 `AppIcon`（phone 与 pad 各一份）；未签名，需本人重签。0.1.0 (1) 的历史产物为 18,488,179 字节，SHA-256 `b3adb189a33c5ce172f2d6783ac604a2fed26e66e932c5389fb2935ebbc9fb07` |
 | 远程 CI | 仅配置 | iOS 双架构、Native、iPhone / iPad 与可选设备 IPA；只在手动触发或 `pull_request` 时运行，无对应本版本的远程运行记录 |
 | 真机 / SideStore | 未验证 | 需要本人设备配对和签名 / 重签 |
 | 真实 CAS / WebVPN / 课表 / 成绩 | 未验证 | 由本人在 App 内正常登录并完成 MFA |

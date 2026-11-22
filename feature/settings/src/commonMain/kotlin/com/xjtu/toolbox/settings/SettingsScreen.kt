@@ -751,15 +751,22 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
                     onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/main/THIRD_PARTY_NOTICES.md") }
                 )
             }
-            // 应用图标用的是上游「交小西」形象，授权来自上游项目；版权方是交小西制作组，
-            // 这里给出归属与出处，完整的授权范围见 THIRD_PARTY_NOTICES.md「美术素材」。
+            // 应用图标用的是上游「交小西」形象，授权来自上游项目；版权方是交小西制作组。
+            // 上游同一声明写明下游 fork 不得沿用，本 Fork 没有单独取得授权，所以两句话都要写出来，
+            // 再把完整范围指到 THIRD_PARTY_NOTICES.md「美术素材」，避免这一行读起来像本 Fork 已获授权。
             SmallTitle("图标授权")
             SettingsCard {
                 ArrowPreference(
                     title = "交小西",
-                    summary = "应用图标形象 · 版权归交小西制作组 · 上游已获授权",
+                    summary = "应用图标形象 · 版权归交小西制作组 · 上游已获授权，本 Fork 未单独授权",
                     startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
                     onClick = { host.onOpenUrl("https://space.bilibili.com/3494379805215567") }
+                )
+                ArrowPreference(
+                    title = "图标授权范围与限制",
+                    summary = "GPL 边界 · 开源免费无广告无内购 · 完整说明",
+                    startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
+                    onClick = { host.onOpenUrl("https://github.com/donald-trump86/xjtu-toolbox-ios/blob/main/THIRD_PARTY_NOTICES.md") }
                 )
             }
             Spacer(Modifier.height(16.dp))
