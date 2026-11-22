@@ -82,6 +82,39 @@ class SettingsStoreTest {
         assertEquals("#112233", reopened.heroColorHex(true), "没单独选过的深色回退到旧键")
     }
 
+    @Test
+    fun `自定义背景的模糊与亮度能落盘且读写都夹在范围内`() {
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+        // 默认值就是上游给的两端：新图不模糊、亮度原样
+        assertEquals(0, settings.heroImageBlur, "模糊默认 0")
+        assertEquals(100, settings.heroImageBrightness, "亮度默认 100")
+
+        settings.heroImageBlur = 4
+        settings.heroImageBrightness = 70
+        assertEquals(4, SettingsStore(raw).heroImageBlur, "模糊要跟着外观一起落盘")
+        assertEquals(70, SettingsStore(raw).heroImageBrightness, "亮度要跟着外观一起落盘")
+        // 键名要与 Android 那份的字面量一致，一个字都不能漂
+        assertEquals(4, raw.getInt("hero_image_blur", -1))
+        assertEquals(70, raw.getInt("hero_image_brightness", -1))
+
+        // 写出去先夹一次
+        settings.heroImageBlur = SettingsStore.HERO_IMAGE_BLUR_MAX + 89
+        settings.heroImageBrightness = SettingsStore.HERO_IMAGE_BRIGHTNESS_MIN - 15
+        assertEquals(SettingsStore.HERO_IMAGE_BLUR_MAX, raw.getInt("hero_image_blur", -1))
+        assertEquals(SettingsStore.HERO_IMAGE_BRIGHTNESS_MIN, raw.getInt("hero_image_brightness", -1))
+
+        // 绕过 setter 写坏值（手改偏好/旧版本残留），读回来也要夹进滑块能到达的范围
+        raw.putInt("hero_image_blur", 999)
+        raw.putInt("hero_image_brightness", -30)
+        assertEquals(SettingsStore.HERO_IMAGE_BLUR_MAX, SettingsStore(raw).heroImageBlur, "读回来也要夹进 0..10")
+        assertEquals(SettingsStore.HERO_IMAGE_BRIGHTNESS_MIN, SettingsStore(raw).heroImageBrightness, "读回来也要夹进 20..100")
+        raw.putInt("hero_image_blur", -5)
+        raw.putInt("hero_image_brightness", 500)
+        assertEquals(SettingsStore.HERO_IMAGE_BLUR_MIN, SettingsStore(raw).heroImageBlur)
+        assertEquals(SettingsStore.HERO_IMAGE_BRIGHTNESS_MAX, SettingsStore(raw).heroImageBrightness)
+    }
+
     private fun freshStore() = keyValueStore("settings_store_unit_test").apply { clear() }
 
     @Test

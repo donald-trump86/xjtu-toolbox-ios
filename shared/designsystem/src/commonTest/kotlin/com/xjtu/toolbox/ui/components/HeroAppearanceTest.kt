@@ -59,4 +59,15 @@ class HeroAppearanceTest {
         assertEquals("自定义 · 未选图", HeroAppearance(background = "custom").summary)
         assertEquals("自定义", HeroAppearance(background = "custom", imageData = "abc").summary)
     }
+
+    /** 摘要要把调过的模糊/亮度写出来，没调过的那项不占位。 */
+    @Test
+    fun customSummaryListsOnlyTheAdjustedImageKnobs() {
+        val image = HeroAppearance(background = "custom", imageData = "abc")
+        assertEquals("自定义", image.summary, "模糊 0、亮度 100 时不加后缀")
+        assertEquals("自定义 · 模糊 4 dp", image.copy(imageBlur = 4).summary)
+        assertEquals("自定义 · 亮度 70%", image.copy(imageBrightness = 70).summary)
+        assertEquals("自定义 · 模糊 4 dp · 亮度 70%", image.copy(imageBlur = 4, imageBrightness = 70).summary)
+        assertEquals("自定义 · 未选图", image.copy(imageData = "", imageBlur = 4).summary, "没选图时先说选图")
+    }
 }
