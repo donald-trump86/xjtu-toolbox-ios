@@ -114,6 +114,6 @@ README 已改为 iOS Fork 定位、功能、获取 IPA 与构建入口；[SideSt
 
 [iOS CI](../.github/workflows/ios.yml) 仅配置 Apple 双架构、Native、iPhone / iPad 宿主和交互测试、设备构建与可选 IPA artifact，使用官方 Xcode 27 arm64 preview 镜像和 Xcode 27.1。上面的本地结果全部来自本机直接执行，不是远程 CI 产物：CI 只在手动触发或 `pull_request` 时运行，本次同步没有对应的远程运行记录。随 v0.2.0 发布的产物是未签名 IPA（即上面记过校验值的 17,281,827 字节包），不附带证书、描述文件或公证；分发时同时提供对应源码、修改说明和许可证。
 
-v0.2.0 的发布动作与本文记录分开：本文只覆盖本机构建、测试与设备包的核查结果；tag、GitHub Release 与 artifact 的上传由维护者在全部同步任务完成后统一执行，本文不预先把它们写成已完成。
+v0.2.0 的发布动作与本文记录分开：本文覆盖本机构建、测试与设备包的核查结果；tag `v0.2.0`、GitHub Release 与上面两个 artifact 的上传由维护者在全部同步任务完成后统一执行，因此本文此前不预先把它们写成已完成——发布完成后这几项已实际存在，但本文不重复记录 Release 页面的内容。
 
 尚未完成真实设备配对、SideStore 重签安装 / 刷新、真实 CAS / MFA / WebVPN、个人课表与成绩验收。校园密码与短信应由本人在 App 内输入。当前身份仅显示 NetID；姓名、学号、院系及其他未接入功能见 [功能矩阵](ios-feature-matrix.md)。
